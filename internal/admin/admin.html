@@ -1,0 +1,1723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>VidLyte // Operations Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0b0d;
+      --surface: #111114;
+      --surface-2: #16161a;
+      --surface-3: #1c1c22;
+      --paper: #f2f1ed;
+      --ink: #f2f1ed;
+      --ink-2: #b9b6b0;
+      --ink-3: #77747a;
+      --hair: rgba(255, 255, 255, 0.10);
+      --hair-soft: rgba(255, 255, 255, 0.05);
+      --hair-strong: rgba(255, 255, 255, 0.22);
+      --brand: #00f0ff;
+      --brand-rgb: 0, 240, 255;
+      --ok: #10b981;
+      --err: #ef4444;
+      --display: 'Space Grotesk', ui-sans-serif, sans-serif;
+      --body: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+      --mono: 'DM Mono', ui-monospace, monospace;
+      --r: 6px;
+      --r-lg: 10px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font: 500 14px/1.6 var(--body);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; background: none; border: 0; }
+    code, pre { font-family: var(--mono); }
+
+    .lab {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: var(--r);
+      border: 1px solid transparent;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .btn-paper { background: var(--paper); color: var(--bg); }
+    .btn-paper:hover { background: #fff; }
+    .btn-ghost { border-color: var(--hair); color: var(--ink-2); background: var(--surface); }
+    .btn-ghost:hover { border-color: var(--hair-strong); color: var(--ink); }
+    .btn-danger { border-color: rgba(239, 68, 68, 0.3); color: #f87171; background: rgba(239, 68, 68, 0.08); }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.16); }
+
+    /* Top Command Header */
+    .top-bar {
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--hair);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand-cluster {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-title {
+      font-family: var(--display);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      background: var(--brand);
+      color: #000;
+      font-weight: 900;
+      font-size: 11px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .status-tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-left: 14px;
+      border-left: 1px solid var(--hair);
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Secret Vault Login Screen */
+    .auth-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 420px;
+      border: 1px solid var(--hair);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      padding: 36px 32px;
+    }
+    .auth-head {
+      margin-bottom: 24px;
+    }
+    .auth-head h1 {
+      font-size: 20px;
+      color: var(--paper);
+      margin-top: 8px;
+    }
+    .auth-head p {
+      color: var(--ink-3);
+      font-size: 13px;
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+    .auth-err {
+      padding: 10px 14px;
+      border-radius: var(--r);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.08);
+      color: #fca5a5;
+      font-size: 12.5px;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .form-row {
+      margin-bottom: 18px;
+    }
+    .form-row label {
+      display: block;
+      margin-bottom: 8px;
+    }
+    .field {
+      width: 100%;
+      height: 38px;
+      background: var(--bg);
+      border: 1px solid var(--hair);
+      border-radius: var(--r);
+      padding: 0 12px;
+      color: var(--paper);
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: 0;
+      transition: border-color 0.15s;
+    }
+    .field:focus { border-color: var(--paper); }
+    textarea.field {
+      height: 72px;
+      padding: 8px 12px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    /* Dashboard Shell */
+    .dash-shell {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      max-width: 1240px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 24px;
+      gap: 36px;
+    }
+
+    /* Sidebar Tabs */
+    .side-nav {
+      position: sticky;
+      top: 88px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-self: start;
+    }
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-radius: var(--r);
+      color: var(--ink-3);
+      font-size: 13.5px;
+      font-weight: 600;
+      transition: all 0.15s;
+      text-align: left;
+    }
+    .tab-btn svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.7;
+    }
+    .tab-btn:hover { color: var(--ink); background: var(--surface); }
+    .tab-btn.on {
+      color: var(--paper);
+      background: var(--surface-2);
+      border: 1px solid var(--hair-soft);
+    }
+
+    /* Panels */
+    .panel {
+      border: 1px solid var(--hair);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      padding: 24px 28px;
+      margin-bottom: 24px;
+    }
+    .panel-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--hair-soft);
+      padding-bottom: 14px;
+      margin-bottom: 20px;
+    }
+    .panel-head h2 {
+      font-size: 17px;
+      letter-spacing: -0.015em;
+      color: var(--paper);
+    }
+    .panel-head p {
+      color: var(--ink-3);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* Mechanical Toggle Switch */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+      margin-bottom: 14px;
+    }
+    .switch-title { font-weight: 600; color: var(--paper); }
+    .switch-desc { font-size: 12px; color: var(--ink-3); }
+    .switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+      display: inline-block;
+    }
+    .switch input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .switch i {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--hair);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .switch i::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--ink-2);
+      transition: transform 0.2s, background 0.15s;
+    }
+    .switch input:checked + i {
+      background: var(--paper);
+      border-color: var(--paper);
+    }
+    .switch input:checked + i::after {
+      background: var(--bg);
+      transform: translateX(16px);
+    }
+
+    /* Domain Rows */
+    .domain-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .domain-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+    }
+    .domain-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .tag-primary {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(var(--brand-rgb), 0.12);
+      color: var(--brand);
+      border: 1px solid rgba(var(--brand-rgb), 0.25);
+      font-weight: 600;
+    }
+    .tag-mirror {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--surface-2);
+      color: var(--ink-3);
+      border: 1px solid var(--hair-soft);
+      font-weight: 500;
+    }
+    .domain-url {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--paper);
+    }
+
+    /* Upstream Provider Cards */
+    .provider-row {
+      padding: 14px 16px;
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+      margin-bottom: 10px;
+    }
+    .provider-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .provider-name {
+      font-weight: 600;
+      color: var(--paper);
+    }
+    .provider-id {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+      margin-left: 8px;
+    }
+
+    /* Telemetry Metric Boxes */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+    }
+    .metric-box {
+      padding: 16px;
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+    }
+    .metric-val {
+      font-family: var(--mono);
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--paper);
+      margin-top: 6px;
+    }
+
+    /* Toast Notification */
+    .toast-box {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      padding: 10px 16px;
+      border-radius: var(--r);
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface);
+      border: 1px solid var(--hair-strong);
+      color: var(--paper);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      animation: fadeIn 0.15s ease;
+    }
+    .toast.success { border-color: rgba(16, 185, 129, 0.4); color: #34d399; }
+    .toast.error { border-color: rgba(239, 68, 68, 0.4); color: #f87171; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Architecture Flow Banner */
+    .flow-card {
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+    }
+    .flow-topology {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 10px 0 6px 0;
+    }
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--hair);
+      border-radius: var(--r);
+      padding: 10px 14px;
+      min-width: 130px;
+      flex-shrink: 0;
+    }
+    .flow-node.active-gateway {
+      border-color: rgba(var(--brand-rgb), 0.4);
+      background: rgba(var(--brand-rgb), 0.04);
+    }
+    .flow-node-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--paper);
+    }
+    .flow-node-desc {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-3);
+    }
+    .flow-arrow {
+      color: var(--ink-3);
+      font-family: var(--mono);
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    /* Edge Worker Nodes */
+    .swarm-node-row {
+      padding: 14px 16px;
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      transition: border-color 0.15s ease;
+    }
+    .swarm-node-row:hover {
+      border-color: var(--hair-strong);
+    }
+    .swarm-node-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      flex: 1;
+    }
+    .swarm-node-url {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--paper);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .swarm-node-metrics {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-3);
+    }
+    .tag-healthy {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    .tag-degraded {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    .tag-offline {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    /* Server Branding Preview Pill */
+    .server-preview-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16, 18, 24, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 9px;
+      padding: 7px 14px;
+      color: #fff;
+      font-family: var(--display);
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+    .server-preview-pill svg {
+      width: 15px; height: 15px; fill: currentColor;
+    }
+    .server-preview-pill span.sub {
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Radio Strategy Cluster */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .strategy-card {
+      background: var(--bg);
+      border: 1px solid var(--hair-soft);
+      border-radius: var(--r);
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .strategy-card:hover {
+      border-color: var(--hair-strong);
+    }
+    .strategy-card.selected {
+      border-color: var(--paper);
+      background: var(--surface-2);
+    }
+    .strategy-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .strategy-card-desc {
+      font-size: 12px;
+      color: var(--ink-3);
+      line-height: 1.45;
+    }
+
+    @media (max-width: 860px) {
+      .dash-shell { grid-template-columns: 1fr; padding: 20px 16px; }
+      .side-nav { position: static; flex-direction: row; overflow-x: auto; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Command Bar -->
+  <header class="top-bar">
+    <div class="brand-cluster">
+      <div class="brand-title">
+        <span class="brand-mark">V</span>
+        <span>VIDLYTE</span>
+      </div>
+      <div class="status-tag">
+        <span class="status-dot"></span>
+        <span>CONSOLE V2</span>
+      </div>
+    </div>
+
+    <div class="header-actions" id="headerActions" style="display: none;">
+      <a href="/" target="_blank" class="btn btn-ghost" style="height: 32px; font-size: 12px;">Public Portal ↗</a>
+      <button class="btn btn-paper" style="height: 32px; font-size: 12px;" onclick="saveConfig()">Save changes</button>
+      <button class="btn btn-ghost" style="height: 32px; font-size: 12px;" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <!-- UNLOCKED / LOGIN VAULT -->
+  <main class="auth-wrap" id="authSection">
+    <div class="auth-card">
+      <div class="auth-head">
+        <span class="lab">RESTRICTED VAULT</span>
+        <h1>Operations Unlock</h1>
+        <p>Supply the 32-character master secret from your server environment to access runtime orchestration.</p>
+      </div>
+
+      <div class="auth-err" id="authErrorMsg"></div>
+
+      <form onsubmit="handleLogin(event)">
+        <div class="form-row">
+          <label class="lab" for="adminSecretInput">ADMIN SECRET KEY</label>
+          <input type="password" id="adminSecretInput" class="field" placeholder="Enter VIDLYTE_ADMIN_SECRET..." required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-paper" style="width: 100%;" id="loginBtn">Authenticate</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- AUTHENTICATED DASHBOARD -->
+  <main class="dash-shell" id="dashboardSection" style="display: none;">
+    <!-- Sidebar Navigation with Crisp Vector SVGs -->
+    <aside class="side-nav">
+      <button class="tab-btn on" data-pane="pane-site" onclick="switchPane('pane-site')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <span>Site & Copy</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-domains" onclick="switchPane('pane-domains')">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        <span>Player Fleet</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-upstreams" onclick="switchPane('pane-upstreams')">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span>Upstreams</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-swarm" onclick="switchPane('pane-swarm')">
+        <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        <span>Proxy Swarm</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-branding" onclick="switchPane('pane-branding')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
+        <span>Player Branding</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-ads" onclick="switchPane('pane-ads')">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span>Monetization</span>
+      </button>
+
+      <button class="tab-btn" data-pane="pane-metrics" onclick="switchPane('pane-metrics')">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Telemetry</span>
+      </button>
+    </aside>
+
+    <!-- Content Sections -->
+    <section class="content-pane">
+
+      <!-- PANE 1: Site & Identity -->
+      <div id="pane-site" class="pane-content">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Public Brand & Portal Content</h2>
+              <p>Control client copy and hero messaging live without recompiling or rebooting Go.</p>
+            </div>
+            <button class="btn btn-paper" onclick="saveConfig()">Save</button>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-row">
+              <label class="lab">BRAND NAME</label>
+              <input type="text" id="siteBrandName" class="field">
+            </div>
+            <div class="form-row">
+              <label class="lab">TAGLINE</label>
+              <input type="text" id="siteTagline" class="field">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="lab">HERO TITLE</label>
+            <input type="text" id="siteHeroTitle" class="field">
+          </div>
+
+          <div class="form-row">
+            <label class="lab">HERO SUBTITLE</label>
+            <textarea id="siteHeroSubtitle" class="field"></textarea>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-row">
+              <label class="lab">DISCORD URL</label>
+              <input type="text" id="siteDiscord" class="field">
+            </div>
+            <div class="form-row">
+              <label class="lab">TELEGRAM URL</label>
+              <input type="text" id="siteTelegram" class="field">
+            </div>
+          </div>
+
+          <!-- Announcement Ribbon Switch -->
+          <div style="margin-top: 24px; border-top: 1px solid var(--hair-soft); padding-top: 20px;">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">Top Announcement Ribbon</div>
+                <div class="switch-desc">Displays a sleek headline bar on the topmost viewport of the public portal</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="siteBannerEnabled">
+                <i></i>
+              </label>
+            </div>
+
+            <div class="grid-2">
+              <div class="form-row">
+                <label class="lab">RIBBON MESSAGE</label>
+                <input type="text" id="siteBannerMessage" class="field">
+              </div>
+              <div class="form-row">
+                <label class="lab">TARGET LINK (#DOCS OR URL)</label>
+                <input type="text" id="siteBannerLink" class="field">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE 2: Player Fleet & Free Domains -->
+      <div id="pane-domains" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Player Fleet & Disposable Domains</h2>
+              <p>Decouple high-bandwidth embeds across Cloudflare subdomains or free providers (Render, DuckDNS).</p>
+            </div>
+            <button class="btn btn-paper" onclick="saveConfig()">Save</button>
+          </div>
+
+          <label class="lab" style="margin-bottom: 8px; display: block;">REGISTERED PLAYER DOMAINS</label>
+          <div class="domain-list" id="domainListContainer"></div>
+
+          <div class="form-row" style="margin-top: 20px;">
+            <label class="lab">ADD PLAYER DOMAIN / SUBDOMAIN</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="newPlayerDomainInput" class="field" placeholder="https://embed.domain.cc or http://localhost:6789">
+              <button class="btn btn-ghost" type="button" onclick="addNewPlayerDomain()">+ Add domain</button>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+              <span class="lab" style="font-size: 10px;">PRESETS:</span>
+              <button class="btn btn-ghost" style="height: 24px; padding: 0 8px; font-size: 11px;" onclick="setPresetDomain('http://localhost:6789')">localhost:6789</button>
+              <button class="btn btn-ghost" style="height: 24px; padding: 0 8px; font-size: 11px;" onclick="setPresetDomain(window.location.origin)">Current origin</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE 3: Upstream Clusters -->
+      <div id="pane-upstreams" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Upstream Media Clusters</h2>
+              <p>Hot-swap upstream stream resolvers and CDN mirrors with zero downtime.</p>
+            </div>
+            <button class="btn btn-paper" onclick="saveConfig()">Save</button>
+          </div>
+
+          <div id="upstreamContainer"></div>
+        </div>
+      </div>
+
+      <!-- PANE: Proxy Swarm -->
+      <div id="pane-swarm" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Cloudflare Worker Proxy Swarm</h2>
+              <p>Distributed fleet of edge worker proxies that bypass rate limits and load-balance HLS media streams.</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-ghost" type="button" onclick="pingSwarmNodes()">⚡ Ping All Nodes</button>
+              <button class="btn btn-paper" type="button" onclick="saveConfig()">Save</button>
+            </div>
+          </div>
+
+          <!-- Architecture Visualizer -->
+          <div class="flow-card">
+            <span class="lab" style="font-size: 10px; margin-bottom: 6px; display: block;">DISTRIBUTED SWARM TOPOLOGY (ZERO-BANDWIDTH EDGE ARCHITECTURE)</span>
+            <div class="flow-topology">
+              <div class="flow-node">
+                <span class="flow-node-title">Webmaster Embed</span>
+                <span class="flow-node-desc">Client Video Player</span>
+              </div>
+              <span class="flow-arrow">──►</span>
+              <div class="flow-node active-gateway">
+                <span class="flow-node-title">VidLyte Origin Hub</span>
+                <span class="flow-node-desc">Dynamic Load Balancer</span>
+              </div>
+              <span class="flow-arrow">──►</span>
+              <div class="flow-node">
+                <span class="flow-node-title">Worker Swarm</span>
+                <span class="flow-node-desc" id="swarmActiveNodeCount">2 Active Nodes</span>
+              </div>
+              <span class="flow-arrow">──►</span>
+              <div class="flow-node">
+                <span class="flow-node-title">Upstream CDNs</span>
+                <span class="flow-node-desc">Direct Video Bytes</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Master Switch -->
+          <div class="switch-row">
+            <div>
+              <div class="switch-title">Enable Worker Proxy Swarm</div>
+              <div class="switch-desc">Routes video segments and manifests across edge workers; falls back to local Go server if all workers fail</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="proxySwarmEnabled">
+              <i></i>
+            </label>
+          </div>
+
+          <!-- Strategy Selection -->
+          <label class="lab" style="margin: 16px 0 8px 0; display: block;">LOAD BALANCING STRATEGY</label>
+          <div class="strategy-grid">
+            <div class="strategy-card selected" id="stratRandom" onclick="selectStrategy('random')">
+              <div class="strategy-card-title">
+                <span>Weighted Random</span>
+                <span class="tag-primary" style="font-size:9px;">RECOMMENDED</span>
+              </div>
+              <span class="strategy-card-desc">Randomly disperses requests based on node capacity weight to prevent hot-spotting.</span>
+            </div>
+            <div class="strategy-card" id="stratRoundRobin" onclick="selectStrategy('round_robin')">
+              <div class="strategy-card-title">
+                <span>Round Robin</span>
+              </div>
+              <span class="strategy-card-desc">Strict sequential distribution (1:1) evenly cycling through all healthy edge workers.</span>
+            </div>
+            <div class="strategy-card" id="stratLatency" onclick="selectStrategy('latency')">
+              <div class="strategy-card-title">
+                <span>Lowest Latency</span>
+              </div>
+              <span class="strategy-card-desc">Directs traffic to the fastest responding edge worker discovered in active telemetry.</span>
+            </div>
+          </div>
+
+          <!-- Add Worker Node -->
+          <div class="form-row" style="margin-top: 20px; border-top: 1px solid var(--hair-soft); padding-top: 20px;">
+            <label class="lab">ADD WORKER NODE TO SWARM</label>
+            <p style="font-size: 12px; color: var(--ink-3); margin-bottom: 10px;">
+              Deploy a free Cloudflare Worker using our template and enter its URL below.
+              Template format: <code style="color: var(--brand);">https://&lt;name&gt;.workers.dev/proxy?url=</code>
+            </p>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="newWorkerUrlInput" class="field" placeholder="https://vidlyte-node1.workers.dev/proxy?url=">
+              <button class="btn btn-ghost" type="button" onclick="addNewWorker()">+ Add to Swarm</button>
+            </div>
+          </div>
+
+          <!-- Registered Swarm Nodes List -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin: 24px 0 8px 0;">
+            <label class="lab" style="margin: 0;">ACTIVE SWARM NODES</label>
+            <button class="btn btn-ghost" type="button" style="height:26px; padding:0 10px; font-size:11px;" id="pingSwarmBtn" onclick="pingSwarmNodes()">Probe All Nodes</button>
+          </div>
+          <div id="swarmNodesContainer"></div>
+
+          <!-- Cloudflare Worker Deploy Guide & Code Box -->
+          <div style="margin-top: 24px; border-top: 1px solid var(--hair-soft); padding-top: 20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+              <label class="lab" style="margin:0;">CLOUDFLARE WORKER SCRIPT (COPY & DEPLOY IN 30 SECONDS)</label>
+              <button class="btn btn-ghost" type="button" style="height:26px; padding:0 10px; font-size:11px;" onclick="copyWorkerCode()">Copy Worker Script</button>
+            </div>
+            <pre class="shield-code" style="max-height: 140px; overflow-y: auto;"><code id="workerTemplateDisplay">export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/health" || url.pathname === "/ping" || (!url.searchParams.get("url") && (url.pathname === "/" || url.pathname === "/proxy"))) {
+      return new Response(JSON.stringify({ status: "healthy", service: "vidlyte-edge-proxy" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
+    }
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          "Access-Control-Allow-Headers": "Range, Accept, Accept-Encoding, Referer, User-Agent",
+          "Access-Control-Max-Age": "86400"
+        }
+      });
+    }
+    const target = url.searchParams.get("url");
+    if (!target) return new Response("Missing url param", { status: 400, headers: { "Access-Control-Allow-Origin": "*" } });
+    const provider = url.searchParams.get("provider") || "orion";
+    let origin = "https://embed.vidrift.net";
+    let referer = "https://embed.vidrift.net/";
+    if (provider === "asianflix" || provider === "rumble") {
+      origin = "https://asianflix.one";
+      referer = "https://asianflix.one/";
+    } else if (provider === "framex") {
+      origin = "https://api.framextv.xyz";
+      referer = "https://api.framextv.xyz/";
+    }
+    const reqHeaders = new Headers(request.headers);
+    reqHeaders.set("Origin", origin);
+    reqHeaders.set("Referer", referer);
+    reqHeaders.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    const range = request.headers.get("Range");
+    if (range) reqHeaders.set("Range", range);
+    const resp = await fetch(target, { method: request.method, headers: reqHeaders, redirect: "follow" });
+    const headers = new Headers(resp.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
+    return new Response(resp.body, { status: resp.status, headers });
+  }
+};</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE: Player Branding -->
+      <div id="pane-branding" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Player Branding & Server Masking</h2>
+              <p>Customize or completely conceal server names (Orion, Evion, FrameX) from player pills, popovers, and audio tracks.</p>
+            </div>
+            <button class="btn btn-paper" type="button" onclick="saveConfig()">Save</button>
+          </div>
+
+          <!-- Server Names Visibility Switch -->
+          <div class="switch-row">
+            <div>
+              <div class="switch-title">Display Server Names in Player Controls</div>
+              <div class="switch-desc">When disabled, hides server badges and shows clean resolution pills (e.g. "1080P" instead of "1080P · ORION")</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="showServerNamesToggle" onchange="updateLivePillPreview()">
+              <i></i>
+            </label>
+          </div>
+
+          <!-- Live Preview -->
+          <div style="margin: 18px 0; padding: 16px; background: var(--bg); border: 1px solid var(--hair-soft); border-radius: var(--r);">
+            <span class="lab" style="font-size: 10px; margin-bottom: 8px; display: block;">LIVE PLAYER PILL PREVIEW</span>
+            <div id="livePillPreviewContainer">
+              <div class="server-preview-pill">
+                <svg viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h16V7H4zm6 2.5 5 2.5-5 2.5z"/></svg>
+                <span>Quality</span>
+                <span class="sub" id="livePillPreviewText">1080P · SERVER 1 (ULTRA FAST)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Server Name Aliases -->
+          <label class="lab" style="margin: 20px 0 8px 0; display: block;">SERVER DISPLAY NAMES & ALIASES</label>
+          <div class="grid-2">
+            <div class="form-row">
+              <label class="lab">PRIMARY CLUSTER (ORION) DISPLAY NAME</label>
+              <input type="text" id="aliasOrionInput" class="field" placeholder="Server 1 (Ultra Fast)" oninput="updateLivePillPreview()">
+            </div>
+            <div class="form-row">
+              <label class="lab">FALLBACK CLUSTER (FRAMEX) DISPLAY NAME</label>
+              <input type="text" id="aliasFrameXInput" class="field" placeholder="Server 2 (Backup)" oninput="updateLivePillPreview()">
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="lab">ASIANFLIX / RUMBLE CDN DISPLAY NAME</label>
+            <input type="text" id="aliasAsianFlixInput" class="field" placeholder="Server 3 (Anime / Asian)" oninput="updateLivePillPreview()">
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE 4: Monetization & Popunders -->
+      <div id="pane-ads" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Adsterra Popunder Monetization Engine</h2>
+              <p>Dispatches high-CPM smartlinks on genuine viewer play gestures to bypass popup suppression.</p>
+            </div>
+            <button class="btn btn-paper" onclick="saveConfig()">Save</button>
+          </div>
+
+          <div class="switch-row">
+            <div>
+              <div class="switch-title">Popunder Monetization Active</div>
+              <div class="switch-desc">Enables smartlink tab opening on user play click</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="popundersEnabled">
+              <i></i>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label class="lab">ADSTERRA SMARTLINK URL</label>
+            <input type="text" id="smartlinkUrl" class="field" placeholder="https://beta.smartlink.example/click?key=...">
+          </div>
+
+          <div class="grid-2">
+            <div class="form-row">
+              <label class="lab">MAX POPUNDERS PER USER (24H)</label>
+              <input type="number" id="maxPopunders" class="field" min="1" max="10" value="2">
+              <span class="lab" style="font-size: 10px; color: var(--ink-3); margin-top: 4px; display: block;">Default: 2 (optimal balance of revenue and viewer retention)</span>
+            </div>
+            <div class="form-row">
+              <label class="lab">COOLDOWN INTERVAL (MINUTES)</label>
+              <input type="number" id="cooldownMinutes" class="field" min="0" max="120" value="15">
+            </div>
+          </div>
+
+          <!-- Anti-Adblock & Brave Shields Detection -->
+          <div style="margin-top: 24px; border-top: 1px solid var(--hair-soft); padding-top: 20px;">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">Enforce Anti-Adblock & Brave Shields Detection</div>
+                <div class="switch-desc">Detects uBlock, AdBlock, AdGuard, Opera, and Brave browser shields, pausing the player and prompting viewers to disable them</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="antiAdblockEnabled">
+                <i></i>
+              </label>
+            </div>
+
+            <div class="switch-row" style="margin-top: 10px;">
+              <div>
+                <div class="switch-title">Strict Brave Browser Detection</div>
+                <div class="switch-desc">Actively probes native navigator.brave shields and cosmetic element blockers</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="antiAdblockStrictBrave">
+                <i></i>
+              </label>
+            </div>
+
+            <div class="form-row" style="margin-top: 14px;">
+              <label class="lab">CUSTOM ADBLOCK ENFORCEMENT NOTICE</label>
+              <input type="text" id="antiAdblockMessage" class="field" placeholder="Ad blocker detected. Please disable your ad blocker or Brave Shields to continue watching...">
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <button class="btn btn-ghost" type="button" onclick="testPopunder()">Dispatch Test Popunder ↗</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE 5: Telemetry -->
+      <div id="pane-metrics" class="pane-content" style="display: none;">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Cluster Metrics & Telemetry</h2>
+              <p>Lock-free atomic telemetry from the HLS redistribution gateway.</p>
+            </div>
+            <button class="btn btn-ghost" onclick="fetchMetrics()">Refresh</button>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-box">
+              <span class="lab">TOTAL REQUESTS</span>
+              <div class="metric-val" id="metricTotalReqs">-</div>
+            </div>
+            <div class="metric-box">
+              <span class="lab">CACHE EFFICIENCY</span>
+              <div class="metric-val" id="metricCacheRatio">-</div>
+            </div>
+            <div class="metric-box">
+              <span class="lab">BANDWIDTH STREAMED</span>
+              <div class="metric-val" id="metricBytesStreamed">-</div>
+            </div>
+            <div class="metric-box">
+              <span class="lab">ACTIVE PROVIDERS</span>
+              <div class="metric-val" id="metricActiveUpstreams">3 / 3</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Minimal Toast Box -->
+  <div class="toast-box" id="toastContainer"></div>
+
+  <script>
+    let currentConfig = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchConfig();
+    });
+
+    function showToast(msg, type = 'success') {
+      const box = document.getElementById('toastContainer');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.innerText = msg;
+      box.appendChild(t);
+      setTimeout(() => {
+        t.style.opacity = '0';
+        t.style.transition = 'opacity 0.2s';
+        setTimeout(() => t.remove(), 250);
+      }, 3000);
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const secret = document.getElementById('adminSecretInput').value.trim();
+      const btn = document.getElementById('loginBtn');
+      const err = document.getElementById('authErrorMsg');
+
+      err.style.display = 'none';
+      btn.disabled = true;
+      btn.innerText = 'Verifying...';
+
+      try {
+        const resp = await fetch('/admin-login-i/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret })
+        });
+
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          showToast('Authenticated');
+          fetchConfig();
+        } else {
+          err.innerText = data.error || 'Authentication rejected';
+          err.style.display = 'block';
+        }
+      } catch (e) {
+        err.innerText = 'Network error contacting gatekeeper';
+        err.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Authenticate';
+      }
+    }
+
+    async function fetchConfig() {
+      try {
+        const resp = await fetch('/admin-login-i/api/config');
+        if (resp.status === 401) {
+          showAuth();
+          return;
+        }
+        if (!resp.ok) throw new Error();
+        currentConfig = await resp.json();
+        renderDashboard(currentConfig);
+        showDashboard();
+      } catch (e) {
+        showAuth();
+      }
+    }
+
+    function showAuth() {
+      document.getElementById('authSection').style.display = 'flex';
+      document.getElementById('dashboardSection').style.display = 'none';
+      document.getElementById('headerActions').style.display = 'none';
+    }
+
+    function showDashboard() {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('dashboardSection').style.display = 'grid';
+      document.getElementById('headerActions').style.display = 'flex';
+      fetchMetrics();
+    }
+
+    function switchPane(paneId) {
+      document.querySelectorAll('.pane-content').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('on', b.dataset.pane === paneId));
+      const target = document.getElementById(paneId);
+      if (target) target.style.display = 'block';
+      if (paneId === 'pane-metrics') fetchMetrics();
+    }
+
+    function renderDashboard(cfg) {
+      // 1. Site Branding
+      document.getElementById('siteBrandName').value = cfg.site_config?.brand_name || '';
+      document.getElementById('siteTagline').value = cfg.site_config?.tagline || '';
+      document.getElementById('siteHeroTitle').value = cfg.site_config?.hero_title || '';
+      document.getElementById('siteHeroSubtitle').value = cfg.site_config?.hero_subtitle || '';
+      document.getElementById('siteDiscord').value = cfg.site_config?.discord_url || '';
+      document.getElementById('siteTelegram').value = cfg.site_config?.telegram_url || '';
+      document.getElementById('siteBannerEnabled').checked = cfg.site_config?.announcement_banner?.enabled;
+      document.getElementById('siteBannerMessage').value = cfg.site_config?.announcement_banner?.message || '';
+      document.getElementById('siteBannerLink').value = cfg.site_config?.announcement_banner?.link || '';
+
+      // 2. Domains
+      renderDomains(cfg.player_fleet || cfg.playerFleet || { primary_domain: 'http://localhost:6789', fallback_domains: [] });
+
+      // 3. Upstreams
+      renderUpstreams(cfg.upstream_servers || cfg.upstreamServers || []);
+
+      // 4. Monetization
+      document.getElementById('popundersEnabled').checked = cfg.monetization?.popunders_enabled;
+      document.getElementById('smartlinkUrl').value = cfg.monetization?.smartlink_url || '';
+      document.getElementById('maxPopunders').value = cfg.monetization?.max_popunders_per_session || 2;
+      document.getElementById('cooldownMinutes').value = cfg.monetization?.cooldown_minutes || 15;
+      document.getElementById('antiAdblockEnabled').checked = cfg.monetization?.anti_adblock_enabled !== false;
+      document.getElementById('antiAdblockStrictBrave').checked = cfg.monetization?.anti_adblock_strict_brave !== false;
+      document.getElementById('antiAdblockMessage').value = cfg.monetization?.anti_adblock_message || 'Ad blocker detected. Please disable your ad blocker or Brave Shields to continue watching. It helps us keep this sovereign player available to you.';
+
+      // 5. Proxy Swarm
+      const swarm = cfg.proxy_swarm || { enabled: true, strategy: 'random', workers: [] };
+      document.getElementById('proxySwarmEnabled').checked = swarm.enabled !== false;
+      selectStrategy(swarm.strategy || 'random', false);
+      renderSwarmNodes(swarm.workers || []);
+
+      // 6. Server Branding
+      const branding = cfg.server_branding || { show_server_names: true, default_server: 'orion', server_aliases: {} };
+      document.getElementById('showServerNamesToggle').checked = branding.show_server_names !== false;
+      const aliases = branding.server_aliases || {};
+      document.getElementById('aliasOrionInput').value = aliases.orion || 'Server 1 (Ultra Fast)';
+      document.getElementById('aliasFrameXInput').value = aliases.framex || 'Server 2 (Backup)';
+      document.getElementById('aliasAsianFlixInput').value = aliases.asianflix || 'Server 3 (Anime / Asian)';
+      updateLivePillPreview();
+    }
+
+    function renderDomains(fleet) {
+      const c = document.getElementById('domainListContainer');
+      c.innerHTML = '';
+
+      const list = [];
+      if (fleet.primary_domain) list.push({ url: fleet.primary_domain, isPrimary: true });
+      (fleet.fallback_domains || []).forEach(d => {
+        if (d !== fleet.primary_domain) list.push({ url: d, isPrimary: false });
+      });
+
+      list.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'domain-row';
+        row.innerHTML = `
+          <div class="domain-meta">
+            <span class="${item.isPrimary ? 'tag-primary' : 'tag-mirror'}">${item.isPrimary ? 'PRIMARY' : 'MIRROR'}</span>
+            <span class="domain-url">${item.url}</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            ${!item.isPrimary ? `<button class="btn btn-ghost" style="height:28px; padding:0 10px; font-size:11.5px;" onclick="setPrimaryDomain('${item.url}')">Make primary</button>` : ''}
+            <button class="btn btn-danger" style="height:28px; padding:0 10px; font-size:11.5px;" onclick="removeDomain('${item.url}')">Remove</button>
+          </div>
+        `;
+        c.appendChild(row);
+      });
+    }
+
+    function setPresetDomain(url) {
+      document.getElementById('newPlayerDomainInput').value = url;
+    }
+
+    function addNewPlayerDomain() {
+      const inp = document.getElementById('newPlayerDomainInput');
+      const val = inp.value.trim();
+      if (!val) return;
+
+      if (!currentConfig.player_fleet) {
+        currentConfig.player_fleet = currentConfig.playerFleet || { primary_domain: '', fallback_domains: [] };
+      }
+      const fleet = currentConfig.player_fleet;
+      if (!fleet.fallback_domains) fleet.fallback_domains = [];
+
+      if (!fleet.primary_domain) {
+        fleet.primary_domain = val;
+      } else if (!fleet.fallback_domains.includes(val) && fleet.primary_domain !== val) {
+        fleet.fallback_domains.push(val);
+      }
+
+      inp.value = '';
+      renderDomains(fleet);
+      showToast(`Added ${val}`);
+    }
+
+    function setPrimaryDomain(domain) {
+      const fleet = currentConfig.player_fleet || currentConfig.playerFleet;
+      if (!fleet) return;
+      const old = fleet.primary_domain;
+      fleet.primary_domain = domain;
+      if (old && !fleet.fallback_domains.includes(old)) {
+        fleet.fallback_domains.push(old);
+      }
+      fleet.fallback_domains = fleet.fallback_domains.filter(d => d !== domain);
+      renderDomains(fleet);
+      showToast(`Set ${domain} as primary`);
+    }
+
+    function removeDomain(domain) {
+      const fleet = currentConfig.player_fleet || currentConfig.playerFleet;
+      if (!fleet) return;
+      if (fleet.primary_domain === domain) {
+        fleet.primary_domain = fleet.fallback_domains.shift() || 'http://localhost:6789';
+      }
+      fleet.fallback_domains = (fleet.fallback_domains || []).filter(d => d !== domain);
+      renderDomains(fleet);
+      showToast(`Removed domain`);
+    }
+
+    function renderUpstreams(servers) {
+      const c = document.getElementById('upstreamContainer');
+      c.innerHTML = '';
+
+      (servers || []).forEach((u, idx) => {
+        const div = document.createElement('div');
+        div.className = 'provider-row';
+        div.innerHTML = `
+          <div class="provider-head">
+            <div>
+              <span class="provider-name">${u.name}</span>
+              <span class="provider-id">id: ${u.id}</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="(currentConfig.upstream_servers || currentConfig.upstreamServers)[${idx}].enabled = this.checked">
+              <i></i>
+            </label>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label class="lab" style="font-size:10px; margin-bottom:4px; display:block;">ENDPOINT</label>
+              <input type="text" class="field" style="height:32px; font-size:12px;" value="${u.endpoint}" onchange="(currentConfig.upstream_servers || currentConfig.upstreamServers)[${idx}].endpoint = this.value">
+            </div>
+            <div>
+              <label class="lab" style="font-size:10px; margin-bottom:4px; display:block;">TIMEOUT (MS)</label>
+              <input type="number" class="field" style="height:32px; font-size:12px;" value="${u.timeout_ms}" onchange="(currentConfig.upstream_servers || currentConfig.upstreamServers)[${idx}].timeout_ms = parseInt(this.value, 10)">
+            </div>
+          </div>
+        `;
+        c.appendChild(div);
+      });
+    }
+
+    function selectStrategy(strategy, updateConfig = true) {
+      ['stratRandom', 'stratRoundRobin', 'stratLatency'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('selected');
+      });
+      if (strategy === 'round_robin') {
+        document.getElementById('stratRoundRobin')?.classList.add('selected');
+      } else if (strategy === 'latency') {
+        document.getElementById('stratLatency')?.classList.add('selected');
+      } else {
+        document.getElementById('stratRandom')?.classList.add('selected');
+      }
+      if (updateConfig && currentConfig) {
+        if (!currentConfig.proxy_swarm) currentConfig.proxy_swarm = {};
+        currentConfig.proxy_swarm.strategy = strategy;
+      }
+    }
+
+    function renderSwarmNodes(workers) {
+      const c = document.getElementById('swarmNodesContainer');
+      if (!c) return;
+      c.innerHTML = '';
+      if (!workers || workers.length === 0) {
+        c.innerHTML = `
+          <div style="padding: 16px; background: var(--bg); border: 1px dashed var(--hair-soft); border-radius: var(--r); text-align: center; color: var(--ink-3); font-size: 12px;">
+            No external edge workers registered. Proxy requests will be handled by the internal Go daemon gateway.
+          </div>
+        `;
+        return;
+      }
+
+      workers.forEach((w) => {
+        const row = document.createElement('div');
+        row.className = 'swarm-node-row';
+
+        let tagClass = 'tag-healthy';
+        let statusText = 'HEALTHY';
+        if (w.status === 'degraded') {
+          tagClass = 'tag-degraded';
+          statusText = 'DEGRADED';
+        } else if (w.status === 'offline' || w.enabled === false) {
+          tagClass = 'tag-offline';
+          statusText = w.enabled === false ? 'DISABLED' : 'OFFLINE';
+        }
+
+        const latencyText = w.latency_ms > 0 ? `${w.latency_ms}ms` : 'untested';
+
+        row.innerHTML = `
+          <div class="swarm-node-info">
+            <div class="swarm-node-url" title="${w.url}">${w.url}</div>
+            <div class="swarm-node-metrics">
+              <span class="${tagClass}">● ${statusText}</span>
+              <span>Weight: ${w.weight || 1}</span>
+              <span>Latency: ${latencyText}</span>
+              <span>ID: ${w.id}</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <label class="switch">
+              <input type="checkbox" ${w.enabled !== false ? 'checked' : ''} onchange="toggleWorker('${w.id}', this.checked)">
+              <i></i>
+            </label>
+            <button class="btn btn-danger" style="height:28px; padding:0 10px; font-size:11.5px;" onclick="removeWorker('${w.id}')">Remove</button>
+          </div>
+        `;
+        c.appendChild(row);
+      });
+    }
+
+    function normalizeWorkerUrl(raw) {
+      let u = raw.trim();
+      if (!u) return '';
+      if (!u.startsWith('http://') && !u.startsWith('https://')) {
+        u = 'https://' + u;
+      }
+      if (u.includes('?')) {
+        if (!u.includes('url=')) {
+          u += '&url=';
+        }
+      } else {
+        if (u.endsWith('/proxy')) {
+          u += '?url=';
+        } else if (u.endsWith('/')) {
+          u += 'proxy?url=';
+        } else {
+          u += '/proxy?url=';
+        }
+      }
+      return u;
+    }
+
+    function addNewWorker() {
+      const inp = document.getElementById('newWorkerUrlInput');
+      const raw = inp.value.trim();
+      if (!raw) return;
+      const normalized = normalizeWorkerUrl(raw);
+
+      if (!currentConfig.proxy_swarm) {
+        currentConfig.proxy_swarm = { enabled: true, strategy: 'random', workers: [], fallback_local: true };
+      }
+      if (!currentConfig.proxy_swarm.workers) {
+        currentConfig.proxy_swarm.workers = [];
+      }
+
+      if (currentConfig.proxy_swarm.workers.some(w => w.url === normalized)) {
+        showToast('Worker node already exists in swarm', 'error');
+        return;
+      }
+
+      const id = 'w_' + Math.random().toString(36).substring(2, 8);
+      currentConfig.proxy_swarm.workers.push({
+        id: id,
+        url: normalized,
+        enabled: true,
+        weight: 1,
+        latency_ms: 0,
+        status: 'healthy'
+      });
+
+      inp.value = '';
+      renderSwarmNodes(currentConfig.proxy_swarm.workers);
+      showToast(`Added worker node to swarm`);
+    }
+
+    function removeWorker(id) {
+      if (!currentConfig?.proxy_swarm?.workers) return;
+      currentConfig.proxy_swarm.workers = currentConfig.proxy_swarm.workers.filter(w => w.id !== id);
+      renderSwarmNodes(currentConfig.proxy_swarm.workers);
+      showToast('Worker node removed from swarm');
+    }
+
+    function toggleWorker(id, enabled) {
+      if (!currentConfig?.proxy_swarm?.workers) return;
+      const w = currentConfig.proxy_swarm.workers.find(item => item.id === id);
+      if (w) {
+        w.enabled = enabled;
+        renderSwarmNodes(currentConfig.proxy_swarm.workers);
+      }
+    }
+
+    async function pingSwarmNodes() {
+      const btn = document.getElementById('pingSwarmBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Probing...';
+      }
+      try {
+        const resp = await fetch('/admin-login-i/api/swarm/test', { method: 'POST' });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.health_reports && currentConfig?.proxy_swarm?.workers) {
+            data.health_reports.forEach(rep => {
+              const node = currentConfig.proxy_swarm.workers.find(w => w.id === rep.id);
+              if (node) {
+                node.latency_ms = rep.latency_ms;
+                node.status = rep.status;
+              }
+            });
+            renderSwarmNodes(currentConfig.proxy_swarm.workers);
+            const healthyCount = data.health_reports.filter(r => r.status === 'healthy').length;
+            showToast(`Swarm probed: ${healthyCount}/${data.health_reports.length} healthy`);
+          }
+        } else {
+          showToast('Failed to probe swarm', 'error');
+        }
+      } catch (e) {
+        showToast('Network error probing swarm nodes', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Probe All Nodes';
+        }
+      }
+    }
+
+    function updateLivePillPreview() {
+      const show = document.getElementById('showServerNamesToggle').checked;
+      const alias = document.getElementById('aliasOrionInput').value.trim() || 'Server 1 (Ultra Fast)';
+      const preview = document.getElementById('livePillPreviewText');
+      if (preview) {
+        if (show) {
+          preview.innerText = '1080P · ' + alias.toUpperCase();
+        } else {
+          preview.innerText = '1080P';
+        }
+      }
+    }
+
+    function copyWorkerCode() {
+      const codeEl = document.getElementById('workerTemplateDisplay');
+      if (!codeEl) return;
+      navigator.clipboard.writeText(codeEl.innerText).then(() => {
+        showToast('Cloudflare Worker script copied');
+      }).catch(() => {
+        showToast('Failed to copy code to clipboard', 'error');
+      });
+    }
+
+    async function saveConfig() {
+      const payload = {
+        site_config: {
+          brand_name: document.getElementById('siteBrandName').value.trim() || 'VidLyte',
+          tagline: document.getElementById('siteTagline').value.trim(),
+          hero_title: document.getElementById('siteHeroTitle').value.trim(),
+          hero_subtitle: document.getElementById('siteHeroSubtitle').value.trim(),
+          discord_url: document.getElementById('siteDiscord').value.trim(),
+          telegram_url: document.getElementById('siteTelegram').value.trim(),
+          announcement_banner: {
+            enabled: document.getElementById('siteBannerEnabled').checked,
+            message: document.getElementById('siteBannerMessage').value.trim(),
+            link: document.getElementById('siteBannerLink').value.trim()
+          },
+          featured_picks: currentConfig?.site_config?.featured_picks || []
+        },
+        player_fleet: currentConfig?.player_fleet || currentConfig?.playerFleet || {
+          primary_domain: 'http://localhost:6789',
+          fallback_domains: ['http://localhost:8080']
+        },
+        upstream_servers: currentConfig?.upstream_servers || currentConfig?.upstreamServers || [],
+        monetization: {
+          popunders_enabled: document.getElementById('popundersEnabled').checked,
+          smartlink_url: document.getElementById('smartlinkUrl').value.trim(),
+          max_popunders_per_session: parseInt(document.getElementById('maxPopunders').value, 10) || 2,
+          cooldown_minutes: parseInt(document.getElementById('cooldownMinutes').value, 10) || 15,
+          trigger_event: 'play_click',
+          anti_adblock_enabled: document.getElementById('antiAdblockEnabled').checked,
+          anti_adblock_strict_brave: document.getElementById('antiAdblockStrictBrave').checked,
+          anti_adblock_message: document.getElementById('antiAdblockMessage').value.trim() || 'Ad blocker detected. Please disable your ad blocker or Brave Shields to continue watching. It helps us keep this sovereign player available to you.'
+        },
+        proxy_swarm: {
+          enabled: document.getElementById('proxySwarmEnabled').checked,
+          strategy: currentConfig?.proxy_swarm?.strategy || 'random',
+          workers: currentConfig?.proxy_swarm?.workers || [],
+          fallback_local: true
+        },
+        server_branding: {
+          show_server_names: document.getElementById('showServerNamesToggle').checked,
+          default_server: 'orion',
+          server_aliases: {
+            orion: document.getElementById('aliasOrionInput').value.trim() || 'Server 1 (Ultra Fast)',
+            framex: document.getElementById('aliasFrameXInput').value.trim() || 'Server 2 (Backup)',
+            asianflix: document.getElementById('aliasAsianFlixInput').value.trim() || 'Server 3 (Anime / Asian)'
+          }
+        }
+      };
+
+      try {
+        const resp = await fetch('/admin-login-i/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (resp.ok) {
+          currentConfig = await resp.json();
+          renderDashboard(currentConfig);
+          showToast('Configuration applied');
+        } else {
+          showToast('Save failed', 'error');
+        }
+      } catch (e) {
+        showToast('Network error saving configuration', 'error');
+      }
+    }
+
+    function testPopunder() {
+      const url = document.getElementById('smartlinkUrl').value.trim();
+      if (!url) {
+        showToast('Enter a Smartlink URL first', 'error');
+        return;
+      }
+      window.open(url, '_blank');
+      showToast('Dispatched test tab');
+    }
+
+    async function fetchMetrics() {
+      try {
+        const resp = await fetch('/metrics');
+        if (resp.ok) {
+          const m = await resp.json();
+          document.getElementById('metricTotalReqs').innerText = (m.total_requests || 0).toLocaleString();
+          const hits = m.cache_hits || 0;
+          const misses = m.cache_misses || 0;
+          const ratio = (hits + misses) > 0 ? ((hits / (hits + misses)) * 100).toFixed(1) + '%' : '100.0%';
+          document.getElementById('metricCacheRatio').innerText = ratio;
+          const mb = ((m.bytes_streamed || 0) / (1024 * 1024)).toFixed(1);
+          document.getElementById('metricBytesStreamed').innerText = `${mb} MB`;
+        }
+      } catch (e) {}
+    }
+
+    async function logout() {
+      await fetch('/admin-login-i/logout', { method: 'POST' });
+      showToast('Signed out');
+      showAuth();
+    }
+  </script>
+</body>
+</html>

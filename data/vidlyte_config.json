@@ -1,0 +1,114 @@
+{
+  "site_config": {
+    "brand_name": "VidLyte",
+    "tagline": "Autonomous Sovereign Video Embed API",
+    "hero_title": "One Universal Iframe URL for Every Movie, Series \u0026 Anime",
+    "hero_subtitle": "Instant zero-buffering player, adaptive HLS, multi-audio tracks, auto-next, and clean webmaster customization. No API keys, no signups, 100% free.",
+    "discord_url": "https://discord.gg/vidlyte",
+    "telegram_url": "https://t.me/vidlyte",
+    "announcement_banner": {
+      "enabled": true,
+      "message": "⚡ VidLyte Core: Sub-millisecond HLS Stream Proxy \u0026 Multi-Source Failover is Live!",
+      "link": "#docs"
+    },
+    "featured_picks": [
+      {
+        "id": "289423",
+        "type": "tv",
+        "title": "Severance",
+        "year": "2022",
+        "season": 1,
+        "episode": 1
+      },
+      {
+        "id": "1058424",
+        "type": "movie",
+        "title": "Gladiator II",
+        "year": "2024"
+      },
+      {
+        "id": "314939",
+        "type": "tv",
+        "title": "Stranger Things",
+        "year": "2016",
+        "season": 1,
+        "episode": 1
+      },
+      {
+        "id": "360817",
+        "type": "movie",
+        "title": "Bhaag Johnny",
+        "year": "2015"
+      }
+    ]
+  },
+  "player_fleet": {
+    "primary_domain": "http://localhost:6789",
+    "fallback_domains": [
+      "http://localhost:8080"
+    ]
+  },
+  "upstream_servers": [
+    {
+      "id": "orion",
+      "name": "Orion / Evion Core Cluster",
+      "endpoint": "https://embed.vidrift.net",
+      "enabled": true,
+      "priority": 1,
+      "timeout_ms": 8000
+    },
+    {
+      "id": "framex",
+      "name": "FrameX TV Fallback Cluster",
+      "endpoint": "https://api.framextv.xyz",
+      "enabled": true,
+      "priority": 2,
+      "timeout_ms": 8000
+    },
+    {
+      "id": "asianflix",
+      "name": "AsianFlix / Rumble CDN Cluster",
+      "endpoint": "https://www.blogger.com",
+      "enabled": true,
+      "priority": 3,
+      "timeout_ms": 7000
+    }
+  ],
+  "monetization": {
+    "popunders_enabled": true,
+    "smartlink_url": "https://beta.smartlink.example/click?key=adsterra_live_vidlyte",
+    "max_popunders_per_session": 2,
+    "cooldown_minutes": 15,
+    "trigger_event": "play_click",
+    "anti_adblock_enabled": true,
+    "anti_adblock_strict_brave": true,
+    "anti_adblock_message": "Ad blocker detected. Please disable your ad blocker or Brave Shields to continue watching. It helps us keep this sovereign player available to you."
+  },
+  "proxy_swarm": {
+    "enabled": true,
+    "strategy": "consistent_hash",
+    "workers": [
+      {
+        "id": "node-alpha",
+        "name": "Alpha Node (Jadiel Cloudflare Edge)",
+        "url": "https://alpha-lytenode.jadiel35.workers.dev/?url=",
+        "enabled": true,
+        "weight": 10,
+        "failures": 0,
+        "latency_ms": 35,
+        "last_check": "2026-10-25T08:40:00Z"
+      }
+    ],
+    "fallback_local": true
+  },
+  "server_branding": {
+    "show_server_names": false,
+    "default_server": "orion",
+    "server_aliases": {
+      "orion": "Server 1 (Ultra Fast)",
+      "framex": "Server 2 (Backup)",
+      "asianflix": "Server 3 (Anime / Asian)"
+    }
+  },
+  "last_updated": "2026-10-25T02:45:00.0000000Z"
+}

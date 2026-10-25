@@ -1,0 +1,35 @@
+# Compiled Binaries & Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+resolver
+vidlyte
+
+# Temporary & Scratch Files
+scratch/
+archive/
+*.log
+*.tmp
+*.bak
+*.txt
+!requirements.txt
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Environment Secret Files (NEVER COMMIT PRODUCTION CREDENTIALS)
+.env
+.env.local
+.env.production
+.env.staging
+
+# Local Disk Cache (generated at runtime)
+scratch/hls_cache/
