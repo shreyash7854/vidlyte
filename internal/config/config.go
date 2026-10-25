@@ -119,7 +119,7 @@ func LoadConfig() (*Config, error) {
 
 	logLevel := strings.ToLower(getEnv("LOG_LEVEL", "info"))
 
-	bindClientIP := strings.EqualFold(getEnv("GATEWAY_BIND_CLIENT_IP", "true"), "true")
+	bindClientIP := strings.EqualFold(getEnv("GATEWAY_BIND_CLIENT_IP", "false"), "true")
 	rateLimitEnabled := strings.EqualFold(getEnv("GATEWAY_RATE_LIMIT_ENABLED", "true"), "true")
 	rateLimitBurst, _ := strconv.Atoi(getEnv("GATEWAY_RATE_LIMIT_BURST", "100"))
 	if rateLimitBurst <= 0 {

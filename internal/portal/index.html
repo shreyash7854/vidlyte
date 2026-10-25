@@ -776,7 +776,7 @@
         <!-- Inline Terminal URL Composer -->
         <div class="composer">
           <div class="composer-url">
-            <span class="u-dim" id="composerHost">https://embed.vidlyte.net</span>
+            <span class="u-dim" id="composerHost"></span><script>document.getElementById('composerHost').innerText = window.location.origin;</script>
             <span class="u-dim">/embed/</span>
             <span class="u-kind" id="composerKind">tv</span>
             <span class="u-dim">/</span>
@@ -1050,7 +1050,7 @@ https://{PLAYER_DOMAIN}/embed/anime/{anilist_id}/{episode}</code></pre>
       { id: '360817', kind: 'movie', title: 'Bhaag Johnny', year: '2015', label: 'Movie' }
     ];
 
-    window.addEventListener('DOMContentLoaded', () => {
+    function initPortal() {
       const cfg = window.VIDLYTE_CONFIG;
       if (cfg) {
         if (cfg.site_config) {
@@ -1102,7 +1102,13 @@ https://{PLAYER_DOMAIN}/embed/anime/{anilist_id}/{episode}</code></pre>
       populateSeasonEpisodeSelectors();
       renderPicks(cfg?.site_config?.featured_picks || defaultPicks);
       updateComposer();
-    });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initPortal);
+    } else {
+      initPortal();
+    }
 
     function populateSeasonEpisodeSelectors() {
       const sSel = document.getElementById('composerSeason');

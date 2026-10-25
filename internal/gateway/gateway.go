@@ -255,6 +255,16 @@ func (gw *Gateway) serveMasterPlaylist(w http.ResponseWriter, r *http.Request, a
 			rawContent, finalURL, err = gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
 		}
 	}
+	// Fallback to proxy swarm worker if direct fetch failed (bypasses datacenter 403 IP blocking)
+	if err != nil && gw.swarm != nil && gw.swarm.HasActiveWorkers() {
+		proxiedURI := gw.swarm.BuildProxiedURL(info.PrimaryManifest, info.Provider)
+		gw.logger.Info("direct upstream fetch rejected; failing over to Cloudflare edge swarm worker", "asset_id", assetID, "proxied_uri", proxiedURI)
+		if content, u, fetchErr := gw.upstream.FetchManifest(r.Context(), proxiedURI, info.Provider); fetchErr == nil {
+			rawContent = content
+			finalURL = u
+			err = nil
+		}
+	}
 	if err != nil {
 		// Attempt fallback through alternate providers if primary manifest returned an error (e.g. 404)
 		var fallbackSuccess bool
@@ -391,6 +401,13 @@ func (gw *Gateway) serveResource(w http.ResponseWriter, r *http.Request, assetID
 
 	// 4. Fetch upstream resource with Range forwarding and SSRF protection
 	resp, err := gw.upstream.FetchResource(r.Context(), entry.UpstreamURI, entry.Provider, clientRange)
+	if err != nil && gw.swarm != nil && gw.swarm.HasActiveWorkers() {
+		proxiedURL := gw.swarm.BuildProxiedURLForKey(entry.UpstreamURI, entry.Provider, entry.UpstreamURI)
+		if proxiedURL != "" && !strings.HasPrefix(proxiedURL, "/proxy") {
+			gw.logger.Info("direct resource fetch failed; retrying via edge swarm worker", "asset_id", assetID, "proxied_url", proxiedURL)
+			resp, err = gw.upstream.FetchResource(r.Context(), proxiedURL, entry.Provider, clientRange)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return // Client cancelled request
