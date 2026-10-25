@@ -78,3 +78,8 @@ func (c *MemoryCache) SetWithTTL(key string, value any, duration time.Duration) 
 		expiration: exp,
 	})
 }
+
+// Delete removes a key from cache.
+func (c *MemoryCache) Delete(key string) {
+	c.items.Delete(key)
+}

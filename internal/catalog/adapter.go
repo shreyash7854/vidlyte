@@ -195,3 +195,19 @@ func (a *Adapter) LookupResource(assetID, resourceID string) (*ResourceEntry, bo
 
 	return entry, ok
 }
+
+// Invalidator defines the optional capability of purging stale cached streams.
+type Invalidator interface {
+	Invalidate(req models.MediaRequest)
+}
+
+// InvalidateAsset clears any cached resolutions for an asset so fresh tokens are fetched.
+func (a *Adapter) InvalidateAsset(assetID string) {
+	req, err := ParseAssetID(assetID)
+	if err != nil {
+		return
+	}
+	if inv, ok := a.resolver.(Invalidator); ok {
+		inv.Invalidate(*req)
+	}
+}

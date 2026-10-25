@@ -1110,3 +1110,11 @@ func (s *ResolverService) saveToCache(cacheKey string, resp *models.MediaRespons
 		}
 	}
 }
+
+// Invalidate removes a media item from in-memory cache on upstream errors.
+func (s *ResolverService) Invalidate(req models.MediaRequest) {
+	cacheKey := fmt.Sprintf("media:%s:%s:%d:%d", req.Type, req.ID, req.Season, req.Episode)
+	if s.cache != nil {
+		s.cache.Delete(cacheKey)
+	}
+}

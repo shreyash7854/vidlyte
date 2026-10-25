@@ -247,6 +247,15 @@ func (gw *Gateway) serveMasterPlaylist(w http.ResponseWriter, r *http.Request, a
 	// 3. Fetch upstream manifest with SSRF protection
 	rawContent, finalURL, err := gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
 	if err != nil {
+		// Attempt instant cache eviction and re-resolution if token expired upstream (e.g. 404 / 403)
+		gw.catalog.InvalidateAsset(assetID)
+		if freshInfo, freshErr := gw.catalog.ResolveAsset(r.Context(), assetID); freshErr == nil && freshInfo.PrimaryManifest != "" && freshInfo.PrimaryManifest != info.PrimaryManifest {
+			gw.logger.Info("re-resolved fresh upstream manifest after token expiration", "asset_id", assetID, "old_uri", info.PrimaryManifest, "new_uri", freshInfo.PrimaryManifest)
+			info = freshInfo
+			rawContent, finalURL, err = gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
+		}
+	}
+	if err != nil {
 		// Attempt fallback through alternate providers if primary manifest returned an error (e.g. 404)
 		var fallbackSuccess bool
 		for _, alt := range info.Providers {
