@@ -132,3 +132,28 @@ func BenchmarkInflateWarmManifest(b *testing.B) {
 		_, _ = InflateWarmManifest(rawJSON)
 	}
 }
+
+func TestGetHeadersForProviderSubtitleSpoofing(t *testing.T) {
+	// TV Subtitles
+	tvHeaders := GetHeadersForProvider("orion", "https://embed.vidrift.net/api/subtitles/tv/289423/1/1/en")
+	expectedTVReferer := "https://embed.vidrift.net/embed/tv/289423/1/1"
+	if tvHeaders.Referer != expectedTVReferer {
+		t.Errorf("expected TV subtitle referer %q, got %q", expectedTVReferer, tvHeaders.Referer)
+	}
+	if tvHeaders.Origin != "https://embed.vidrift.net" {
+		t.Errorf("expected origin https://embed.vidrift.net, got %q", tvHeaders.Origin)
+	}
+
+	// Movie Subtitles
+	movieHeaders := GetHeadersForProvider("orion", "https://embed.vidrift.net/api/subtitles/movie/550/en")
+	expectedMovieReferer := "https://embed.vidrift.net/embed/movie/550"
+	if movieHeaders.Referer != expectedMovieReferer {
+		t.Errorf("expected Movie subtitle referer %q, got %q", expectedMovieReferer, movieHeaders.Referer)
+	}
+
+	// Direct embed referer path
+	embedHeaders := GetHeadersForProvider("orion", "/embed/tv/289423/1/1")
+	if embedHeaders.Referer != expectedTVReferer {
+		t.Errorf("expected embed referer %q, got %q", expectedTVReferer, embedHeaders.Referer)
+	}
+}

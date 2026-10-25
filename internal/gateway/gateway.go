@@ -244,57 +244,81 @@ func (gw *Gateway) serveMasterPlaylist(w http.ResponseWriter, r *http.Request, a
 		return
 	}
 
-	// 3. Fetch upstream manifest with SSRF protection
-	rawContent, finalURL, err := gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
-	if err != nil {
-		// Attempt instant cache eviction and re-resolution if token expired upstream (e.g. 404 / 403)
-		gw.catalog.InvalidateAsset(assetID)
-		if freshInfo, freshErr := gw.catalog.ResolveAsset(r.Context(), assetID); freshErr == nil && freshInfo.PrimaryManifest != "" && freshInfo.PrimaryManifest != info.PrimaryManifest {
-			gw.logger.Info("re-resolved fresh upstream manifest after token expiration", "asset_id", assetID, "old_uri", info.PrimaryManifest, "new_uri", freshInfo.PrimaryManifest)
-			info = freshInfo
-			rawContent, finalURL, err = gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
-		}
-	}
-	// Fallback to proxy swarm worker if direct fetch failed (bypasses datacenter 403 IP blocking)
-	if err != nil && gw.swarm != nil && gw.swarm.HasActiveWorkers() {
-		proxiedURI := gw.swarm.BuildProxiedURL(info.PrimaryManifest, info.Provider)
-		gw.logger.Info("direct upstream fetch rejected; failing over to Cloudflare edge swarm worker", "asset_id", assetID, "proxied_uri", proxiedURI)
-		if content, u, fetchErr := gw.upstream.FetchManifest(r.Context(), proxiedURI, info.Provider); fetchErr == nil {
-			rawContent = content
-			finalURL = u
-			err = nil
-		}
-	}
-	if err != nil {
-		// Attempt fallback through alternate providers if primary manifest returned an error (e.g. 404)
-		var fallbackSuccess bool
-		for _, alt := range info.Providers {
-			targetURI := alt.MasterURI
-			if targetURI == "" && len(alt.Variants) > 0 {
-				targetURI = alt.Variants[0].PlaylistURI
-			}
-			if targetURI != "" && targetURI != info.PrimaryManifest {
-				gw.logger.Warn("primary upstream manifest fetch failed, attempting alternate provider", "asset_id", assetID, "failed_provider", info.Provider, "fallback_provider", alt.Provider)
-				if content, u, fetchErr := gw.upstream.FetchManifest(r.Context(), targetURI, alt.Provider); fetchErr == nil {
-					rawContent = content
-					finalURL = u
-					info.Provider = alt.Provider
-					fallbackSuccess = true
+	// 3. Fetch upstream manifest with SSRF protection (or use warm manifest if pre-inflated)
+	var rawContent string
+	var finalURL *url.URL
+
+	if info.WarmManifest != "" {
+		rawContent = info.WarmManifest
+		finalURL, _ = url.Parse(info.PrimaryManifest)
+	} else {
+		rawContent, finalURL, err = gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
+		if err != nil {
+			// Attempt instant cache eviction and re-resolution if token expired upstream (e.g. 404 / 403)
+			gw.catalog.InvalidateAsset(assetID)
+			if freshInfo, freshErr := gw.catalog.ResolveAsset(r.Context(), assetID); freshErr == nil && freshInfo.PrimaryManifest != "" && freshInfo.PrimaryManifest != info.PrimaryManifest {
+				gw.logger.Info("re-resolved fresh upstream manifest after token expiration", "asset_id", assetID, "old_uri", info.PrimaryManifest, "new_uri", freshInfo.PrimaryManifest)
+				info = freshInfo
+				if info.WarmManifest != "" {
+					rawContent = info.WarmManifest
+					finalURL, _ = url.Parse(info.PrimaryManifest)
 					err = nil
-					break
+				} else {
+					rawContent, finalURL, err = gw.upstream.FetchManifest(r.Context(), info.PrimaryManifest, info.Provider)
 				}
 			}
 		}
-		if !fallbackSuccess {
-			gw.logger.Error("upstream manifest fetch error", "asset_id", assetID, "error", err)
-			gw.writeError(w, http.StatusBadGateway, "failed to retrieve upstream playlist")
-			return
+		// Fallback to proxy swarm worker if direct fetch failed (bypasses datacenter 403 IP blocking)
+		if err != nil && gw.swarm != nil && gw.swarm.HasActiveWorkers() {
+			proxiedURI := gw.swarm.BuildProxiedURL(info.PrimaryManifest, info.Provider)
+			gw.logger.Info("direct upstream fetch rejected; failing over to Cloudflare edge swarm worker", "asset_id", assetID, "proxied_uri", proxiedURI)
+			if content, u, fetchErr := gw.upstream.FetchManifest(r.Context(), proxiedURI, info.Provider); fetchErr == nil {
+				rawContent = content
+				finalURL = u
+				err = nil
+			}
+		}
+		if err != nil {
+			// Attempt fallback through alternate providers if primary manifest returned an error (e.g. 404)
+			var fallbackSuccess bool
+			for _, alt := range info.Providers {
+				targetURI := alt.MasterURI
+				if targetURI == "" && len(alt.Variants) > 0 {
+					targetURI = alt.Variants[0].PlaylistURI
+				}
+				if targetURI != "" && targetURI != info.PrimaryManifest {
+					gw.logger.Warn("primary upstream manifest fetch failed, attempting alternate provider", "asset_id", assetID, "failed_provider", info.Provider, "fallback_provider", alt.Provider)
+					if content, u, fetchErr := gw.upstream.FetchManifest(r.Context(), targetURI, alt.Provider); fetchErr == nil {
+						rawContent = content
+						finalURL = u
+						info.Provider = alt.Provider
+						fallbackSuccess = true
+						err = nil
+						break
+					}
+				}
+			}
+			if !fallbackSuccess {
+				gw.logger.Error("upstream manifest fetch error", "asset_id", assetID, "error", err)
+				gw.writeError(w, http.StatusBadGateway, "failed to retrieve upstream playlist")
+				return
+			}
 		}
 	}
 
 	// 4. Safely rewrite playlist URIs to gateway opaque resource endpoints (or edge worker swarm for media segments)
 	register := func(aID, upstreamURI string) string {
-		return gw.catalog.RegisterResource(aID, upstreamURI, info.Provider)
+		var prewarmed string
+		if info.WarmManifests != nil {
+			if wm, ok := info.WarmManifests[upstreamURI]; ok {
+				prewarmed = wm
+			} else if u, parseErr := url.Parse(upstreamURI); parseErr == nil && u.Path != "" {
+				if wm, ok := info.WarmManifests[u.Path]; ok {
+					prewarmed = wm
+				}
+			}
+		}
+		return gw.catalog.RegisterResourceWithPrewarmed(aID, upstreamURI, info.Provider, prewarmed)
 	}
 
 	var router hls.SegmentRouter
@@ -341,6 +365,32 @@ func (gw *Gateway) serveResource(w http.ResponseWriter, r *http.Request, assetID
 	entry, ok := gw.catalog.LookupResource(assetID, resourceID)
 	if !ok {
 		gw.writeError(w, http.StatusNotFound, "resource identifier expired or unknown")
+		return
+	}
+
+	// 2b. Serve pre-warmed manifest directly if available (zero upstream latency)
+	if entry.Prewarmed != "" {
+		u, _ := url.Parse(entry.UpstreamURI)
+		register := func(aID, uURI string) string {
+			return gw.catalog.RegisterResource(aID, uURI, entry.Provider)
+		}
+		var router hls.SegmentRouter
+		if gw.swarm != nil && gw.swarm.HasActiveWorkers() {
+			router = func(aID, uURI string) string {
+				return gw.swarm.BuildProxiedURLForKey(uURI, entry.Provider, uURI)
+			}
+		}
+		rewritten, err := gw.rewriter.RewritePlaylistWithRouter(entry.Prewarmed, u, assetID, token, register, router)
+		if err != nil {
+			gw.writeError(w, http.StatusBadGateway, "failed rewriting prewarmed playlist")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Cache-Control", "private, no-cache, no-store")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(rewritten))
 		return
 	}
 
@@ -391,7 +441,9 @@ func (gw *Gateway) serveResource(w http.ResponseWriter, r *http.Request, assetID
 	}
 
 	// 3b. If proxy swarm is active and this is a binary media segment, offload to edge worker!
-	if gw.swarm != nil && gw.swarm.HasActiveWorkers() && !strings.Contains(strings.ToLower(entry.UpstreamURI), ".m3u8") {
+	lowerURI := strings.ToLower(entry.UpstreamURI)
+	isMediaSegment := (strings.HasSuffix(lowerURI, ".m4s") || strings.HasSuffix(lowerURI, ".ts") || strings.HasSuffix(lowerURI, ".mp4") || strings.Contains(lowerURI, "segment") || strings.Contains(lowerURI, "chunk") || strings.Contains(lowerURI, "init-stream")) && !strings.Contains(lowerURI, ".m3u8") && !strings.Contains(lowerURI, "subtitles") && !strings.HasSuffix(lowerURI, ".vtt")
+	if gw.swarm != nil && gw.swarm.HasActiveWorkers() && isMediaSegment {
 		proxiedURL := gw.swarm.BuildProxiedURLForKey(entry.UpstreamURI, entry.Provider, entry.UpstreamURI)
 		if proxiedURL != "" && !strings.HasPrefix(proxiedURL, "/proxy") {
 			http.Redirect(w, r, proxiedURL, http.StatusTemporaryRedirect)
@@ -455,6 +507,10 @@ func (gw *Gateway) serveResource(w http.ResponseWriter, r *http.Request, assetID
 	}
 
 	// 6. Stream response with recycled 32KB buffer and backpressure
+	if strings.Contains(strings.ToLower(entry.UpstreamURI), "subtitles") || strings.HasSuffix(strings.ToLower(entry.UpstreamURI), ".vtt") {
+		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
 	_, _ = delivery.StreamResponse(w, r, resp.StatusCode, resp.Header, resp.Body)
 }
 

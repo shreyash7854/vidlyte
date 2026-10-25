@@ -22,9 +22,10 @@ var (
 
 // ResourceEntry holds the mapped upstream target and provider context.
 type ResourceEntry struct {
-	UpstreamURI string
-	Provider    string
-	AssetID     string
+	UpstreamURI  string
+	Provider     string
+	AssetID      string
+	Prewarmed    string
 	RegisteredAt time.Time
 }
 
@@ -44,6 +45,8 @@ type AssetManifestInfo struct {
 	AudioTracks     []models.AudioTrack
 	Variants        []models.StreamVariant
 	Providers       []models.ProviderStreams
+	WarmManifest    string
+	WarmManifests   map[string]string
 	PlaybackToken   string
 }
 
@@ -145,12 +148,19 @@ func (a *Adapter) ResolveAsset(ctx context.Context, assetID string) (*AssetManif
 		AudioTracks:     mediaResp.AudioTracks,
 		Variants:        mediaResp.Variants,
 		Providers:       mediaResp.Providers,
+		WarmManifest:    mediaResp.WarmManifest,
+		WarmManifests:   mediaResp.WarmManifests,
 		PlaybackToken:   mediaResp.PlaybackToken,
 	}, nil
 }
 
 // RegisterResource creates and stores a deterministic opaque resource ID mapped to the upstream URI.
 func (a *Adapter) RegisterResource(assetID, upstreamURI, provider string) string {
+	return a.RegisterResourceWithPrewarmed(assetID, upstreamURI, provider, "")
+}
+
+// RegisterResourceWithPrewarmed registers an opaque resource with optional pre-warmed manifest content.
+func (a *Adapter) RegisterResourceWithPrewarmed(assetID, upstreamURI, provider, prewarmed string) string {
 	h := sha256.New()
 	h.Write([]byte(assetID))
 	h.Write([]byte(":"))
@@ -179,6 +189,7 @@ func (a *Adapter) RegisterResource(assetID, upstreamURI, provider string) string
 		UpstreamURI:  upstreamURI,
 		Provider:     provider,
 		AssetID:      assetID,
+		Prewarmed:    prewarmed,
 		RegisteredAt: time.Now(),
 	}
 

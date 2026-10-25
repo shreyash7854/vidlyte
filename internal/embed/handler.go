@@ -292,6 +292,69 @@ func (h *Handler) serveEmbedPlayer(w http.ResponseWriter, r *http.Request, media
 		}
 	}
 
+	var sanitizedSubs []models.SubtitleTrack
+	for _, sub := range info.Subtitles {
+		resID := h.catalog.RegisterResource(assetID, sub.URI, sub.Provider)
+		opaqueURL := fmt.Sprintf("/hls/%s/resource/%s?token=%s", assetID, resID, token)
+		sanitizedSubs = append(sanitizedSubs, models.SubtitleTrack{
+			Language:   sub.Language,
+			Label:      sub.Label,
+			URI:        opaqueURL,
+			ProxiedURI: opaqueURL,
+			Provider:   sub.Provider,
+		})
+	}
+
+	var sanitizedAudio []models.AudioTrack
+	for _, at := range info.AudioTracks {
+		var prewarmed string
+		if info.WarmManifests != nil {
+			if wm, ok := info.WarmManifests[at.URI]; ok {
+				prewarmed = wm
+			} else if u, parseErr := url.Parse(at.URI); parseErr == nil && u.Path != "" {
+				if wm, ok := info.WarmManifests[u.Path]; ok {
+					prewarmed = wm
+				}
+			}
+		}
+		resID := h.catalog.RegisterResourceWithPrewarmed(assetID, at.URI, at.Provider, prewarmed)
+		opaqueURL := fmt.Sprintf("/hls/%s/resource/%s?token=%s", assetID, resID, token)
+		sanitizedAudio = append(sanitizedAudio, models.AudioTrack{
+			Language:      at.Language,
+			Name:          at.Name,
+			Default:       at.Default,
+			URI:           opaqueURL,
+			ProxiedURI:    opaqueURL,
+			Provider:      at.Provider,
+			RequiresProxy: false,
+		})
+	}
+
+	var sanitizedVariants []models.StreamVariant
+	for _, v := range info.Variants {
+		var prewarmed string
+		if info.WarmManifests != nil {
+			if wm, ok := info.WarmManifests[v.PlaylistURI]; ok {
+				prewarmed = wm
+			} else if u, parseErr := url.Parse(v.PlaylistURI); parseErr == nil && u.Path != "" {
+				if wm, ok := info.WarmManifests[u.Path]; ok {
+					prewarmed = wm
+				}
+			}
+		}
+		resID := h.catalog.RegisterResourceWithPrewarmed(assetID, v.PlaylistURI, v.Provider, prewarmed)
+		opaqueURL := fmt.Sprintf("/hls/%s/resource/%s?token=%s", assetID, resID, token)
+		sanitizedVariants = append(sanitizedVariants, models.StreamVariant{
+			Resolution:    v.Resolution,
+			Bandwidth:     v.Bandwidth,
+			Codecs:        v.Codecs,
+			PlaylistURI:   opaqueURL,
+			ProxiedURI:    opaqueURL,
+			Provider:      v.Provider,
+			RequiresProxy: false,
+		})
+	}
+
 	bootstrap := PlayerBootstrapConfig{
 		AssetID:        assetID,
 		StreamURL:      playlistURL,
@@ -309,11 +372,9 @@ func (h *Handler) serveEmbedPlayer(w http.ResponseWriter, r *http.Request, media
 		Autoplay:       autoplay,
 		Muted:          startMuted,
 		Token:          token,
-		Subtitles:      info.Subtitles,
-		AudioTracks:    info.AudioTracks,
-		Variants:       info.Variants,
-		Providers:      info.Providers,
-		PlaybackToken:  info.PlaybackToken,
+		Subtitles:      sanitizedSubs,
+		AudioTracks:    sanitizedAudio,
+		Variants:       sanitizedVariants,
 		Poster:         poster,
 		BrandLogo:      brandLogo,
 		WatermarkURL:   watermark,

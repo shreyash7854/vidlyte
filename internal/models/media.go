@@ -98,6 +98,8 @@ type MediaResponse struct {
 	AudioTracks     []AudioTrack          `json:"audio_tracks"` // Unified across all providers
 	Providers       []ProviderStreams     `json:"providers,omitempty"`  // Individual provider breakdowns
 	Subtitles       []SubtitleTrack       `json:"subtitles"`
+	WarmManifest    string                `json:"warm_manifest,omitempty"`
+	WarmManifests   map[string]string     `json:"warm_manifests,omitempty"`
 	PlaybackToken   string                `json:"playback_token,omitempty"`
 	ResolvedAt      time.Time             `json:"resolved_at"`
 	ExecutionTimeMs float64               `json:"execution_time_ms"`

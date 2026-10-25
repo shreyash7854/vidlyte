@@ -447,6 +447,19 @@ func (s *ResolverService) queryVidrift(ctx context.Context, req models.MediaRequ
 
 	var primaryManifest string
 	var primaryProvider string
+	var primaryWarmManifest string
+	warmManifestsMap := make(map[string]string)
+	if len(meta.WarmManifests) > 0 {
+		for k, raw := range meta.WarmManifests {
+			if decompressed, err := parser.InflateWarmManifest(raw); err == nil && len(decompressed) > 0 {
+				warmManifestsMap[k] = decompressed
+				if strings.HasPrefix(k, "/") {
+					warmManifestsMap["https://embed.vidrift.net"+k] = decompressed
+				}
+			}
+		}
+	}
+
 	var unifiedAudioTracks []models.AudioTrack
 	var variants []models.StreamVariant
 	var providers []models.ProviderStreams
@@ -501,6 +514,14 @@ func (s *ResolverService) queryVidrift(ctx context.Context, req models.MediaRequ
 
 		firstStream := meta.OrionStreams[0]
 		primaryManifest = firstStream.URL
+		if wm, ok := warmManifestsMap[firstStream.URL]; ok {
+			primaryWarmManifest = wm
+		} else if strings.HasPrefix(primaryManifest, "/") {
+			if wm, ok := warmManifestsMap["https://embed.vidrift.net"+primaryManifest]; ok {
+				primaryWarmManifest = wm
+			}
+		}
+
 		if strings.HasPrefix(primaryManifest, "/") {
 			primaryManifest = "https://embed.vidrift.net" + primaryManifest
 		}
@@ -508,7 +529,18 @@ func (s *ResolverService) queryVidrift(ctx context.Context, req models.MediaRequ
 
 		// Rungs
 		baseOrionDir := primaryManifest[:strings.LastIndex(primaryManifest, "/")+1]
-		if len(firstStream.Rungs) > 0 {
+		if primaryWarmManifest != "" {
+			_, parsedVariants := parser.ParseHLSManifest(primaryWarmManifest, baseOrionDir, "orion")
+			if len(parsedVariants) > 0 {
+				for _, pv := range parsedVariants {
+					pv.RequiresProxy = true
+					pv.Headers = orionHeaders
+					pv.ProxiedURI = s.buildProxy(pv.PlaylistURI, "orion")
+					variants = append(variants, pv)
+				}
+			}
+		}
+		if len(variants) == 0 && len(firstStream.Rungs) > 0 {
 			for idx, rung := range firstStream.Rungs {
 				rungURL := fmt.Sprintf("%sv%d.m3u8", baseOrionDir, idx)
 				bw := 1728000
@@ -671,6 +703,8 @@ func (s *ResolverService) queryVidrift(ctx context.Context, req models.MediaRequ
 		AudioTracks:     unifiedAudioTracks,
 		Providers:       providers,
 		Subtitles:       subtitles,
+		WarmManifest:    primaryWarmManifest,
+		WarmManifests:   warmManifestsMap,
 		PlaybackToken:   meta.PlaybackToken,
 		ResolvedAt:      time.Now().UTC(),
 	}, nil

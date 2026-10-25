@@ -439,13 +439,39 @@ func GetHeadersForProvider(provider, targetURLOrPath string) models.HTTPHeaders 
 		origin = "https://asianflix.one"
 		referer = "https://asianflix.one/"
 	} else if targetURLOrPath != "" {
-		referer = VidriftBaseURL + targetURLOrPath
+		if strings.HasPrefix(targetURLOrPath, "http://") || strings.HasPrefix(targetURLOrPath, "https://") {
+			referer = targetURLOrPath
+		} else {
+			referer = VidriftBaseURL + targetURLOrPath
+		}
+	}
+
+	// Auto-detect and forge accurate referer for subtitle API requests
+	if idx := strings.Index(targetURLOrPath, "/subtitles/"); idx != -1 {
+		subPath := targetURLOrPath[idx+len("/subtitles/"):]
+		parts := strings.Split(strings.Trim(subPath, "/"), "/")
+		if len(parts) >= 2 {
+			if parts[0] == "movie" {
+				origin = "https://embed.vidrift.net"
+				referer = fmt.Sprintf("https://embed.vidrift.net/embed/movie/%s", parts[1])
+			} else if parts[0] == "tv" && len(parts) >= 4 {
+				origin = "https://embed.vidrift.net"
+				referer = fmt.Sprintf("https://embed.vidrift.net/embed/tv/%s/%s/%s", parts[1], parts[2], parts[3])
+			}
+		}
+	} else if strings.Contains(targetURLOrPath, "/embed/") {
+		origin = "https://embed.vidrift.net"
+		if strings.HasPrefix(targetURLOrPath, "/embed/") {
+			referer = "https://embed.vidrift.net" + targetURLOrPath
+		}
 	}
 
 	pLower := strings.ToLower(provider)
 	if pLower == "orion" || pLower == "vela" || pLower == "atlas" || pLower == "titan" || pLower == "lyra" {
 		origin = "https://embed.vidrift.net"
-		referer = "https://embed.vidrift.net/"
+		if referer == "" || referer == VidriftBaseURL+"/" {
+			referer = "https://embed.vidrift.net/"
+		}
 	}
 
 	return models.HTTPHeaders{
