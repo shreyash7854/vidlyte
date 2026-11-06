@@ -19,7 +19,8 @@
  *   SWEEP_TIMEOUT_MS        default 30000
  *   SWEEP_SEED              optional, makes the random pick reproducible
  *   SWEEP_DRY_RUN           default false; suppresses Telegram delivery
- *   TMDB_API_KEY            optional; TMDB v3 key
+ *   TMDB_API_KEY            optional TMDB v3 key; without it the sweep uses the
+ *                           curated fallback corpus
  *   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID  optional failure alert
  */
 
@@ -33,7 +34,7 @@ const CONCURRENCY = clampInt(env.SWEEP_CONCURRENCY, 2, 1, 5);
 const TIMEOUT_MS = clampInt(env.SWEEP_TIMEOUT_MS, 30000, 5000, 120000);
 const SEED = env.SWEEP_SEED ? String(env.SWEEP_SEED) : randomUUID();
 const DRY_RUN = isTrue(env.SWEEP_DRY_RUN, false);
-const TMDB_API_KEY = String(env.TMDB_API_KEY || "844dba0bfd8f3a4f3799f6130ef9e335").trim();
+const TMDB_API_KEY = String(env.TMDB_API_KEY || "").trim();
 const TELEGRAM_TOKEN = String(env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_CHAT_ID = String(env.TELEGRAM_CHAT_ID || "").trim();
 
@@ -283,19 +284,21 @@ async function pickAssets(random) {
     .filter(Boolean);
   if (override.length > 0) return { assets: override.slice(0, COUNT), poolSource: "override" };
 
-  const pages = [1 + Math.floor(random() * 5), 1 + Math.floor(random() * 5)];
-  const [movieResult, tvResult] = await Promise.allSettled([
-    fetchPopular("movie", pages[0]),
-    fetchPopular("tv", pages[1]),
-  ]);
-  let poolSource = "tmdb";
-  let movies = movieResult.status === "fulfilled" ? movieResult.value : [];
-  let shows = tvResult.status === "fulfilled" ? tvResult.value : [];
-  if (movies.length === 0 || shows.length === 0) {
-    poolSource = "fallback_corpus";
-    if (movies.length === 0) movies = FALLBACK_MOVIES.map((id) => `movie/${id}`);
-    if (shows.length === 0) shows = FALLBACK_TV.map((id) => `tv/${id}/1/1`);
+  let poolSource = "fallback_corpus";
+  let movies = [];
+  let shows = [];
+  if (TMDB_API_KEY) {
+    const pages = [1 + Math.floor(random() * 5), 1 + Math.floor(random() * 5)];
+    const [movieResult, tvResult] = await Promise.allSettled([
+      fetchPopular("movie", pages[0]),
+      fetchPopular("tv", pages[1]),
+    ]);
+    movies = movieResult.status === "fulfilled" ? movieResult.value : [];
+    shows = tvResult.status === "fulfilled" ? tvResult.value : [];
+    if (movies.length > 0 && shows.length > 0) poolSource = "tmdb";
   }
+  if (movies.length === 0) movies = FALLBACK_MOVIES.map((id) => `movie/${id}`);
+  if (shows.length === 0) shows = FALLBACK_TV.map((id) => `tv/${id}/1/1`);
 
   const half = Math.ceil(COUNT / 2);
   const picked = [

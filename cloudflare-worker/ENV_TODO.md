@@ -31,6 +31,7 @@ public, so Actions minutes are free and no billing profile is required.
 | Secret | `TELEGRAM_CHAT_ID` | DONE | Same destination as the Worker |
 | Secret | `CF_API_TOKEN` | BLOCKED | Read-only Workers analytics for the quota guard (owner-only creation) |
 | Secret | `CF_ACCOUNT_ID` | DONE | Account tag for the quota guard |
+| Secret | `TMDB_API_KEY` | OPTIONAL | Random popular TMDB picks; without it the sweep uses the curated corpus |
 | Variable | `WATCHDOG_BASE_URL` | OPTIONAL | Defaults to `https://vid.lyte.workers.dev` |
 | Variable | `WATCHDOG_ASSETS` | OPTIONAL | Defaults to `tv/66732/1/1,movie/550` |
 | Variable | `SWEEP_COUNT` | OPTIONAL | Number of random TMDB assets per daily sweep (default 10) |

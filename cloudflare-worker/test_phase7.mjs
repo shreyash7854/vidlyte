@@ -308,6 +308,7 @@ await test("sweep resolves random assets and verifies a real segment", () => {
     "/api/source/",
     "SWEEP_MIN_SUCCESS_RATE",
     "SWEEP_COUNT",
+    "TMDB_API_KEY",
     "FALLBACK_MOVIES",
     "pool_source",
     "#EXT-X-STREAM-INF",
@@ -324,6 +325,13 @@ await test("sweep does not leak tokens or upstream error text", () => {
     "token: TELEGRAM_TOKEN",
     "payload.error",
   ], "sweep");
+});
+
+await test("sweep does not embed a TMDB API key", () => {
+  assert.ok(
+    !/api_key=[a-f0-9]{32}/i.test(sweep),
+    "sweep must read TMDB_API_KEY from the environment instead of embedding a key"
+  );
 });
 
 console.log("\n[quota] Workers Free capacity guard");

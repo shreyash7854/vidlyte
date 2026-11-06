@@ -173,8 +173,10 @@ node scripts/sweep.mjs
 - The workflow (`.github/workflows/tmdb-sweep.yml`) runs at **03:17 UTC** and
   can be dispatched manually. It uses free Actions minutes on the public repo.
 - It fetches TMDB popular movies/shows, takes a random sample, then verifies
-  `/api/source` → playlist → first segment for each. If TMDB is unreachable it
-  falls back to a curated corpus of valid ids, so the probe still runs.
+  `/api/source` → playlist → first segment for each. Set `TMDB_API_KEY` as a
+  GitHub secret for live popular picks; without it (or when TMDB is
+  unreachable) the sweep uses a curated corpus of valid ids, so the probe still
+  runs. No TMDB key is embedded in the repository.
 - `SWEEP_ASSETS=movie/550,tv/1399/1/1` skips randomization for a targeted run.
 - Exit code `1` when the pass rate is below `SWEEP_MIN_SUCCESS_RATE` (default
   `0.6`). Failures send one Telegram message with asset ids and reason codes

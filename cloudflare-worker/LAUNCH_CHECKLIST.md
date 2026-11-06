@@ -82,7 +82,7 @@ goes dark with no warning.
 
 ## Gate 4 — Deploy and rollback (DONE / RUNBOOK)
 
-- [x] All 214 tests pass (`npm run test:all`).
+- [x] All 215 tests pass (`npm run test:all`).
 - [x] Production deployed: version `4a39467d-c949-4408-a419-a4494587ae2c`.
 - [x] `main` fast-forwarded to the tested branch; all three workflows active.
 - [x] Post-deploy smoke available: `npm run watchdog` (real playback chain).

@@ -280,7 +280,7 @@ node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota,
 npx wrangler deploy --dry-run
 ```
 
-Expected: `25`, `32`, `37`, `25`, `32`, `26` and `37` tests passing (214 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
+Expected: `25`, `32`, `37`, `25`, `32`, `26` and `38` tests passing (215 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
 
 ## 14. Operations Runbook
 
