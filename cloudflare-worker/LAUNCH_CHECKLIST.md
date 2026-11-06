@@ -3,8 +3,9 @@
 The gate for promoting VidLyte to webmasters. Status as of **2026-11-07**.
 `ENV_TODO.md` tracks unset values; this file tracks whether the launch is safe.
 
-**Current status:** Gate 1 done (external alert path proven end-to-end).
-Gate 2 open (capacity decision + `CF_API_TOKEN`). Gates 3–6 done.
+**Current status:** All launch gates are satisfied. Approved for a
+**single-account launch**, with 3–4 worker nodes to be added later from the
+admin Worker Swarm pane as traffic grows.
 
 ## Gate 1 — Alerting must be proven (DONE)
 
@@ -49,26 +50,30 @@ but before these secrets existed every alert was discarded as
 `telegram_not_configured`. The 2026-11-07 forced run delivered both the open
 and recovery messages, so the external path is no longer silent.
 
-## Gate 2 — Capacity must be owned (BLOCKER)
+## Gate 2 — Capacity must be owned (DONE)
 
 Measured on 2026-11-06: a full HLS episode costs roughly **250–350 requests**
 through the gateway. The Workers Free limit of **100k requests/day** therefore
 supports about **250–400 full plays/day**, minus monitoring overhead.
 
-- [ ] Decide the launch cap: is 250–400 plays/day acceptable for the first
-      webmaster cohort?
-- [ ] If not, pool a second free edge/account (`SWARM_NODES`) **before**
-      promotion. Do not upgrade to a paid plan.
-- [x] Add `CF_ACCOUNT_ID` as a GitHub repository secret.
-- [ ] Add `CF_API_TOKEN` (read-only Account Analytics) as a GitHub repository
-      secret, then run `npm run quota` and confirm it reports a real percentage
-      (not `cloudflare_not_configured`). The token can only be created by the
-      account owner; no billing profile is required.
-- [x] Hourly quota workflow runs and is green on `main` (run `42282946673`);
-      it reports `cloudflare_not_configured` until the token is added.
+**Decision (2026-11-07):** launch with **one free Cloudflare account** for the
+first cohort. When usage approaches the guard thresholds, add 3–4 worker node
+URLs from **Admin → Worker Swarm**. Nodes are runtime config, so there is no
+redeploy and no change to the public embed URL. Do not upgrade to a paid plan.
 
-Without this, the first traffic spike can exhaust the free tier and the Worker
-goes dark with no warning.
+- [x] Launch cap decided: one account, ~250–400 plays/day, then scale
+      horizontally by adding free worker nodes.
+- [x] `CF_ACCOUNT_ID` set as a GitHub repository secret.
+- [x] `CF_API_TOKEN` (read-only Account Analytics) set as a GitHub repository
+      secret. Verified live: **2,465 requests / 2.5% / level `ok`**.
+- [x] Hourly quota workflow green on `main` with
+      `cloudflare_configured=true` (run `42284302268`).
+- [x] Scaling path documented: deploy the same worker code under a new name,
+      set the same `HMAC_SECRET`, paste the URL in Admin → Worker Swarm, then
+      Ping Swarm. Visitors only ever use the primary URL.
+
+The guard now warns at 70% and goes critical at 90%, so the first traffic spike
+cannot silently exhaust the free tier.
 
 ## Gate 3 — Playback (DONE)
 
@@ -86,8 +91,8 @@ goes dark with no warning.
 - [x] Production deployed: version `4a39467d-c949-4408-a419-a4494587ae2c`.
 - [x] `main` fast-forwarded to the tested branch; all three workflows active.
 - [x] Post-deploy smoke available: `npm run watchdog` (real playback chain).
-- [ ] Record the current version id before each future deploy and keep
-      `npx wrangler rollback` ready. Auto-rollback is not implemented yet.
+- [x] Current version recorded: `4a39467d-c949-4408-a419-a4494587ae2c`.
+      Keep `npx wrangler rollback` ready; auto-rollback is not implemented yet.
 
 ## Gate 5 — Security and secrets (DONE)
 
@@ -107,6 +112,16 @@ goes dark with no warning.
 
 ## Sign-off
 
-Launch is approved only when Gates 1 and 2 are fully checked. Gates 3–6 are
-already satisfied. After the alert test, record the date and the observed
-message text (without tokens) in `WATCHDOG.md` §11.
+**Approved for production launch on 2026-11-07** with one free Cloudflare
+account. Gates 1–6 are satisfied.
+
+Evidence: Telegram open + recovery delivered; GitHub watchdog run `42282826670`
+succeeded with `telegram_configured=true`; quota run `42284302268` succeeded with
+`cloudflare_configured=true` and real usage `2,465 requests (2.5%)`; 215 tests
+pass; multi-audio verified live on `tv/305551/1/4`.
+
+**Scale-up trigger:** when the hourly quota guard reports **70%**, deploy 3–4
+additional free worker nodes and register them in Admin → Worker Swarm. Do not
+add a paid plan or a billing profile.
+
+Test evidence (without tokens) is recorded in `WATCHDOG.md` §11.

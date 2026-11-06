@@ -206,9 +206,11 @@ node scripts/quota.mjs
   (90%) of `QUOTA_DAILY_LIMIT` (100000). It sends a recovery notice when usage
   drops back below the warn threshold and deduplicates for
   `QUOTA_COOLDOWN_HOURS` (6h).
-- Until `CF_API_TOKEN` / `CF_ACCOUNT_ID` are set it prints
+- `CF_API_TOKEN` and `CF_ACCOUNT_ID` are configured as GitHub secrets. The first
+  live run on 2026-11-07 read **2,465 requests (2.5%, level `ok`)** for the
+  current UTC day. If the credentials are ever removed it prints
   `skipped: "cloudflare_not_configured"` and exits `0`, so the workflow stays
-  green. Add them before public traffic. See `ENV_TODO.md`.
+  green; the preflight step adds a warning. See `ENV_TODO.md`.
 - The token only needs **Account → Account Analytics: Read**. Never add a paid
   plan or billing profile to raise the limit.
 
@@ -250,7 +252,9 @@ promoting the service.
 | 2026-11-07 | Forced watchdog open | Invalid host produced `ok:false`, `step:connect`, `fetch failed (ENOTFOUND)`; Telegram alert `sent:true` |
 | 2026-11-07 | Forced watchdog recovery | Production run passed readiness, `tv/66732/1/1` and `movie/550`; recovery alert `sent:true` |
 | 2026-11-07 | GitHub watchdog dispatch | Run `42282826670` succeeded; `telegram_configured=true`; readiness, `tv/66732/1/1` and `movie/550` passed |
-| 2026-11-07 | GitHub quota dispatch | Run `42282946673` succeeded; `telegram_configured=true`, `cloudflare_configured=false`, `skipped:cloudflare_not_configured` (expected until the token exists) |
+| 2026-11-07 | GitHub quota dispatch (pre-token) | Run `42282946673` succeeded; `telegram_configured=true`, `cloudflare_configured=false`, `skipped:cloudflare_not_configured` (expected before the token existed) |
+| 2026-11-07 | Quota guard with real token | `2,465` requests today, **2.5%** of 100k, level `ok` |
+| 2026-11-07 | GitHub quota dispatch (configured) | Run `42284302268` succeeded; `cloudflare_configured=true`, `requests:2465`, `percent:2.5`, `level:ok` |
 
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the

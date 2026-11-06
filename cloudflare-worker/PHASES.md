@@ -100,8 +100,8 @@ abuse without a Durable Object (not available on the free tier).
 | Admin | Upstreams pane shows alert status, **Send Test** and **Run Canary**. APIs: `GET <admin>/api/alerts/status`, `POST <admin>/api/alerts/test`, `POST <admin>/api/watchdog/canary`. |
 | Rules | Root `AGENTS.md` + `cloudflare-worker/AGENTS.md` define free-only, secrets, token-efficiency, verification and definition-of-done rules. |
 | Random sweep | `.github/workflows/tmdb-sweep.yml` runs daily. `scripts/sweep.mjs` resolves random popular TMDB ids (fallback corpus when TMDB is blocked) through `/api/source` → playlist → segment, exits non-zero below `SWEEP_MIN_SUCCESS_RATE`, and alerts through Telegram. |
-| Quota guard | `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's UTC Workers requests with a read-only analytics token and warns at 70%/90% of the 100k free daily limit, with recovery + 6-hour dedupe. Reports `cloudflare_not_configured` until credentials exist. |
-| Pending config | `ENV_TODO.md` tracks unset secrets/variables and verification steps without recording values. |
+| Quota guard | `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's UTC Workers requests with a read-only analytics token and warns at 70%/90% of the 100k free daily limit, with recovery + 6-hour dedupe. Configured and verified at 2,465 requests / 2.5% on 2026-11-07. |
+| Pending config | `ENV_TODO.md` tracks any remaining optional secrets/variables and verification steps without recording values. |
 | Limits | GitHub cron is best-effort (5-minute minimum). The watchdog validates the server-side chain, not the browser-only BigBang upgrade; `tv/305551/1/4` was manually verified with 5 audio tracks on 2026-11-06 (see `WATCHDOG.md`). |
 
 ---
@@ -158,10 +158,9 @@ abuse without a Durable Object (not available on the free tier).
    WATCHDOG_CANARY_MAX_AGE_SEC = "1800"
    WATCHDOG_REQUIRE_CANARY = "false"
    ```
-   Also add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as GitHub repository
-   secrets so the external workflow can alert when the Worker is down. Add
-   `CF_API_TOKEN` (read-only Account Analytics) and `CF_ACCOUNT_ID` for the
-   quota guard. See `WATCHDOG.md` and `ENV_TODO.md`.
+   GitHub repository secrets are configured: `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_CHAT_ID`, `CF_API_TOKEN` (read-only Account Analytics) and
+   `CF_ACCOUNT_ID`. See `WATCHDOG.md` and `ENV_TODO.md`.
 7. Deploy only when explicitly approved:
    ```powershell
    npx wrangler deploy

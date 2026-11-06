@@ -29,7 +29,7 @@ public, so Actions minutes are free and no billing profile is required.
 |---|---|---|---|
 | Secret | `TELEGRAM_BOT_TOKEN` | DONE | External watchdog + sweep + quota alerts |
 | Secret | `TELEGRAM_CHAT_ID` | DONE | Same destination as the Worker |
-| Secret | `CF_API_TOKEN` | BLOCKED | Read-only Workers analytics for the quota guard (owner-only creation) |
+| Secret | `CF_API_TOKEN` | DONE | Read-only Workers analytics for the quota guard; verified at 2.5% |
 | Secret | `CF_ACCOUNT_ID` | DONE | Account tag for the quota guard |
 | Secret | `TMDB_API_KEY` | OPTIONAL | Random popular TMDB picks; without it the sweep uses the curated corpus |
 | Variable | `WATCHDOG_BASE_URL` | OPTIONAL | Defaults to `https://vid.lyte.workers.dev` |
@@ -56,15 +56,18 @@ Done on 2026-11-07:
 1. Telegram secrets set in **both** places (Worker + GitHub).
 2. `main` fast-forwarded so all three scheduled workflows are active.
 3. Direct Telegram delivery, plus forced watchdog open **and** recovery, proven.
-4. `CF_ACCOUNT_ID` set as a GitHub secret.
+4. `CF_ACCOUNT_ID` and `CF_API_TOKEN` set as GitHub secrets.
+5. Quota guard verified live: 2,465 requests, 2.5%, level `ok`.
+6. Capacity decision: one free Cloudflare account for launch; add 3–4 worker
+   node URLs later from Admin → Worker Swarm when usage grows.
 
-Still open:
+Still open (non-blocking):
 
-1. Add `CF_API_TOKEN` (read-only Account Analytics) as a GitHub secret, then run
-   `npm run quota` and confirm a real percentage. Only the account owner can
-   create the token; no billing profile is required.
-2. Decide the launch capacity envelope: ~250–400 full plays/day on Workers Free,
-   or pool a second free edge/account via `SWARM_NODES` before promotion.
-3. Optional: run Admin → **Send Test** to exercise the Worker's own notifier.
+1. Optional: run Admin → **Send Test** to exercise the Worker's own notifier.
    The external watchdog already covers readiness/canary failures and uses the
    same proven bot/chat.
+2. Optional: add `TMDB_API_KEY` as a GitHub secret for live popular-TMDB picks;
+   without it the daily sweep uses the curated corpus.
+3. Scale-up: when the quota guard reaches 70%, deploy 3–4 additional free
+   workers, set the same `HMAC_SECRET`, and register them in Admin → Worker
+   Swarm. Do not add a paid plan.
