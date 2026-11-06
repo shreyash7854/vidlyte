@@ -1,0 +1,64 @@
+name = "vid"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Secrets are NOT stored here. Set them once with:
+#   npx wrangler secret put HMAC_SECRET
+#   npx wrangler secret put ADMIN_SECRET
+# Keeping them out of [vars] means `wrangler deploy` can never overwrite them.
+ADMIN_ROUTE = "/vly-ops-7x"
+DEFAULT_TTL_SEC = 900
+SWARM_NODES = ""
+# Bind playback tokens to the requesting client IP. Leave false when viewers
+# may switch networks mid-playback (mobile handoff).
+BIND_CLIENT_IP = "false"
+# Comma-separated extra upstream host suffixes allowed by /proxy and the
+# resolver guards. Built-in provider hosts are always allowed.
+UPSTREAM_ALLOWLIST = ""
+# Phase 3 abuse control (per-IP, fixed 60s window, per isolate). Set
+# RATE_LIMIT_ENABLED="false" to disable. Media covers HLS/segments.
+RATE_LIMIT_ENABLED = "true"
+RATE_LIMIT_PER_MINUTE = "240"
+RATE_LIMIT_API_PER_MINUTE = "120"
+RATE_LIMIT_MEDIA_PER_MINUTE = "1800"
+RATE_LIMIT_ADMIN_PER_MINUTE = "40"
+
+# Phase 5: admin session lifetime (seconds). Default 12h, capped at 7 days.
+ADMIN_SESSION_TTL_SEC = "43200"
+# Optional webhook (Slack/Discord/JSON) notified when scheduled maintenance
+# finds an unhealthy swarm node or provider. Empty disables alerting.
+ALERT_WEBHOOK_URL = ""
+
+# Telegram alerting. The bot token and chat id are secrets:
+#   npx wrangler secret put TELEGRAM_BOT_TOKEN
+#   npx wrangler secret put TELEGRAM_CHAT_ID
+TELEGRAM_ALERTS_ENABLED = "true"
+ALERT_MIN_SEVERITY = "warning"
+ALERT_COOLDOWN_MIN = "15"
+
+# Self-healing canary. Scheduled maintenance resolves this asset through a
+# Worker-reachable provider and validates the manifest. Readiness fails when a
+# stored canary is failed or stale. `?canary=1` forces a live check.
+WATCHDOG_CANARY_ENABLED = "true"
+WATCHDOG_CANARY_ASSET = "tv/66732/1/1"
+WATCHDOG_CANARY_PROVIDER = "framextv"
+WATCHDOG_CANARY_MAX_AGE_SEC = "1800"
+WATCHDOG_REQUIRE_CANARY = "false"
+
+# Optional persistent configuration store. Without it the admin panel still
+# works, but runtime config is per-isolate and resets on cold starts.
+[[kv_namespaces]]
+binding = "CONFIG_KV"
+id = "1458cc95d50b4ba99b31ea7b736b5e64"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = false
+
+# Scheduled self-healing: probe swarm nodes and provider endpoints every 15
+# minutes. Free accounts support up to 5 cron triggers.
+[triggers]
+crons = ["*/15 * * * *"]

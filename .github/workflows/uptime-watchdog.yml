@@ -1,0 +1,61 @@
+name: Uptime watchdog
+
+# External watchdog: runs outside Cloudflare so it can alert even when the
+# Worker itself is down. Free for public repositories (no billing profile).
+on:
+  schedule:
+    # GitHub's minimum is 5 minutes; scheduled runs can be delayed under load.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # actions/cache is immutable, so use a unique key and restore the newest
+      # previous state via the prefix. This keeps open/recovery dedupe working
+      # across ephemeral runners without committing state to the repo.
+      - name: Restore watchdog state
+        uses: actions/cache@v4
+        with:
+          path: cloudflare-worker/.watchdog-state
+          key: watchdog-state-${{ github.run_id }}
+          restore-keys: |
+            watchdog-state-
+
+      - name: Run end-to-end watchdog
+        working-directory: cloudflare-worker
+        env:
+          WATCHDOG_BASE_URL: ${{ vars.WATCHDOG_BASE_URL }}
+          WATCHDOG_ASSETS: ${{ vars.WATCHDOG_ASSETS }}
+          WATCHDOG_STATE_DIR: .watchdog-state
+          # Store these as repository secrets. The same names are used by the
+          # Worker (wrangler secret put TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID).
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/watchdog.mjs
+
+      - name: Upload watchdog report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watchdog-state-${{ github.run_id }}
+          path: cloudflare-worker/.watchdog-state
+          retention-days: 7
+          if-no-files-found: ignore

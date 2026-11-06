@@ -1,0 +1,2503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>VidLyte // Operations Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <script nonce="__CSP_NONCE__">
+    (function() {
+      try {
+        var saved = localStorage.getItem('vidlyte_theme');
+        var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+
+  <style>
+    :root {
+      --bg: #07090e;
+      --bg-dots: rgba(255, 255, 255, 0.04);
+      --surface: #0b0f19;
+      --surface-elevated: #131926;
+      --surface-card: #0e1320;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.18);
+      --accent-soft: rgba(16, 185, 129, 0.08);
+      --btn-cta-bg: #f8fafc;
+      --btn-cta-text: #07090e;
+      --card-bg: #0d121e;
+      --sidebar-bg: #090c14;
+      --header-bg: rgba(9, 12, 20, 0.85);
+      --code-bg: #05070c;
+      --danger: #ef4444;
+      --danger-soft: rgba(239, 68, 68, 0.12);
+      --warn: #f59e0b;
+      --blue: #38bdf8;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-dots: rgba(0, 0, 0, 0.04);
+      --surface: #ffffff;
+      --surface-elevated: #f1f5f9;
+      --surface-card: #ffffff;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #09090b;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --accent: #059669;
+      --accent-glow: rgba(16, 185, 129, 0.14);
+      --accent-soft: rgba(16, 185, 129, 0.06);
+      --btn-cta-bg: #09090b;
+      --btn-cta-text: #ffffff;
+      --card-bg: #ffffff;
+      --sidebar-bg: #ffffff;
+      --header-bg: rgba(255, 255, 255, 0.9);
+      --code-bg: #f1f5f9;
+      --danger: #dc2626;
+      --danger-soft: rgba(220, 38, 38, 0.08);
+      --warn: #d97706;
+      --blue: #0284c7;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.06);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: var(--bg);
+      background-image: radial-gradient(circle at 50% 50%, var(--bg-dots) 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; background: none; border: 0; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+
+    /* -------------------------------------------------------------
+       TOP NAVIGATION BAR
+       ------------------------------------------------------------- */
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 64px;
+      background: var(--header-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      transition: background-color 0.25s ease, border-color 0.25s ease;
+    }
+    .brand-cluster {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .breadcrumb-sep {
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+    .breadcrumb-current {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    /* Interval selector pills (3.png Antimetal style) */
+    .interval-pills {
+      display: inline-flex;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .interval-btn {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      transition: all 0.15s ease;
+    }
+    .interval-btn.active {
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Theme Toggle */
+    .theme-toggle-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .theme-toggle-btn:hover {
+      border-color: var(--border-strong);
+      transform: scale(1.05);
+    }
+    .theme-toggle-btn svg { width: 17px; height: 17px; stroke-width: 1.8; }
+
+    /* Action Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn-cta {
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      box-shadow: var(--shadow-sm);
+    }
+    .btn-cta:hover { opacity: 0.92; transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover { border-color: var(--border-strong); }
+    .btn-danger {
+      background: var(--danger-soft);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+    }
+    .btn-danger:hover { background: var(--danger); color: #fff; }
+
+    /* -------------------------------------------------------------
+       AUTH MODAL / VAULT
+       ------------------------------------------------------------- */
+    .auth-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      box-shadow: var(--shadow-md);
+    }
+    .auth-logo {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 8px;
+    }
+    .auth-title {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .auth-desc {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    .auth-error {
+      display: none;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: var(--danger-soft);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 18px;
+    }
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .input-field {
+      width: 100%;
+      height: 42px;
+      padding: 0 14px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 13.5px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .input-field:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* -------------------------------------------------------------
+       MAIN DASHBOARD SHELL
+       ------------------------------------------------------------- */
+    .dashboard-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: calc(100vh - 64px);
+    }
+    @media (max-width: 900px) {
+      .dashboard-layout { grid-template-columns: 1fr; }
+    }
+
+    /* -------------------------------------------------------------
+       SIDEBAR NAVIGATION
+       ------------------------------------------------------------- */
+    .sidebar {
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: background-color 0.25s ease, border-color 0.25s ease;
+    }
+    .sidebar-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      padding: 10px 12px 6px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+      stroke-width: 1.8;
+      stroke: currentColor;
+    }
+    .nav-item:hover {
+      color: var(--text);
+      background: var(--surface-elevated);
+    }
+    .nav-item.active {
+      color: var(--text);
+      background: var(--surface-card);
+      border-color: var(--border);
+      box-shadow: var(--shadow-sm);
+      font-weight: 700;
+    }
+
+    /* -------------------------------------------------------------
+       DASHBOARD MAIN CONTENT AREA
+       ------------------------------------------------------------- */
+    .dashboard-content {
+      padding: 28px 32px;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    @media (max-width: 768px) {
+      .dashboard-content { padding: 20px 16px; }
+    }
+
+    /* -------------------------------------------------------------
+       ANTIMETAL (3.png) METRIC CARDS ROW
+       ------------------------------------------------------------- */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1.1fr 1fr;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 1024px) {
+      .metrics-grid { grid-template-columns: 1fr; }
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .metric-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .metric-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .metric-link {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      cursor: pointer;
+    }
+    .metric-link:hover { text-decoration: underline; }
+
+    /* Segmented Bar for Traffic Overview */
+    .segmented-progress-bar {
+      height: 8px;
+      width: 100%;
+      border-radius: 999px;
+      background: var(--surface-elevated);
+      display: flex;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .prog-seg-blue { background: var(--blue); width: 85%; }
+    .prog-seg-green { background: var(--accent); width: 14%; }
+    .prog-seg-red { background: var(--danger); width: 1%; }
+
+    .metric-values-row {
+      display: flex;
+      align-items: baseline;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .metric-val-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-val-large {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .metric-val-label {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    /* Sparkline Curve for Latency */
+    .sparkline-wrap {
+      width: 100%;
+      height: 48px;
+      margin-top: 10px;
+    }
+
+    /* Semi-circular gauge for Guardrails */
+    .gauge-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      height: 90px;
+    }
+    .gauge-center-text {
+      position: absolute;
+      bottom: 6px;
+      text-align: center;
+    }
+    .gauge-center-num {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .gauge-center-lbl {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    /* -------------------------------------------------------------
+       TAB PANELS & CONTENT CARDS
+       ------------------------------------------------------------- */
+    .panel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 24px;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .panel-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 768px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    /* Switch toggle */
+    .switch-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .switch-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .switch-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .switch-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .switch-input {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      -webkit-appearance: none;
+      background: var(--border-strong);
+      outline: none;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .switch-input:checked {
+      background: var(--accent);
+    }
+    .switch-input::before {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      background: #ffffff;
+      transition: transform 0.2s;
+    }
+    .switch-input:checked::before {
+      transform: translateX(20px);
+    }
+
+    /* Data Tables */
+    .data-table-wrap {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .data-table th {
+      background: var(--surface-elevated);
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    .data-table tr:last-child td {
+      border-bottom: none;
+    }
+    .data-table tr:hover td {
+      background: var(--surface-elevated);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .badge-ok {
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    .badge-warn {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid var(--warn);
+      color: var(--warn);
+    }
+    .badge-err {
+      background: var(--danger-soft);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+    }
+
+    /* Strategy Cards */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 768px) {
+      .strategy-grid { grid-template-columns: 1fr; }
+    }
+    .strat-card {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .strat-card:hover { border-color: var(--border-strong); }
+    .strat-card.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .strat-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .strat-desc {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+    .swarm-help {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px dashed var(--border-strong);
+      background: var(--surface-elevated);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text-dim);
+    }
+    .swarm-help strong { color: var(--text); }
+    .swarm-help ol { margin: 8px 0 8px 18px; padding: 0; }
+    .swarm-help li { margin-bottom: 4px; }
+    .swarm-help code {
+      font-family: var(--font-mono, monospace);
+      font-size: 11.5px;
+      color: var(--accent);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 5px;
+      border-radius: 5px;
+      word-break: break-all;
+    }
+    .swarm-help p { margin: 8px 0 0; }
+
+    /* Toast Notification */
+    .toast-popup {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      padding: 12px 20px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: var(--shadow-md);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.25s ease;
+      pointer-events: none;
+    }
+    .toast-popup.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Command Bar -->
+  <header class="top-bar">
+    <div class="brand-cluster">
+      <div class="brand-logo">vidlyte</div>
+      <span class="breadcrumb-sep">/</span>
+      <span class="breadcrumb-current" id="headerBreadcrumb">Operations Console</span>
+    </div>
+
+    <div class="top-actions" id="headerActions" style="display: none;">
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span>Edge Network: Online</span>
+      </div>
+
+      <div class="interval-pills">
+        <button class="interval-btn" onclick="setIntervalFilter('1H', this)">1H</button>
+        <button class="interval-btn active" onclick="setIntervalFilter('24H', this)">24H</button>
+        <button class="interval-btn" onclick="setIntervalFilter('7D', this)">7D</button>
+        <button class="interval-btn" onclick="setIntervalFilter('ALL', this)">ALL</button>
+      </div>
+
+      <!-- Theme Switcher -->
+      <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Switch Light/Dark Mode">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+      </button>
+
+      <a href="/" target="_blank" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+        <span>Public Portal</span>
+      </a>
+
+      <button class="btn btn-cta" onclick="saveConfig()">Save Changes</button>
+      <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- AUTHENTICATION / UNLOCK VAULT -->
+  <main class="auth-wrap" id="authSection">
+    <div class="auth-card">
+      <div class="auth-logo">vidlyte</div>
+      <h1 class="auth-title">Operations Console</h1>
+      <p class="auth-desc">Authenticate with your secret administrator token to manage edge routing, swarm nodes, and domain policies.</p>
+
+      <div class="auth-error" id="authErrorMsg"></div>
+
+      <form onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label" for="adminSecretInput">ADMIN SECRET KEY</label>
+          <input type="password" id="adminSecretInput" class="input-field" placeholder="Enter administrator password..." required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-cta" style="width: 100%; height: 42px;" id="loginBtn">Authenticate</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- AUTHENTICATED DASHBOARD SHELL -->
+  <main class="dashboard-layout" id="dashboardSection" style="display: none;">
+    <!-- Sleek Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-section-title">Navigation</div>
+      
+      <div class="nav-item active" data-pane="pane-overview" onclick="switchPane('pane-overview', 'Overview')">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
+        <span>Overview</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-swarm" onclick="switchPane('pane-swarm', 'Worker Swarm')">
+        <svg viewBox="0 0 24 24" fill="none"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        <span>Worker Swarm</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-domains" onclick="switchPane('pane-domains', 'Domain Governance')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        <span>Domain Governance</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-ads" onclick="switchPane('pane-ads', 'Monetization')">
+        <svg viewBox="0 0 24 24" fill="none"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        <span>Monetization</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-upstreams" onclick="switchPane('pane-upstreams', 'Upstream Gateways')">
+        <svg viewBox="0 0 24 24" fill="none"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        <span>Upstream Gateways</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-site" onclick="switchPane('pane-site', 'Site & Branding')">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle><line x1="21.17" y1="8" x2="12" y2="8"></line><line x1="3.95" y1="6.06" x2="8.54" y2="14"></line><line x1="10.88" y1="21.94" x2="15.46" y2="14"></line></svg>
+        <span>Site & Branding</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-diagnostics" onclick="switchPane('pane-diagnostics', 'Diagnostics')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3 8 4-16 3 8h4"></path></svg>
+        <span>Diagnostics</span>
+      </div>
+
+      <div class="nav-item" data-pane="pane-docs" onclick="switchPane('pane-docs', 'Docs & Architecture')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span>Docs & Architecture</span>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="dashboard-content">
+
+      <!-- ANTIMETAL 3-CARD SHOWCASE ROW -->
+      <section class="metrics-grid">
+        <!-- Card 1: Traffic Overview -->
+        <div class="metric-card">
+          <div class="metric-card-header">
+            <span class="metric-title">Traffic & Delivery Overview</span>
+            <span class="metric-link" onclick="fetchMetrics()">Refresh Telemetry ↻</span>
+          </div>
+
+          <div class="segmented-progress-bar">
+            <div class="prog-seg-blue" id="prog2xx" title="2xx Deliveries"></div>
+            <div class="prog-seg-green" id="progHits" title="Edge Cache Hits"></div>
+            <div class="prog-seg-red" id="progErrors" title="Errors"></div>
+          </div>
+
+          <div class="metric-values-row">
+            <div class="metric-val-block">
+              <span class="metric-val-large" id="metricTotalReqs">0</span>
+              <span class="metric-val-label">Total Requests</span>
+            </div>
+            <div class="metric-val-block">
+              <span class="metric-val-large" id="metricBytesStreamed">0 MB</span>
+              <span class="metric-val-label">Data Streamed</span>
+            </div>
+            <div class="metric-val-block">
+              <span class="metric-val-large" id="metricDeliveryRate">99.9%</span>
+              <span class="metric-val-label">Delivery Health</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Worker Swarm & Latency -->
+        <div class="metric-card">
+          <div class="metric-card-header">
+            <span class="metric-title">Swarm Mesh & Latency</span>
+            <span class="badge badge-ok">● On track</span>
+          </div>
+
+          <div class="metric-values-row">
+            <div class="metric-val-block">
+              <span class="metric-val-large" id="metricActiveWorkers">0</span>
+              <span class="metric-val-label">Active Worker Nodes</span>
+            </div>
+            <div class="metric-val-block">
+              <span class="metric-val-large" id="metricAvgLatency">36ms</span>
+              <span class="metric-val-label">Avg Edge Latency</span>
+            </div>
+          </div>
+
+          <div class="sparkline-wrap">
+            <svg viewBox="0 0 200 40" width="100%" height="100%" preserveAspectRatio="none">
+              <path d="M 0 32 Q 40 28, 80 18 T 140 22 T 200 12" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"></path>
+              <path d="M 0 32 Q 40 28, 80 18 T 140 22 T 200 12 L 200 40 L 0 40 Z" fill="var(--accent-soft)"></path>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Card 3: Domain Guardrails -->
+        <div class="metric-card">
+          <div class="metric-card-header">
+            <span class="metric-title">Anti-Scrape Guardrails</span>
+            <span class="badge badge-ok">Active</span>
+          </div>
+
+          <div class="gauge-wrap">
+            <svg viewBox="0 0 160 90" width="140" height="80">
+              <path d="M 20 80 A 60 60 0 0 1 140 80" fill="none" stroke="var(--border)" stroke-width="12" stroke-linecap="round"></path>
+              <path d="M 20 80 A 60 60 0 0 1 130 50" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"></path>
+            </svg>
+            <div class="gauge-center-text">
+              <div class="gauge-center-num" id="metricBlockedDomains">0</div>
+              <div class="gauge-center-lbl">Blocked Origins</div>
+            </div>
+          </div>
+
+          <div style="font-size: 11.5px; color: var(--text-dim); text-align: center; margin-top: 4px;">
+            AES-256 Opaque URL Encryption: Enforced
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 1: OVERVIEW PANE -->
+      <section id="pane-overview" class="pane-content">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">System Status & Deployment Health</h2>
+              <p class="panel-subtitle">Real-time health of your sovereign WebAssembly edge engine and proxy pipelines.</p>
+            </div>
+          </div>
+
+          <div class="data-table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Engine / Driver</th>
+                  <th>Status</th>
+                  <th>Verification</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>Edge Manifest Gateway</b></td>
+                  <td>Go 1.24+ Wasm (WASI)</td>
+                  <td><span class="badge badge-ok">● Active</span></td>
+                  <td>Fast memory arena token validation</td>
+                </tr>
+                <tr>
+                  <td><b>Opaque Stream Cipher</b></td>
+                  <td>AES-256-GCM Hardware Core</td>
+                  <td><span class="badge badge-ok">● Sealed</span></td>
+                  <td>Zero upstream domain or provider leakage</td>
+                </tr>
+                <tr>
+                  <td><b>Adaptive Proxy Swarm</b></td>
+                  <td>Multi-Worker Edge Failover</td>
+                  <td><span class="badge badge-ok">● Enabled</span></td>
+                  <td>Automatic bypass on sluggish nodes</td>
+                </tr>
+                <tr>
+                  <td><b>Multi-Dub Audio Engine</b></td>
+                  <td>HLS RFC 8216 Unified Audio</td>
+                  <td><span class="badge badge-ok">● Synchronized</span></td>
+                  <td>5+ regional dubs with instant audio switching</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: WORKER SWARM PANE -->
+      <section id="pane-swarm" class="pane-content" style="display: none;">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Cloudflare Worker Proxy Swarm</h2>
+              <p class="panel-subtitle">Distribute upstream media fetching across free-tier edge worker nodes to eliminate rate limits and geographic throttling.</p>
+            </div>
+            <button class="btn btn-secondary" id="pingSwarmBtn" onclick="pingSwarmNodes()">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              <span>Probe All Nodes</span>
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Failover Routing Strategy</label>
+            <div class="strategy-grid">
+              <div class="strat-card active" id="stratLatency" onclick="selectStrategy('latency')">
+                <div class="strat-title">Latency Optimized (Recommended)</div>
+                <div class="strat-desc">Routes traffic to the fastest responding edge worker with lowest response time.</div>
+              </div>
+              <div class="strat-card" id="stratRandom" onclick="selectStrategy('random')">
+                <div class="strat-title">Random Distribution</div>
+                <div class="strat-desc">Distributes chunks evenly across your worker fleet for uniform bandwidth usage.</div>
+              </div>
+              <div class="strat-card" id="stratRoundRobin" onclick="selectStrategy('round_robin')">
+                <div class="strat-title">Strict Round Robin</div>
+                <div class="strat-desc">Sequentially cycles through nodes with failover bypass on dead instances.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Add Edge Worker Node URL</label>
+            <div style="display: flex; gap: 10px;">
+              <input type="url" id="newWorkerUrlInput" class="input-field" placeholder="https://worker-node-1.username.workers.dev">
+              <button class="btn btn-cta" onclick="addNewWorker()">Add Node</button>
+            </div>
+            <div class="swarm-help">
+              <strong>How nodes work</strong>
+              <ol>
+                <li>Deploy <em>this same worker code</em> again under a new name: <code>npx wrangler deploy --name vidlyte-node-1</code>.</li>
+                <li>Set the same <code>HMAC_SECRET</code> (and <code>UPSTREAM_ALLOWLIST</code> if you customised it) on that node.</li>
+                <li>Paste its base URL above, e.g. <code>https://vidlyte-node-1.you.workers.dev</code>, and click <strong>Add Node</strong>.</li>
+              </ol>
+              <p>No separate node build and no DNS changes. The primary gateway automatically orders registered nodes using the strategy above, retries the next node on failure, and cools a node down for 60 seconds after 3 failures. Visitors and webmasters only ever use your primary worker URL.</p>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Registered Worker Swarm Nodes</label>
+            <div id="swarmNodesContainer"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: DOMAIN GOVERNANCE PANE -->
+      <section id="pane-domains" class="pane-content" style="display: none;">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Embedding Domains & Scraper Governance</h2>
+              <p class="panel-subtitle">Monitor which websites are embedding your video player. Instantly block abusive referrers or restrict embedding to approved domains.</p>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Live Embedding Domains & Activity</label>
+            <div class="data-table-wrap">
+              <table class="data-table" id="domainTelemetryTable">
+                <thead>
+                  <tr>
+                    <th>Domain / Origin</th>
+                    <th>Impressions</th>
+                    <th>Last Streamed</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="domainTelemetryBody">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 24px;">No external embeds detected yet. Data populates automatically upon playback.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 24px;">
+            <label class="form-label">Allowed Player Fleet Domains</label>
+            <div id="domainListContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            <div style="display: flex; gap: 10px; margin-top: 12px;">
+              <input type="text" id="newPlayerDomainInput" class="input-field" placeholder="https://player.yourdomain.com">
+              <button class="btn btn-cta" onclick="addNewPlayerDomain()">Add Fleet Domain</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: MONETIZATION PANE -->
+      <section id="pane-ads" class="pane-content" style="display: none;">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Smartlink Popunders & Ad Partner Settings</h2>
+              <p class="panel-subtitle">Earn revenue by triggering configured popunders when users click to play video. Highly resilient with Anti-Adblock detection.</p>
+            </div>
+            <button class="btn btn-secondary" onclick="testPopunder()">Test Dispatch Tab</button>
+          </div>
+
+          <div class="grid-2" style="margin-bottom: 20px;">
+            <div class="switch-label">
+              <div class="switch-info">
+                <span class="switch-title">Enable Popunder Monetization</span>
+                <span class="switch-desc">Fire smartlink ad partner URL on user video interaction.</span>
+              </div>
+              <input type="checkbox" id="popundersEnabled" class="switch-input">
+            </div>
+
+            <div class="switch-label">
+              <div class="switch-info">
+                <span class="switch-title">Anti-Adblock Enforcement</span>
+                <span class="switch-desc">Detect adblockers & Brave Shields to preserve monetization.</span>
+              </div>
+              <input type="checkbox" id="antiAdblockEnabled" class="switch-input" checked>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Ad Partner Smartlink / Popunder URL</label>
+            <input type="url" id="smartlinkUrl" class="input-field" placeholder="https://your-ad-network.com/smartlink/...">
+            <span style="font-size: 12px; color: var(--text-dim); margin-top: 4px; display: block;">You can change this URL at any time. All connected player instances will immediately route to your updated partner.</span>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">Max Popunders Per Session</label>
+              <input type="number" id="maxPopunders" class="input-field" value="2" min="1" max="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Cooldown Between Triggers (Minutes)</label>
+              <input type="number" id="cooldownMinutes" class="input-field" value="15" min="1" max="120">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: UPSTREAM GATEWAYS PANE -->
+      <section id="pane-upstreams" class="pane-content" style="display: none;">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Upstream Source Gateways</h2>
+              <p class="panel-subtitle">Configure upstream streaming endpoints and failover priorities. All requests are anonymized with encrypted opaque tokens.</p>
+            </div>
+          </div>
+
+          <div id="upstreamContainer" style="display: flex; flex-direction: column; gap: 12px;"></div>
+
+          <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div>
+                <h3 style="margin: 0; font-size: 15px; font-weight: 700;">Provider Health &amp; Self-Healing</h3>
+                <p style="margin: 4px 0 0; font-size: 12px; color: var(--text-muted);">Circuit breakers isolate failing providers. Scheduled probes refresh health every 15 minutes.</p>
+              </div>
+              <button class="btn btn-secondary" onclick="probeProviders()" id="probeProvidersBtn">
+                <span>Probe All Providers</span>
+              </button>
+            </div>
+            <div id="providerHealthContainer" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;"></div>
+
+            <div style="margin-top: 18px; padding: 14px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px;">
+              <div style="font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Resolve Test</div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
+                <select id="providerTestProvider" class="input-field">
+                  <option value="asianflix">AsianFlix</option>
+                  <option value="framextv">FrameX</option>
+                  <option value="orion">Orion</option>
+                  <option value="evion">Evion</option>
+                  <option value="2vcdn">2Embed</option>
+                </select>
+                <select id="providerTestType" class="input-field">
+                  <option value="movie">Movie</option>
+                  <option value="tv">TV</option>
+                </select>
+                <input id="providerTestId" class="input-field" placeholder="TMDB id (e.g. 550)" value="550">
+                <input id="providerTestTitle" class="input-field" placeholder="Optional title (AsianFlix)">
+                <input id="providerTestSeason" class="input-field" type="number" min="1" value="1" placeholder="Season">
+                <input id="providerTestEpisode" class="input-field" type="number" min="1" value="1" placeholder="Episode">
+                <button class="btn btn-cta" onclick="testProvider()">Run Test</button>
+              </div>
+              <pre id="providerTestResult" style="display: none; margin: 12px 0 0; padding: 12px; background: #08080a; border: 1px solid var(--border); border-radius: 10px; font-size: 11.5px; color: #cbd5e1; overflow: auto; max-height: 220px;"></pre>
+            </div>
+
+            <div style="margin-top: 18px; padding: 14px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                <div>
+                  <div style="font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted);">Alerting &amp; Watchdog</div>
+                  <div id="alertStatusText" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Loading alerting status...</div>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                  <select id="alertTestSeverity" class="input-field" style="width: auto;">
+                    <option value="critical">Critical</option>
+                    <option value="warning">Warning</option>
+                    <option value="info">Info</option>
+                  </select>
+                  <button class="btn btn-secondary" onclick="testAlert()" id="testAlertBtn">Send Test</button>
+                  <button class="btn btn-secondary" onclick="runCanary()" id="runCanaryBtn">Run Canary</button>
+                </div>
+              </div>
+              <pre id="alertTestResult" style="display: none; margin: 12px 0 0; padding: 12px; background: #08080a; border: 1px solid var(--border); border-radius: 10px; font-size: 11.5px; color: #cbd5e1; overflow: auto; max-height: 220px;"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 6: SITE & BRANDING PANE -->
+      <section id="pane-site" class="pane-content" style="display: none;">
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Platform Branding & Presentation</h2>
+              <p class="panel-subtitle">Customize platform metadata, server names, and player display attributes.</p>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">Brand Name</label>
+              <input type="text" id="siteBrandName" class="input-field" value="VidLyte">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tagline</label>
+              <input type="text" id="siteTagline" class="input-field" value="Universal Sovereign Streaming Edge">
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">Hero Title</label>
+              <input type="text" id="siteHeroTitle" class="input-field" value="One universal embed. Zero buffering.">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Hero Subtitle</label>
+              <input type="text" id="siteHeroSubtitle" class="input-field" value="Your streaming player, sovereign & reliable.">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 16px;">
+            <label class="form-label">Server Display Aliases</label>
+            <div class="grid-2">
+              <input type="text" id="aliasOrionInput" class="input-field" placeholder="Server 1 (Ultra Fast)">
+              <input type="text" id="aliasFrameXInput" class="input-field" placeholder="Server 2 (Backup)">
+              <input type="text" id="aliasAsianFlixInput" class="input-field" placeholder="Server 3 (Anime / Asian)">
+              <input type="text" id="aliasEvionInput" class="input-field" placeholder="Server 4 (Multi-Dub)">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 7: DOCUMENTATION & SYSTEM ARCHITECTURE PANE -->
+      <!-- DIAGNOSTICS PANE -->
+      <section id="pane-diagnostics" class="pane-content" style="display: none;">
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Edge Diagnostics & Observability</h2>
+              <p class="panel-subtitle">Per-isolate metrics, recent requests, audit trail, rate-limit state, and portable configuration export/import.</p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" onclick="loadDiagnostics()" id="diagRefreshBtn">Refresh</button>
+              <button class="btn btn-secondary" onclick="exportConfig()">Export Config</button>
+              <label class="btn btn-secondary" style="cursor: pointer; margin: 0;">
+                Import Config
+                <input type="file" id="configImportFile" accept="application/json,.json" style="display: none;" onchange="importConfigFile(this)">
+              </label>
+            </div>
+          </div>
+
+          <div class="metrics-grid" style="margin-bottom: 18px;">
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Health Grade</span>
+                <span class="badge badge-ok" id="diagHealthGrade">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagHealthScore">—</span>
+                  <span class="metric-val-label">Score / 100</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagUpdatedAt">—</span>
+                  <span class="metric-val-label">Snapshot Time</span>
+                </div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Traffic</span>
+                <span class="badge" id="diagRateLimitState">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagTotal">0</span>
+                  <span class="metric-val-label">Requests</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagRateLimited">0</span>
+                  <span class="metric-val-label">Rate Limited</span>
+                </div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Latency & Errors</span>
+                <span class="badge badge-ok" id="diagErrorBadge">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagP95">0 ms</span>
+                  <span class="metric-val-label">P95 Latency</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagErrorRate">0%</span>
+                  <span class="metric-val-label">Error Rate</span>
+                </div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Engagement</span>
+                <span class="badge" id="diagEngagementBadge">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagPlays">0</span>
+                  <span class="metric-val-label">Plays</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="diagShares">0</span>
+                  <span class="metric-val-label">Shares</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+            <div>
+              <h3 style="font-size: 14px; margin: 0 0 8px;">Route Metrics</h3>
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Route</th><th>Count</th><th>Errors</th><th>Avg</th></tr></thead>
+                  <tbody id="diagRoutesTable"><tr><td colspan="4">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h3 style="font-size: 14px; margin: 0 0 8px;">Recent Requests</h3>
+              <div class="data-table-wrap" style="max-height: 280px; overflow: auto;">
+                <table class="data-table">
+                  <thead><tr><th>Time</th><th>Route</th><th>Status</th><th>ms</th></tr></thead>
+                  <tbody id="diagRequestsTable"><tr><td colspan="4">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Admin Audit Trail</h2>
+              <p class="panel-subtitle">Recent authentication, configuration, and probe actions. IPs are masked.</p>
+            </div>
+          </div>
+          <div class="data-table-wrap" style="max-height: 340px; overflow: auto;">
+            <table class="data-table">
+              <thead><tr><th>Time</th><th>Action</th><th>Actor</th><th>Detail</th></tr></thead>
+              <tbody id="diagAuditTable"><tr><td colspan="4">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top: 24px;">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Configuration History</h2>
+              <p class="panel-subtitle">Last 10 configuration snapshots. Roll back to restore a previous state (a rollback is itself recorded).</p>
+            </div>
+            <button class="btn btn-secondary" onclick="loadConfigHistory()">Refresh History</button>
+          </div>
+          <div class="data-table-wrap" style="max-height: 340px; overflow: auto;">
+            <table class="data-table">
+              <thead><tr><th>Time</th><th>Action</th><th>Version</th><th>Summary</th><th></th></tr></thead>
+              <tbody id="diagHistoryTable"><tr><td colspan="5">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="pane-docs" class="pane-content" style="display: none;">
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <div class="badge badge-ok" style="margin-bottom: 8px;">Confidential Administrator Reference</div>
+              <h2 class="panel-title">Sovereign Architecture, Swarm Mesh & Security Guide</h2>
+              <p class="panel-subtitle">Comprehensive operational manual explaining multi-worker routing, player fleet resilience, zero-cost database persistence, and OWASP Top 10 defense protocols.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- DOC CARD 1: SWARM ARCHITECTURE & ROUTING -->
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="font-size: 18px; color: var(--accent);">01</span>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text);">Swarm Worker Nodes: Mechanics & Distribution</h3>
+              </div>
+              <p class="panel-subtitle">Why webmasters never see or hardcode worker nodes, and how transparent failover operates.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 16px; font-size: 13.5px; line-height: 1.7; color: var(--text-muted);">
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="font-weight: 700; color: var(--text); margin-bottom: 6px;">Q: Should I distribute the worker node URLs to webmasters or visitors?</div>
+              <div><strong style="color: var(--accent);">NO. You distribute ONLY your primary gateway URL</strong> (e.g. <code>https://vidlyte.workers.dev/embed/movie/550</code> or your custom domain <code>https://embed.yourdomain.com/embed/...</code>). Webmasters, partner sites, and visitors never see, touch, or hardcode swarm worker nodes.</div>
+            </div>
+
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="font-weight: 700; color: var(--text); margin-bottom: 6px;">Q: If I add 3–5 worker nodes, will redirects happen on their own? Will it look weird?</div>
+              <div><strong>No redirects ever happen in the viewer's browser.</strong> Swarm nodes operate as <em>Internal Edge Mesh Relays</em>:
+                <ul style="margin: 8px 0 0 20px; list-style: disc;">
+                  <li>The viewer's browser requests media segments directly from your primary gateway (e.g. <code>/stream/chunk/vl_...</code>).</li>
+                  <li>In the background, the primary gateway calls <code>fetchWithSwarmFallback()</code> across your registered worker nodes.</li>
+                  <li>If Worker Node 1 is slow or blocked by upstream CDN firewalls, the gateway immediately queries Worker Node 2 with a fast 1,500ms timeout.</li>
+                  <li>The media chunk is delivered back to the viewer with HTTP 200 without any browser redirect, URL change, or video stall.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DOC CARD 2: PLAYER FLEET URLS -->
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="font-size: 18px; color: var(--accent);">02</span>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text);">Player Fleet Domains: Purpose & Censorship Resilience</h3>
+              </div>
+              <p class="panel-subtitle">Why custom player URLs exist and how they prevent global service shutdowns.</p>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="font-weight: 700; color: var(--text); margin-bottom: 6px;">ISP & Regional Censorship</div>
+              <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">Courts in regions like the UK, Italy, and India enforce DNS-level domain bans. If your primary domain gets flagged, swapping the primary domain in the Fleet tab restores playback across all webmasters without editing code.</div>
+            </div>
+
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="font-weight: 700; color: var(--text); margin-bottom: 6px;">Ad-Blocker Filter Evasion</div>
+              <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">Brave, uBlock Origin, and AdGuard maintain domain blocklists. Custom player fleet domains allow rotating embed URLs so player scripts load seamlessly for 100% of viewers.</div>
+            </div>
+
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <div style="font-weight: 700; color: var(--text); margin-bottom: 6px;">Whitelabel CNAME Partners</div>
+              <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">Major streaming partners can point their own subdomain (e.g. <code>player.partner.com</code>) via CNAME to VidLyte. They get fully branded URLs while your sovereign edge handles the heavy streaming.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DOC CARD 3: ZERO-COST STORAGE PERSISTENCE -->
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="font-size: 18px; color: var(--accent);">03</span>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text);">Zero-Cost Persistence: Cloudflare Free-Tier Stack</h3>
+              </div>
+              <p class="panel-subtitle">How VidLyte stores configuration and tracks domain telemetry without paid external databases.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 14px; font-size: 13.5px; line-height: 1.6; color: var(--text-muted);">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+              <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+                <div class="badge badge-ok" style="margin-bottom: 8px;">100k Reads/Day Free</div>
+                <div style="font-weight: 700; color: var(--text); margin-bottom: 4px;">Cloudflare KV Store</div>
+                <div style="font-size: 12.5px;">Stores runtime JSON configuration, monetization settings, registered swarm node lists, and player fleet domains. Reads are cached at the edge with sub-millisecond access.</div>
+              </div>
+
+              <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+                <div class="badge badge-ok" style="margin-bottom: 8px;">5M Reads / 100k Writes Free</div>
+                <div style="font-weight: 700; color: var(--text); margin-bottom: 4px;">Cloudflare D1 SQL</div>
+                <div style="font-size: 12.5px;">Serverless SQLite database storing domain referer metrics, impression counts, and allowlist/blocklist flags. Free tier comfortably handles 100,000+ daily visitors.</div>
+              </div>
+
+              <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+                <div class="badge badge-ok" style="margin-bottom: 8px;">Zero Cost / Infinite</div>
+                <div style="font-weight: 700; color: var(--text); margin-bottom: 4px;">In-Worker Memory LRU</div>
+                <div style="font-size: 12.5px;">Edge workers batch impressions in local RAM and sync periodically. This prevents write saturation and keeps operations well below free limits at $0.00/month.</div>
+              </div>
+            </div>
+
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+              <strong style="color: var(--text);">How Requesting Domains are Discovered:</strong> When an iframe loads, VidLyte inspects the incoming <code>Referer</code> and <code>Origin</code> HTTP headers. The hostname is extracted and recorded in the governance table. The administrator can click <strong>Block</strong> or <strong>Allow</strong> at any time to restrict hotlinking.
+            </div>
+          </div>
+        </div>
+
+        <!-- DOC CARD 4: OWASP TOP 10 ATTACK PREPARATION -->
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="font-size: 18px; color: var(--accent);">04</span>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text);">Enterprise Defense: OWASP Top 10 Mitigation Matrix</h3>
+              </div>
+              <p class="panel-subtitle">Comprehensive hardening protocols protecting your infrastructure from scraping, injections, and volumetric attacks.</p>
+            </div>
+          </div>
+
+          <div class="data-table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Vulnerability Vector</th>
+                  <th>Risk Description</th>
+                  <th>VidLyte Sovereign Mitigation</th>
+                  <th>Enforcement Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>DDoS & Volumetric Flooding</b></td>
+                  <td>Massive HTTP floods seeking to exhaust worker execution limits</td>
+                  <td>Cloudflare Anycast edge absorbs multi-terabit attacks across 330+ PoPs. Immutable caching (<code>max-age=31536000</code>) serves 98%+ chunks from edge RAM.</td>
+                  <td><span class="badge badge-ok">L3 / L4 / L7 Active</span></td>
+                </tr>
+                <tr>
+                  <td><b>Deep Stream Scraping & Origin Leaks</b></td>
+                  <td>Malicious webmasters extracting upstream CDN URLs from network tab</td>
+                  <td>Zero-Leak <strong>AES-256-GCM authenticated codec</strong>. Manifests and media chunks are encrypted into opaque <code>vl_...</code> tokens. Upstream origins never leak.</td>
+                  <td><span class="badge badge-ok">Cryptographic Seal</span></td>
+                </tr>
+                <tr>
+                  <td><b>Cross-Site Request Forgery (CSRF/XSRF)</b></td>
+                  <td>Unauthorized playback requests triggered from third-party sites</td>
+                  <td>Stateless HMAC SHA-256 tokens bound to client IP address and asset ID with strict 3-hour expiration. No vulnerable ambient cookie auth.</td>
+                  <td><span class="badge badge-ok">HMAC Signed</span></td>
+                </tr>
+                <tr>
+                  <td><b>SQL Injection (SQLi)</b></td>
+                  <td>Malicious payloads in inputs seeking database exfiltration</td>
+                  <td>Zero raw SQL string interpolation. All D1 SQLite queries strictly use parameterized prepared statements (<code>db.prepare().bind()</code>).</td>
+                  <td><span class="badge badge-ok">Parameterized</span></td>
+                </tr>
+                <tr>
+                  <td><b>Server-Side Request Forgery (SSRF)</b></td>
+                  <td>Attackers tricking edge proxy into scanning internal/cloud networks</td>
+                  <td>Strict upstream provider allowlisting + RFC 1918 private IP blocking (rejection of <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>, <code>127.0.0.1</code>, AWS metadata).</td>
+                  <td><span class="badge badge-ok">Network Filter</span></td>
+                </tr>
+                <tr>
+                  <td><b>Broken Access Control & Timing Attacks</b></td>
+                  <td>Brute-force or side-channel discovery of administrator tokens</td>
+                  <td>Constant-time token verification (<code>crypto.timingSafeEqual</code>). Admin routes concealed under custom secret paths with <code>noindex, nofollow</code> headers.</td>
+                  <td><span class="badge badge-ok">Constant-Time</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- DOC CARD 5: FUNCTIONAL PARITY AUDIT -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="font-size: 18px; color: var(--accent);">05</span>
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text);">Implementation Status Audit</h3>
+              </div>
+              <p class="panel-subtitle">Current operational readiness across all core functional subsystems.</p>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; font-size: 13px;">
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>Adaptive 4-Tier Video Streaming (1080p, 720p, 480p, 360p)</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>Multi-Track Regional Audio Dubs (English, Hindi, Spanish, etc.)</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>Instant Seek & Atomic Transmuxing (Zero Buffering)</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>Multi-Worker Swarm Edge Failover Pipeline</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>AES-256-GCM Opaque URL Encryption (Zero Leak)</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+            <div style="padding: 12px 16px; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>Domain Governance & Referer Tracker</span>
+              <span class="badge badge-ok">● 100% Active</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <div class="toast-popup" id="toastBox">Notification</div>
+
+  <script nonce="__CSP_NONCE__">
+    var currentConfig = null;
+    var adminBasePath = window.location.pathname.replace(/\/+$/, '');
+    var adminCsrfToken = '';
+
+    function getCookieValue(name) {
+      try {
+        var parts = document.cookie ? document.cookie.split('; ') : [];
+        for (var i = 0; i < parts.length; i++) {
+          var pair = parts[i].split('=');
+          if (pair[0] === name) return decodeURIComponent(pair.slice(1).join('='));
+        }
+      } catch (e) {}
+      return '';
+    }
+
+    function currentCsrfToken() {
+      return adminCsrfToken || getCookieValue('vidlyte_admin_csrf');
+    }
+
+    function adminFetch(path, options) {
+      options = options || {};
+      var method = String(options.method || 'GET').toUpperCase();
+      var headers = new Headers(options.headers || {});
+      if (method !== 'GET' && method !== 'HEAD') {
+        var token = currentCsrfToken();
+        if (token) headers.set('X-CSRF-Token', token);
+      }
+      options.headers = headers;
+      return fetch(adminBasePath + path, options);
+    }
+
+    // -------------------------------------------------------------
+    // THEME CONTROLLER
+    // -------------------------------------------------------------
+    function updateThemeIcon(theme) {
+      var btn = document.getElementById('themeToggleBtn');
+      if (!btn) return;
+      if (theme === 'light') {
+        btn.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+      } else {
+        btn.innerHTML = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
+      }
+    }
+
+    function toggleTheme() {
+      var current = document.documentElement.getAttribute('data-theme') || 'dark';
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('vidlyte_theme', next);
+      updateThemeIcon(next);
+      showToast('Theme set to ' + next + ' mode');
+    }
+
+    function setIntervalFilter(val, btn) {
+      document.querySelectorAll('.interval-btn').forEach(function(b) { b.classList.remove('active'); });
+      if (btn) btn.classList.add('active');
+      showToast('Filter set to ' + val);
+    }
+
+    function showToast(msg) {
+      var t = document.getElementById('toastBox');
+      if (!t) return;
+      t.innerText = msg;
+      t.classList.add('visible');
+      setTimeout(function() { t.classList.remove('visible'); }, 2400);
+    }
+
+    // -------------------------------------------------------------
+    // AUTH & NAVIGATION
+    // -------------------------------------------------------------
+    async function handleLogin(e) {
+      e.preventDefault();
+      var secret = document.getElementById('adminSecretInput').value.trim();
+      var btn = document.getElementById('loginBtn');
+      var err = document.getElementById('authErrorMsg');
+
+      err.style.display = 'none';
+      btn.disabled = true;
+      btn.innerText = 'Verifying...';
+
+      try {
+        var resp = await adminFetch('/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: secret })
+        });
+
+        var data = await resp.json().catch(function() { return {}; });
+        if (resp.ok && data.success) {
+          adminCsrfToken = data.csrf_token || '';
+          showToast('Authenticated');
+          fetchConfig();
+        } else {
+          err.innerText = data.error || 'Authentication rejected';
+          err.style.display = 'block';
+        }
+      } catch (err2) {
+        err.innerText = 'Network error contacting gatekeeper';
+        err.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Authenticate';
+      }
+    }
+
+    async function fetchConfig() {
+      try {
+        var resp = await adminFetch('/api/config');
+        if (resp.status === 401) {
+          showAuth();
+          return;
+        }
+        if (!resp.ok) throw new Error();
+        currentConfig = await resp.json();
+        renderDashboard(currentConfig);
+        showDashboard();
+      } catch (e) {
+        showAuth();
+      }
+    }
+
+    function showAuth() {
+      document.getElementById('authSection').style.display = 'flex';
+      document.getElementById('dashboardSection').style.display = 'none';
+      document.getElementById('headerActions').style.display = 'none';
+    }
+
+    function showDashboard() {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('dashboardSection').style.display = 'grid';
+      document.getElementById('headerActions').style.display = 'flex';
+      fetchMetrics();
+    }
+
+    function switchPane(paneId, title) {
+      document.querySelectorAll('.pane-content').forEach(function(el) { el.style.display = 'none'; });
+      document.querySelectorAll('.nav-item').forEach(function(el) {
+        el.classList.toggle('active', el.getAttribute('data-pane') === paneId);
+      });
+      var target = document.getElementById(paneId);
+      if (target) target.style.display = 'block';
+      document.getElementById('headerBreadcrumb').innerText = title || 'Console';
+      if (paneId === 'pane-overview' || paneId === 'pane-domains') fetchMetrics();
+      if (paneId === 'pane-diagnostics') {
+        loadDiagnostics();
+        loadConfigHistory();
+      }
+    }
+
+    // -------------------------------------------------------------
+    // RENDER DASHBOARD CONTROLS
+    // -------------------------------------------------------------
+    function renderDashboard(cfg) {
+      if (!cfg) return;
+
+      // Site Branding
+      if (cfg.site_config) {
+        document.getElementById('siteBrandName').value = cfg.site_config.brand_name || 'VidLyte';
+        document.getElementById('siteTagline').value = cfg.site_config.tagline || '';
+        document.getElementById('siteHeroTitle').value = cfg.site_config.hero_title || '';
+        document.getElementById('siteHeroSubtitle').value = cfg.site_config.hero_subtitle || '';
+      }
+
+      // Monetization
+      if (cfg.monetization) {
+        document.getElementById('popundersEnabled').checked = !!cfg.monetization.popunders_enabled;
+        document.getElementById('smartlinkUrl').value = cfg.monetization.smartlink_url || '';
+        document.getElementById('maxPopunders').value = cfg.monetization.max_popunders_per_session || 2;
+        document.getElementById('cooldownMinutes').value = cfg.monetization.cooldown_minutes || 15;
+        document.getElementById('antiAdblockEnabled').checked = cfg.monetization.anti_adblock_enabled !== false;
+      }
+
+      // Swarm Strategy
+      if (cfg.proxy_swarm) {
+        selectStrategy(cfg.proxy_swarm.strategy || 'latency', false);
+        renderSwarmNodes(cfg.proxy_swarm.workers || []);
+      }
+
+      // Server Branding
+      if (cfg.server_branding && cfg.server_branding.server_aliases) {
+        var al = cfg.server_branding.server_aliases;
+        document.getElementById('aliasOrionInput').value = al.orion || '';
+        document.getElementById('aliasFrameXInput').value = al.framextv || '';
+        document.getElementById('aliasAsianFlixInput').value = al.asianflix || '';
+        document.getElementById('aliasEvionInput').value = al.evion || '';
+      }
+
+      // Domains
+      renderDomains(cfg.player_fleet || { primary_domain: '', fallback_domains: [] });
+
+      // Upstreams
+      renderUpstreams(cfg.upstreams || []);
+      loadProviderHealth().catch(function() {});
+      loadAlertStatus().catch(function() {});
+    }
+
+    function renderDomains(fleet) {
+      var c = document.getElementById('domainListContainer');
+      if (!c) return;
+      c.innerHTML = '';
+      var list = [];
+      if (fleet.primary_domain) list.push({ url: fleet.primary_domain, isPrimary: true });
+      (fleet.fallback_domains || []).forEach(function(d) {
+        if (d !== fleet.primary_domain) list.push({ url: d, isPrimary: false });
+      });
+
+      if (list.length === 0) {
+        c.innerHTML = '<div style="padding:12px; font-size:12px; color:var(--text-dim); text-align:center;">No custom domains registered. Default edge worker domain is active.</div>';
+        return;
+      }
+
+      list.forEach(function(item) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:10px;';
+        row.innerHTML = '<div><span class="badge ' + (item.isPrimary ? 'badge-ok' : 'badge-warn') + '">' + (item.isPrimary ? 'PRIMARY' : 'MIRROR') + '</span> <span style="font-family:monospace; margin-left:8px;">' + item.url + '</span></div><button class="btn btn-danger" style="height:28px; padding:0 10px; font-size:11.5px;" onclick="removeDomain(\'' + item.url + '\')">Remove</button>';
+        c.appendChild(row);
+      });
+    }
+
+    function removeDomain(url) {
+      if (!currentConfig.player_fleet) return;
+      currentConfig.player_fleet.fallback_domains = (currentConfig.player_fleet.fallback_domains || []).filter(function(d) { return d !== url; });
+      if (currentConfig.player_fleet.primary_domain === url) {
+        currentConfig.player_fleet.primary_domain = currentConfig.player_fleet.fallback_domains[0] || '';
+      }
+      renderDomains(currentConfig.player_fleet);
+      showToast('Removed domain');
+    }
+
+    function addNewPlayerDomain() {
+      var inp = document.getElementById('newPlayerDomainInput');
+      var val = inp.value.trim();
+      if (!val) return;
+      if (!currentConfig.player_fleet) currentConfig.player_fleet = { primary_domain: '', fallback_domains: [] };
+      if (!currentConfig.player_fleet.primary_domain) {
+        currentConfig.player_fleet.primary_domain = val;
+      } else {
+        currentConfig.player_fleet.fallback_domains.push(val);
+      }
+      inp.value = '';
+      renderDomains(currentConfig.player_fleet);
+      showToast('Added ' + val);
+    }
+
+    function renderUpstreams(servers) {
+      var c = document.getElementById('upstreamContainer');
+      if (!c) return;
+      c.innerHTML = '';
+      servers.forEach(function(u, idx) {
+        var card = document.createElement('div');
+        card.style.cssText = 'padding:14px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px; display:flex; align-items:center; justify-content:space-between; gap:16px;';
+        card.innerHTML = '<div><div style="font-weight:700; font-size:14px;">' + u.name + ' <span style="color:var(--text-dim); font-size:11px; font-family:monospace;">(' + u.id + ')</span></div><div style="font-size:12px; color:var(--text-muted); font-family:monospace; margin-top:2px;">' + u.endpoint + '</div></div><div class="switch-label" style="padding:0; background:none; border:none;"><input type="checkbox" ' + (u.enabled ? 'checked' : '') + ' class="switch-input" onchange="currentConfig.upstreams[' + idx + '].enabled = this.checked"></div>';
+        c.appendChild(card);
+      });
+    }
+
+    function selectStrategy(strat, updateConfig) {
+      ['stratLatency', 'stratRandom', 'stratRoundRobin'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+      });
+      if (strat === 'round_robin') {
+        document.getElementById('stratRoundRobin')?.classList.add('active');
+      } else if (strat === 'random') {
+        document.getElementById('stratRandom')?.classList.add('active');
+      } else {
+        document.getElementById('stratLatency')?.classList.add('active');
+      }
+      if (updateConfig !== false && currentConfig && currentConfig.proxy_swarm) {
+        currentConfig.proxy_swarm.strategy = strat;
+      }
+    }
+
+    function renderSwarmNodes(workers) {
+      var c = document.getElementById('swarmNodesContainer');
+      if (!c) return;
+      c.innerHTML = '';
+      if (!workers || workers.length === 0) {
+        c.innerHTML = '<div style="padding:16px; background:var(--surface-elevated); border:1px dashed var(--border); border-radius:12px; text-align:center; color:var(--text-dim); font-size:12.5px;">No external edge workers registered yet. Traffic proxies through primary edge gateway.</div>';
+        return;
+      }
+
+      workers.forEach(function(w) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px; margin-bottom:8px;';
+        var latText = w.latency_ms > 0 ? w.latency_ms + 'ms' : 'untested';
+        row.innerHTML = '<div><div style="font-family:monospace; font-size:13px; font-weight:600;">' + w.url + '</div><div style="display:flex; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:4px;"><span class="badge badge-ok">● ' + (w.status || 'HEALTHY').toUpperCase() + '</span><span>Latency: ' + latText + '</span></div></div><button class="btn btn-danger" style="height:28px; padding:0 12px; font-size:11.5px;" onclick="removeWorker(\'' + w.id + '\')">Remove</button>';
+        c.appendChild(row);
+      });
+    }
+
+    function addNewWorker() {
+      var inp = document.getElementById('newWorkerUrlInput');
+      var raw = inp.value.trim();
+      if (!raw) return;
+      if (!raw.startsWith('http://') && !raw.startsWith('https://')) raw = 'https://' + raw;
+      if (!currentConfig.proxy_swarm) currentConfig.proxy_swarm = { enabled: true, strategy: 'latency', workers: [] };
+      if (!currentConfig.proxy_swarm.workers) currentConfig.proxy_swarm.workers = [];
+
+      var id = 'w_' + Math.random().toString(36).substring(2, 8);
+      currentConfig.proxy_swarm.workers.push({ id: id, url: raw, enabled: true, latency_ms: 0, status: 'unknown' });
+      inp.value = '';
+      renderSwarmNodes(currentConfig.proxy_swarm.workers);
+      showToast('Added worker node — saving and probing...');
+      saveConfig().catch(function() {});
+    }
+
+    function removeWorker(id) {
+      if (!currentConfig?.proxy_swarm?.workers) return;
+      currentConfig.proxy_swarm.workers = currentConfig.proxy_swarm.workers.filter(function(w) { return w.id !== id; });
+      renderSwarmNodes(currentConfig.proxy_swarm.workers);
+      showToast('Worker removed — saving...');
+      saveConfig().catch(function() {});
+    }
+
+    async function pingSwarmNodes() {
+      var btn = document.getElementById('pingSwarmBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>Probing...</span>';
+      }
+      try {
+        var resp = await adminFetch('/api/swarm/test', { method: 'POST' });
+        if (resp.ok) {
+          var data = await resp.json();
+          if (data.results && currentConfig?.proxy_swarm?.workers) {
+            data.results.forEach(function(rep) {
+              var node = currentConfig.proxy_swarm.workers.find(function(w) { return w.id === rep.id; });
+              if (node) {
+                node.latency_ms = rep.latency_ms;
+                node.status = rep.status;
+              }
+            });
+            renderSwarmNodes(currentConfig.proxy_swarm.workers);
+            showToast('Swarm probed successfully');
+          }
+        }
+      } catch (e) {
+        showToast('Probe failed');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg><span>Probe All Nodes</span>';
+        }
+      }
+    }
+
+    function providerBadge(status) {
+      var s = String(status || 'unknown').toLowerCase();
+      var cls = s === 'healthy' ? 'badge-ok' : (s === 'offline' ? 'badge-err' : 'badge-warn');
+      return '<span class="badge ' + cls + '">● ' + s.toUpperCase() + '</span>';
+    }
+
+    function renderProviderHealth(providers) {
+      var c = document.getElementById('providerHealthContainer');
+      if (!c) return;
+      c.innerHTML = '';
+      if (!providers || providers.length === 0) {
+        c.innerHTML = '<div style="padding:12px; font-size:12px; color:var(--text-dim); text-align:center;">No provider health data yet. Run a probe.</div>';
+        return;
+      }
+      providers.forEach(function(p) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px;';
+        var lat = p.latency_ms > 0 ? p.latency_ms + 'ms' : 'n/a';
+        var breaker = p.breaker && p.breaker.open ? ' · breaker OPEN (' + Math.ceil((p.breaker.cooldown_remaining_ms || 0) / 1000) + 's)' : '';
+        var err = p.error ? '<div style="font-size:11px; color:var(--text-dim); margin-top:3px;">' + p.error + '</div>' : '';
+        row.innerHTML = '<div><div style="font-weight:700; font-size:13.5px;">' + (p.label || p.id) + ' <span style="color:var(--text-dim); font-size:11px; font-family:monospace;">(' + p.id + ')</span></div><div style="display:flex; gap:10px; align-items:center; font-size:11.5px; color:var(--text-dim); margin-top:4px;">' + providerBadge(p.status) + '<span>Latency: ' + lat + '</span><span>' + (p.enabled === false ? 'disabled' : 'enabled') + breaker + '</span></div>' + err + '</div>';
+        c.appendChild(row);
+      });
+    }
+
+    async function loadProviderHealth() {
+      try {
+        var resp = await adminFetch('/api/providers/health');
+        if (!resp.ok) return;
+        var data = await resp.json();
+        renderProviderHealth(data.providers || []);
+      } catch (e) {}
+    }
+
+    async function probeProviders() {
+      var btn = document.getElementById('probeProvidersBtn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span>Probing...</span>'; }
+      try {
+        var resp = await adminFetch('/api/providers/probe', { method: 'POST' });
+        var data = await resp.json().catch(function() { return {}; });
+        if (resp.ok) {
+          renderProviderHealth(data.providers || []);
+          showToast('Provider probes complete');
+        } else {
+          showToast('Probe failed');
+        }
+      } catch (e) {
+        showToast('Probe failed');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span>Probe All Providers</span>'; }
+      }
+    }
+
+    async function loadAlertStatus() {
+      var el = document.getElementById('alertStatusText');
+      try {
+        var resp = await adminFetch('/api/alerts/status');
+        if (!resp.ok) { if (el) el.textContent = 'Alerting status unavailable'; return; }
+        var data = await resp.json();
+        var t = data.telegram || {};
+        if (el) {
+          el.textContent = t.configured
+            ? 'Telegram ' + (t.enabled ? 'enabled' : 'disabled') + ' · min ' + t.min_severity + ' · cooldown ' + t.cooldown_min + 'm'
+            : 'Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.';
+        }
+      } catch (e) {
+        if (el) el.textContent = 'Alerting status unavailable';
+      }
+    }
+
+    async function testAlert() {
+      var btn = document.getElementById('testAlertBtn');
+      var out = document.getElementById('alertTestResult');
+      var severitySelect = document.getElementById('alertTestSeverity');
+      var severity = severitySelect ? severitySelect.value : 'critical';
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+      if (out) { out.style.display = 'block'; out.textContent = 'Sending Telegram test...'; }
+      try {
+        var resp = await adminFetch('/api/alerts/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ severity: severity })
+        });
+        var data = await resp.json().catch(function() { return { error: 'Invalid response' }; });
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        if (resp.ok && data.success) showToast('Telegram test sent');
+        else showToast(data.error || data.skipped || 'Telegram test failed');
+        loadAlertStatus().catch(function() {});
+      } catch (e) {
+        if (out) out.textContent = 'Request failed: ' + e.message;
+        showToast('Request failed');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send Test'; }
+      }
+    }
+
+    async function runCanary() {
+      var btn = document.getElementById('runCanaryBtn');
+      var out = document.getElementById('alertTestResult');
+      if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
+      if (out) { out.style.display = 'block'; out.textContent = 'Running playback canary...'; }
+      try {
+        var resp = await adminFetch('/api/watchdog/canary', { method: 'POST' });
+        var data = await resp.json().catch(function() { return { error: 'Invalid response' }; });
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        if (resp.ok && data.success) showToast('Playback canary passed');
+        else showToast('Playback canary failed');
+      } catch (e) {
+        if (out) out.textContent = 'Request failed: ' + e.message;
+        showToast('Request failed');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Run Canary'; }
+      }
+    }
+
+    async function testProvider() {
+      var out = document.getElementById('providerTestResult');
+      var provider = document.getElementById('providerTestProvider').value;
+      var type = document.getElementById('providerTestType').value;
+      var id = document.getElementById('providerTestId').value.trim() || '550';
+      var title = (document.getElementById('providerTestTitle').value || '').trim();
+      var season = parseInt(document.getElementById('providerTestSeason').value || '1', 10) || 1;
+      var episode = parseInt(document.getElementById('providerTestEpisode').value || '1', 10) || 1;
+      if (out) { out.style.display = 'block'; out.textContent = 'Resolving via ' + provider + '...'; }
+      try {
+        var resp = await adminFetch('/api/providers/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: provider, type: type, id: id, title: title, season: season, episode: episode })
+        });
+        var data = await resp.json().catch(function() { return { error: 'Invalid response' }; });
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        if (resp.ok && data.success) showToast('Resolved via ' + provider);
+        else showToast('Resolution failed');
+      } catch (e) {
+        if (out) out.textContent = 'Request failed: ' + e.message;
+        showToast('Request failed');
+      }
+    }
+
+    function testPopunder() {
+      var url = document.getElementById('smartlinkUrl').value.trim();
+      if (!url) {
+        showToast('Enter Smartlink URL first');
+        return;
+      }
+      window.open(url, '_blank');
+      showToast('Dispatched test tab');
+    }
+
+    // -------------------------------------------------------------
+    // TELEMETRY & DOMAIN TRACKER
+    // -------------------------------------------------------------
+    async function fetchMetrics() {
+      try {
+        var resp = await adminFetch('/metrics');
+        if (!resp.ok) return;
+        var m = await resp.json();
+
+        // 1. Top Cards
+        document.getElementById('metricTotalReqs').innerText = (m.total_requests || 0).toLocaleString();
+        var mb = ((m.bytes_streamed || 0) / (1024 * 1024)).toFixed(1);
+        document.getElementById('metricBytesStreamed').innerText = mb + ' MB';
+
+        var s2xx = m.status_2xx || 0;
+        var s4xx = m.status_4xx || 0;
+        var s5xx = m.status_5xx || 0;
+        var totalSt = s2xx + s4xx + s5xx;
+        var health = totalSt > 0 ? ((s2xx / totalSt) * 100).toFixed(1) + '%' : '99.9%';
+        document.getElementById('metricDeliveryRate').innerText = health;
+
+        // Progress bar segments
+        if (totalSt > 0) {
+          document.getElementById('prog2xx').style.width = ((s2xx / totalSt) * 100) + '%';
+          document.getElementById('progErrors').style.width = (((s4xx + s5xx) / totalSt) * 100) + '%';
+        }
+
+        // Swarm count
+        var workersCount = currentConfig?.proxy_swarm?.workers?.length || 0;
+        document.getElementById('metricActiveWorkers').innerText = workersCount;
+
+        // Domain Telemetry Table
+        var topDomains = m.top_domains || [];
+        var blockedCount = topDomains.filter(function(d) { return d.blocked; }).length;
+        document.getElementById('metricBlockedDomains').innerText = blockedCount;
+
+        var tbody = document.getElementById('domainTelemetryBody');
+        if (tbody) {
+          if (topDomains.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 24px;">No external embeds detected yet. Data populates automatically upon playback.</td></tr>';
+          } else {
+            tbody.innerHTML = '';
+            topDomains.forEach(function(d) {
+              var tr = document.createElement('tr');
+              var statusBadge = d.blocked ? '<span class="badge badge-err">BLOCKED</span>' : '<span class="badge badge-ok">STREAMING</span>';
+              var actionBtn = d.blocked
+                ? '<button class="btn btn-secondary" style="height:26px; padding:0 8px; font-size:11px;" onclick="unblockDomain(\'' + d.domain + '\')">Unblock</button>'
+                : '<button class="btn btn-danger" style="height:26px; padding:0 8px; font-size:11px;" onclick="blockDomain(\'' + d.domain + '\')">Block Domain</button>';
+              
+              tr.innerHTML = '<td><b>' + d.domain + '</b></td><td>' + d.impressions.toLocaleString() + '</td><td>' + (d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : 'now') + '</td><td>' + statusBadge + '</td><td>' + actionBtn + '</td>';
+              tbody.appendChild(tr);
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    function blockDomain(domain) {
+      if (!currentConfig) return;
+      if (!currentConfig.domain_security) currentConfig.domain_security = { blacklist: [] };
+      if (!currentConfig.domain_security.blacklist.includes(domain)) {
+        currentConfig.domain_security.blacklist.push(domain);
+        saveConfig();
+        showToast('Blocked ' + domain);
+      }
+    }
+
+    function unblockDomain(domain) {
+      if (!currentConfig?.domain_security?.blacklist) return;
+      currentConfig.domain_security.blacklist = currentConfig.domain_security.blacklist.filter(function(d) { return d !== domain; });
+      saveConfig();
+      showToast('Unblocked ' + domain);
+    }
+
+    // -------------------------------------------------------------
+    // PHASE 3: DIAGNOSTICS, CONFIG EXPORT / IMPORT, AUDIT
+    // -------------------------------------------------------------
+    function esc(value) {
+      return String(value === undefined || value === null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function shortTime(iso) {
+      if (!iso) return '—';
+      try { return new Date(iso).toLocaleTimeString(); } catch (e) { return String(iso).slice(11, 19); }
+    }
+
+    async function loadDiagnostics() {
+      var btn = document.getElementById('diagRefreshBtn');
+      if (btn) btn.disabled = true;
+      try {
+        var resp = await adminFetch('/api/diagnostics?logs=40');
+        if (resp.status === 401) { showAuth(); return; }
+        if (!resp.ok) throw new Error('diagnostics failed');
+        var data = await resp.json();
+
+        var health = data.health || {};
+        var metrics = data.metrics || {};
+        var latency = metrics.latency || {};
+        var limits = data.rate_limits || {};
+
+        document.getElementById('diagHealthGrade').innerText = (health.grade || 'unknown').toUpperCase();
+        document.getElementById('diagHealthScore').innerText = String(health.score !== undefined ? health.score : '—');
+        document.getElementById('diagUpdatedAt').innerText = shortTime(data.generated_at);
+
+        document.getElementById('diagTotal').innerText = (metrics.total_requests || 0).toLocaleString();
+        var rejected = 0;
+        if (limits.buckets) {
+          Object.keys(limits.buckets).forEach(function(k) { rejected += limits.buckets[k].rejected || 0; });
+        }
+        document.getElementById('diagRateLimited').innerText = rejected.toLocaleString();
+        document.getElementById('diagRateLimitState').innerText = limits.enabled ? 'Limiter Active' : 'Limiter Off';
+        document.getElementById('diagRateLimitState').className = 'badge ' + (limits.enabled ? 'badge-ok' : 'badge-err');
+
+        document.getElementById('diagP95').innerText = (latency.p95_ms || 0) + ' ms';
+        var errorRate = ((metrics.error_rate || 0) * 100).toFixed(2) + '%';
+        document.getElementById('diagErrorRate').innerText = errorRate;
+        document.getElementById('diagErrorBadge').innerText = (metrics.status ? (metrics.status['5xx'] || 0) : 0) + ' 5xx';
+        document.getElementById('diagErrorBadge').className = 'badge ' + ((metrics.status && metrics.status['5xx']) ? 'badge-err' : 'badge-ok');
+
+        var engagement = data.engagement || {};
+        var counters = engagement.counters || {};
+        var diagPlays = document.getElementById('diagPlays');
+        var diagShares = document.getElementById('diagShares');
+        var diagEngagementBadge = document.getElementById('diagEngagementBadge');
+        if (diagPlays) diagPlays.innerText = (counters.play || 0).toLocaleString();
+        if (diagShares) diagShares.innerText = (counters.share || 0).toLocaleString();
+        if (diagEngagementBadge) {
+          diagEngagementBadge.innerText = (engagement.tracked_assets || 0) + ' assets';
+          diagEngagementBadge.className = 'badge';
+        }
+
+        var routesBody = document.getElementById('diagRoutesTable');
+        var routes = metrics.routes || [];
+        routesBody.innerHTML = routes.length === 0
+          ? '<tr><td colspan="4">No requests recorded yet.</td></tr>'
+          : routes.map(function(r) {
+              return '<tr><td>' + esc(r.route) + '</td><td>' + (r.count || 0).toLocaleString() + '</td><td>' + (r.errors || 0) + '</td><td>' + (r.avg_ms || 0) + ' ms</td></tr>';
+            }).join('');
+
+        var reqBody = document.getElementById('diagRequestsTable');
+        var requests = data.requests || [];
+        reqBody.innerHTML = requests.length === 0
+          ? '<tr><td colspan="4">No requests recorded yet.</td></tr>'
+          : requests.map(function(r) {
+              return '<tr><td>' + shortTime(r.ts) + '</td><td>' + esc(r.route) + '</td><td>' + (r.status || 0) + '</td><td>' + (r.ms || 0) + '</td></tr>';
+            }).join('');
+
+        var auditBody = document.getElementById('diagAuditTable');
+        var audit = data.audit || [];
+        auditBody.innerHTML = audit.length === 0
+          ? '<tr><td colspan="4">No admin actions recorded yet.</td></tr>'
+          : audit.map(function(a) {
+              var detail = Object.keys(a).filter(function(k) {
+                return ['action', 'actor_ip', 'path', 'ts'].indexOf(k) === -1;
+              }).map(function(k) {
+                return k + '=' + (typeof a[k] === 'object' ? JSON.stringify(a[k]) : a[k]);
+              }).join(' · ');
+              return '<tr><td>' + shortTime(a.ts) + '</td><td><b>' + esc(a.action) + '</b></td><td>' + esc(a.actor_ip) + '</td><td style="max-width: 420px; overflow: hidden; text-overflow: ellipsis;">' + esc(detail || a.path || '—') + '</td></tr>';
+            }).join('');
+      } catch (e) {
+        showToast('Diagnostics unavailable');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function loadConfigHistory() {
+      var body = document.getElementById('diagHistoryTable');
+      if (!body) return;
+      try {
+        var resp = await adminFetch('/api/config/history?refresh=1');
+        if (resp.status === 401) { showAuth(); return; }
+        if (resp.status === 403) { showToast('CSRF token expired — please sign in again'); showAuth(); return; }
+        if (!resp.ok) throw new Error('history failed');
+        var data = await resp.json();
+        var entries = data.entries || [];
+        if (entries.length === 0) {
+          body.innerHTML = '<tr><td colspan="5">No snapshots recorded yet. Save or import a configuration to create one.</td></tr>';
+          return;
+        }
+        body.innerHTML = entries.map(function(entry) {
+          var summary = entry.summary || {};
+          var text = 'v' + (entry.config_version || '?') +
+            ' · ' + (summary.upstreams || 0) + ' upstreams' +
+            ' · ' + (summary.swarm_workers || 0) + ' swarm' +
+            ' · ' + (summary.blacklist || 0) + ' blocked';
+          return '<tr>' +
+            '<td>' + shortTime(entry.at) + '</td>' +
+            '<td><b>' + esc(entry.action) + '</b></td>' +
+            '<td>' + esc(entry.config_version) + '</td>' +
+            '<td>' + esc(text) + '</td>' +
+            '<td><button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;" onclick="rollbackConfig(\'' + esc(entry.id) + '\')">Rollback</button></td>' +
+            '</tr>';
+        }).join('');
+      } catch (e) {
+        body.innerHTML = '<tr><td colspan="5">Configuration history is unavailable.</td></tr>';
+      }
+    }
+
+    async function rollbackConfig(id) {
+      if (!id) return;
+      if (!window.confirm('Roll back to snapshot ' + id + '? The current configuration will be snapshotted first.')) return;
+      try {
+        var resp = await adminFetch('/api/config/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        if (resp.status === 401) { showAuth(); return; }
+        if (resp.status === 403) { showToast('CSRF token expired — please sign in again'); showAuth(); return; }
+        var data = await resp.json().catch(function() { return {}; });
+        if (!resp.ok || !data.success) {
+          showToast(data.error || 'Rollback failed');
+          return;
+        }
+        currentConfig = data.config || currentConfig;
+        renderDashboard(currentConfig);
+        showToast('Configuration rolled back (' + (data.diff ? data.diff.length : 0) + ' changes)');
+        loadDiagnostics();
+        loadConfigHistory();
+      } catch (e) {
+        showToast('Rollback failed');
+      }
+    }
+
+    async function exportConfig() {
+      try {
+        var resp = await adminFetch('/api/config/export');
+        if (resp.status === 401) { showAuth(); return; }
+        if (!resp.ok) throw new Error('export failed');
+        var text = await resp.text();
+        var blob = new Blob([text], { type: 'application/json' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'vidlyte-config-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function() {
+          URL.revokeObjectURL(link.href);
+          link.remove();
+        }, 1000);
+        showToast('Configuration exported');
+      } catch (e) {
+        showToast('Export failed');
+      }
+    }
+
+    async function importConfigFile(input) {
+      if (!input || !input.files || !input.files[0]) return;
+      var file = input.files[0];
+      if (file.size > 256 * 1024) {
+        showToast('Config file is too large (max 256 KB)');
+        input.value = '';
+        return;
+      }
+      if (!window.confirm('Import "' + file.name + '"? This replaces the current runtime configuration.')) {
+        input.value = '';
+        return;
+      }
+      try {
+        var text = await file.text();
+        var parsed = JSON.parse(text);
+        var resp = await adminFetch('/api/config/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed)
+        });
+        if (resp.status === 403) {
+          showToast('CSRF token expired — please sign in again');
+          showAuth();
+          return;
+        }
+        var data = await resp.json().catch(function() { return {}; });
+        if (!resp.ok || !data.success) {
+          showToast((data.errors && data.errors[0]) || data.error || 'Import rejected');
+          return;
+        }
+        currentConfig = data.config || currentConfig;
+        renderDashboard(currentConfig);
+        showToast('Configuration imported');
+        loadDiagnostics();
+      } catch (e) {
+        showToast('Import failed: invalid JSON');
+      } finally {
+        input.value = '';
+      }
+    }
+
+    // -------------------------------------------------------------
+    // SAVE CONFIGURATION & LOGOUT
+    // -------------------------------------------------------------
+    async function saveConfig() {
+      if (!currentConfig) return;
+
+      var payload = {
+        site_config: {
+          brand_name: document.getElementById('siteBrandName').value.trim() || 'VidLyte',
+          tagline: document.getElementById('siteTagline').value.trim(),
+          hero_title: document.getElementById('siteHeroTitle').value.trim(),
+          hero_subtitle: document.getElementById('siteHeroSubtitle').value.trim(),
+          featured_picks: currentConfig?.site_config?.featured_picks || []
+        },
+        player_fleet: currentConfig.player_fleet || { primary_domain: '', fallback_domains: [] },
+        upstreams: currentConfig.upstreams || [],
+        proxy_swarm: currentConfig.proxy_swarm || { enabled: true, strategy: 'latency', workers: [] },
+        server_branding: {
+          show_server_names: true,
+          default_server: 'framextv',
+          server_aliases: {
+            orion: document.getElementById('aliasOrionInput').value.trim() || 'Server 1',
+            framextv: document.getElementById('aliasFrameXInput').value.trim() || 'Server 2',
+            asianflix: document.getElementById('aliasAsianFlixInput').value.trim() || 'Server 3',
+            evion: document.getElementById('aliasEvionInput').value.trim() || 'Server 4'
+          }
+        },
+        monetization: {
+          popunders_enabled: document.getElementById('popundersEnabled').checked,
+          smartlink_url: document.getElementById('smartlinkUrl').value.trim(),
+          max_popunders_per_session: parseInt(document.getElementById('maxPopunders').value, 10) || 2,
+          cooldown_minutes: parseInt(document.getElementById('cooldownMinutes').value, 10) || 15,
+          trigger_event: 'play_click',
+          anti_adblock_enabled: document.getElementById('antiAdblockEnabled').checked,
+          anti_adblock_strict_brave: true,
+          anti_adblock_message: 'Ad blocker detected. Please disable your ad blocker to support sovereign streaming.'
+        },
+        domain_security: currentConfig.domain_security || { blacklist: [], whitelist: [], strict_mode: false }
+      };
+
+      try {
+        var resp = await adminFetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (resp.status === 403) {
+          showToast('CSRF token expired — please sign in again');
+          showAuth();
+          return;
+        }
+        if (resp.ok) {
+          var resData = await resp.json();
+          currentConfig = resData.config || payload;
+          renderDashboard(currentConfig);
+          showToast('Configuration applied successfully');
+          loadConfigHistory();
+        } else {
+          showToast('Save failed');
+        }
+      } catch (e) {
+        showToast('Network error saving configuration');
+      }
+    }
+
+    async function logout() {
+      await adminFetch('/logout', { method: 'POST' }).catch(function() {});
+      showToast('Signed out');
+      showAuth();
+    }
+
+    // Auto-init on page load
+    (function init() {
+      var currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      updateThemeIcon(currentTheme);
+      fetchConfig().finally(function() {
+        if (window.location.hash === '#docs' || window.location.search.includes('tab=docs') || window.location.pathname.endsWith('/docs')) {
+          switchPane('pane-docs', 'Docs & Architecture');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

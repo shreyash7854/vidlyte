@@ -1,0 +1,154 @@
+# Watchdog & Telegram Alerts
+
+Production monitoring for `https://vid.lyte.workers.dev`. Everything here uses
+free services and requires **no billing information**: Cloudflare Workers Free,
+GitHub Actions (public repo) and the Telegram Bot API.
+
+## Why an external watchdog
+
+A Worker cannot send an alert when the Worker itself is down. The in-worker cron
+(`*/15 * * * *`) only checks provider/swarm health and the playback canary; it
+cannot report its own outage. `.github/workflows/uptime-watchdog.yml` runs
+outside Cloudflare and alerts you when the edge is unreachable or playback is
+broken.
+
+## What each run checks
+
+`cloudflare-worker/scripts/watchdog.mjs`:
+
+1. `GET /health/ready?canary=1` — strict readiness (secrets, KV, config, canary).
+2. `GET /api/source/tv/66732/1/1` — real resolver response with `masterUrl`.
+3. `GET <masterUrl>` — valid `#EXTM3U` master playlist.
+4. First variant playlist — valid `#EXTM3U`.
+5. First media segment — HTTP `200/206` and non-zero bytes (`Range: bytes=0-2047`).
+6. Repeats steps 2–5 for `movie/550` (configurable).
+
+It reports the failing step, HTTP status, latency, asset and timestamp. It never
+includes tokens, cookies or full upstream URLs.
+
+## 1. Create the Telegram bot (free)
+
+1. In Telegram, talk to **@BotFather** → `/newbot` → copy the bot token.
+2. Send any message to the new bot (or add it to the alert group).
+3. Get the chat id:
+   - DM: talk to **@userinfobot**, or
+   - Group: add the bot, send a message, then open
+     `https://api.telegram.org/bot<TOKEN>/getUpdates` and read
+     `message.chat.id` (group ids are negative).
+4. Keep the token and chat id private.
+
+## 2. Configure the Worker (in-worker alerts)
+
+```powershell
+cd cloudflare-worker
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+npx wrangler deploy
+```
+
+Non-secret knobs already live in `wrangler.toml`:
+
+```toml
+TELEGRAM_ALERTS_ENABLED = "true"
+ALERT_MIN_SEVERITY = "warning"   # info | warning | critical
+ALERT_COOLDOWN_MIN = "15"
+```
+
+Verify:
+
+1. Open `/vly-ops-7x` → Upstreams → **Alerting & Watchdog**.
+2. Confirm the status line says Telegram is configured and enabled.
+3. Click **Send Test**. The API is `POST <admin>/api/alerts/test` (session +
+   `X-CSRF-Token`). A `503` means the secrets are missing; `502` means Telegram
+   rejected the request.
+4. Click **Run Canary** to exercise the real resolver now.
+
+## 3. Configure GitHub Actions (external alerts)
+
+Repository → **Settings → Secrets and variables → Actions**:
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `TELEGRAM_BOT_TOKEN` | same bot token |
+| Secret | `TELEGRAM_CHAT_ID` | same chat id |
+| Variable (optional) | `WATCHDOG_BASE_URL` | defaults to `https://vid.lyte.workers.dev` |
+| Variable (optional) | `WATCHDOG_ASSETS` | defaults to `tv/66732/1/1,movie/550` |
+
+The workflow runs every 5 minutes and can be triggered manually from the
+**Actions → Uptime watchdog → Run workflow** button. GitHub's minimum schedule is
+5 minutes and runs can be delayed under load; this is a backup to the in-worker
+alerts, not a substitute for them.
+
+State (open/recovery dedupe) is persisted with `actions/cache` under
+`cloudflare-worker/.watchdog-state` and uploaded as a 7-day artifact. No state is
+committed to the repository.
+
+## 4. Run locally
+
+```powershell
+cd cloudflare-worker
+$env:WATCHDOG_BASE_URL = "https://vid.lyte.workers.dev"
+$env:TELEGRAM_BOT_TOKEN = "<token>"
+$env:TELEGRAM_CHAT_ID = "<chat id>"
+node scripts/watchdog.mjs
+```
+
+Useful dry run (no Telegram message):
+
+```powershell
+$env:WATCHDOG_DRY_RUN = "true"
+node scripts/watchdog.mjs
+```
+
+Exit code `1` means at least one check failed; `0` means everything passed.
+The JSON report is printed to stdout and appended to the GitHub step summary.
+
+## 5. Alert behaviour
+
+- **Open**: sent on the first failure, when the failure signature changes, or
+  after `WATCHDOG_COOLDOWN_MIN` (default 15) while still failing.
+- **Recovery**: sent only if a previous open alert was recorded.
+- **Worker**: scheduled-maintenance alerts use the same open/recovery semantics
+  and are deduplicated in KV (`telegram_alert_state_v1`).
+- **Severity**: `critical` when a provider/swarm node is offline;
+  `warning` for degraded states; `info` for recovery unless configured higher.
+- Failed Telegram delivery never breaks playback, cron or the watchdog exit code.
+
+## 6. Readiness flags
+
+`GET /health/ready` is fast and reads the canary stored by cron. `?canary=1`
+forces a live resolver check (the external watchdog always uses it).
+
+| Check | Fatal | Notes |
+|---|---|---|
+| `hmac_secret` | yes | must be set and not the built-in default |
+| `admin_secret` | yes | admin auth fails closed without it |
+| `config_kv` | yes | production persistence |
+| `runtime_config` | yes | must hydrate from KV |
+| `providers` | no | informational; provider probes run every 15 min |
+| `playback_canary` | yes once present | fails when failed or older than `WATCHDOG_CANARY_MAX_AGE_SEC`; missing is allowed unless `WATCHDOG_REQUIRE_CANARY=true` |
+
+## 7. Runbook
+
+| Symptom | Action |
+|---|---|
+| `503 readiness: hmac_secret:missing_or_default` | `npx wrangler secret put HMAC_SECRET` |
+| `503 readiness: admin_secret:missing` | `npx wrangler secret put ADMIN_SECRET` |
+| `503 readiness: playback_canary:failed:provider_miss` | Run **Run Canary**; check provider health; try another `WATCHDOG_CANARY_PROVIDER` |
+| `503 readiness: playback_canary:stale` | Check the cron trigger; run **Run Canary** |
+| `source tv/...: HTTP 404` | No provider resolved the canary asset; probe providers in admin |
+| `master/variant/segment HTTP 5xx` | Upstream CDN or gateway issue; check `wrangler tail`, then re-run |
+| Worker completely unreachable | GitHub Actions still alerts; check Cloudflare dashboard/status |
+| No Telegram message | Verify both secrets, `TELEGRAM_ALERTS_ENABLED`, and chat id; use **Send Test** |
+| Alert spam | Increase `ALERT_COOLDOWN_MIN` / `WATCHDOG_COOLDOWN_MIN` |
+
+## 8. Known limitations
+
+- The external watchdog validates the **server-side** playback chain. It cannot
+  execute the browser-only client-assisted BigBang upgrade, so a BigBang-only
+  regression needs a manual browser check of `tv/305551/1/4`.
+- GitHub Actions cron can be delayed; pair with UptimeRobot/Better Stack free
+  (optional) for a second independent liveness signal.
+- Cloudflare Workers Free has a ~100k request/day quota. At one run per 5
+  minutes, the watchdog consumes roughly 2–3k requests/day; leave headroom for
+  real traffic.

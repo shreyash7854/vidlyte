@@ -1,0 +1,27 @@
+{
+  "name": "vidlyte-cloudflare-worker",
+  "version": "1.0.0",
+  "description": "VidLyte Sovereign Gateway & Edge Proxy powered by Go WebAssembly",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "powershell -Command \"$env:GOOS='wasip1'; $env:GOARCH='wasm'; go build -buildmode=c-shared -ldflags='-s -w' -o src/vidlyte.wasm ../cmd/wasm\"",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test.js",
+    "test:phase1": "node test_phase1.mjs",
+    "test:phase2": "node test_phase2.mjs",
+    "test:phase3": "node test_phase3.mjs",
+    "test:phase4": "node test_phase4.mjs",
+    "test:phase5": "node test_phase5.mjs",
+    "test:phase6": "node test_phase6.mjs",
+    "test:phase7": "node test_phase7.mjs",
+    "test:all": "node test_phase1.mjs && node test_phase2.mjs && node test_phase3.mjs && node test_phase4.mjs && node test_phase5.mjs && node test_phase6.mjs && node test_phase7.mjs",
+    "test:live": "node test_live.js",
+    "watchdog": "node scripts/watchdog.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^4.25.0"
+  }
+}

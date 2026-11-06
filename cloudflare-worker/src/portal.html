@@ -1,0 +1,1799 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vidlyte — Sovereign Video Streaming & Universal Embed</title>
+  <meta name="application-name" content="VidLyte">
+  <meta name="description" content="One universal embed URL for any movie or TV series. Adaptive 1080p–360p HLS playback, multi-track audio dubs, and instantaneous seeking.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* -------------------------------------------------------------
+       DESIGN SYSTEM & THEME TOKENS (Inspired by referenceui/4.png)
+       ------------------------------------------------------------- */
+    :root, [data-theme="dark"] {
+      --bg: #07090e;
+      --bg-dots: rgba(255, 255, 255, 0.04);
+      --surface: #0d111a;
+      --surface-elevated: #131926;
+      --surface-card: #0f1422;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.18);
+      --accent-soft: rgba(16, 185, 129, 0.08);
+      --btn-cta-bg: #f8fafc;
+      --btn-cta-text: #07090e;
+      --bezel-bg: #0a0d14;
+      --bezel-border: rgba(255, 255, 255, 0.1);
+      --code-bg: #05070c;
+      --code-text: #38bdf8;
+      --nav-bg: rgba(7, 9, 14, 0.82);
+    }
+
+    [data-theme="light"] {
+      --bg: #ffffff;
+      --bg-dots: rgba(0, 0, 0, 0.04);
+      --surface: #f8fafc;
+      --surface-elevated: #f1f5f9;
+      --surface-card: #ffffff;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #09090b;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --accent: #059669;
+      --accent-glow: rgba(16, 185, 129, 0.14);
+      --accent-soft: rgba(16, 185, 129, 0.06);
+      --btn-cta-bg: #09090b;
+      --btn-cta-text: #ffffff;
+      --bezel-bg: #f8fafc;
+      --bezel-border: #e2e8f0;
+      --code-bg: #f1f5f9;
+      --code-text: #0284c7;
+      --nav-bg: rgba(255, 255, 255, 0.85);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 70% 45% at 50% 0%, var(--accent-glow), transparent 70%),
+        radial-gradient(circle at 50% 50%, var(--bg-dots) 1px, transparent 1px);
+      background-size: 100% 100%, 24px 24px;
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* -------------------------------------------------------------
+       TOP NAVIGATION
+       ------------------------------------------------------------- */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--nav-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      transition: background-color 0.25s ease, border-color 0.25s ease;
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 68px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .brand-text {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--text);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--accent);
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      animation: pulse 2.2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+    .status-badge.offline {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(248, 113, 113, 0.08);
+    }
+    .status-badge.offline .status-dot {
+      background: #f87171;
+      box-shadow: 0 0 6px #f87171;
+      animation: none;
+    }
+    .network-badge.offline {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(248, 113, 113, 0.08);
+    }
+    .network-badge.offline .network-pulse {
+      background: #f87171;
+      box-shadow: 0 0 6px #f87171;
+      animation: none;
+    }
+
+    /* Theme Switch Button */
+    .theme-toggle-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    .theme-toggle-btn:hover {
+      border-color: var(--border-strong);
+      transform: scale(1.05);
+    }
+    .theme-toggle-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke-width: 1.8;
+    }
+
+    .nav-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 38px;
+      padding: 0 16px;
+      border-radius: 999px;
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      font-size: 13.5px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    .nav-cta-btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    /* -------------------------------------------------------------
+       HERO SECTION (Near style - referenceui/4.png)
+       ------------------------------------------------------------- */
+    .hero {
+      padding: 72px 0 36px;
+      text-align: left;
+    }
+    .hero-pretitle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+    .hero-pretitle-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .hero h1 {
+      font-size: clamp(34px, 4.6vw, 56px);
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -0.04em;
+      color: var(--text);
+      max-width: 900px;
+      margin-bottom: 22px;
+    }
+
+    .hero p.lead {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 680px;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    .hero-action-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 56px;
+    }
+    .btn-hero {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 48px;
+      padding: 0 24px;
+      border-radius: 999px;
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    }
+    .btn-hero:hover {
+      opacity: 0.92;
+      transform: translateY(-1px);
+    }
+    .btn-hero svg {
+      width: 17px;
+      height: 17px;
+      stroke-width: 2.2;
+    }
+    .hero-subtext {
+      font-size: 13.5px;
+      color: var(--text-dim);
+    }
+
+    /* -------------------------------------------------------------
+       PRODUCT SHOWCASE BEZEL (Near dashboard card style - 4.png)
+       ------------------------------------------------------------- */
+    .showcase-bezel {
+      background: var(--bezel-bg);
+      border: 1px solid var(--bezel-border);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+      position: relative;
+      margin-bottom: 96px;
+    }
+    .showcase-bezel::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 25px;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .showcase-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Sandbox Controls inside Bezel */
+    .sandbox-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .media-type-pills {
+      display: inline-flex;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .media-type-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .media-type-btn svg { width: 14px; height: 14px; stroke-width: 2; }
+    .media-type-btn.active {
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+    }
+
+    .preset-pills-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .preset-tag {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .preset-chip {
+      padding: 5px 12px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .preset-chip:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .sandbox-inputs-grid {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto auto;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .sandbox-inputs-grid { grid-template-columns: 1fr; }
+    }
+    .btn-load-sandbox {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 20px;
+      background: linear-gradient(135deg, #e50914 0%, #b20710 100%);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      font-family: var(--font-sans);
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(229, 9, 20, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn-load-sandbox:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.1);
+      box-shadow: 0 4px 16px rgba(229, 9, 20, 0.55);
+    }
+    .btn-load-sandbox:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 6px rgba(229, 9, 20, 0.3);
+    }
+    .btn-load-sandbox svg {
+      width: 15px;
+      height: 15px;
+    }
+    .input-field-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0 12px;
+      height: 42px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .input-field-wrap:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+    .input-field-wrap svg {
+      width: 16px;
+      height: 16px;
+      stroke: var(--text-dim);
+      stroke-width: 2;
+    }
+    .input-field {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13.5px;
+      color: var(--text);
+    }
+    .input-field::placeholder {
+      color: var(--text-dim);
+    }
+    .input-num-wrap {
+      width: 100px;
+    }
+
+    .toggles-wrap {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Video Frame */
+    .video-surface-container {
+      position: relative;
+      width: 100%;
+      padding-top: 56.25%; /* 16:9 Aspect Ratio */
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      margin-bottom: 20px;
+    }
+    .video-surface-container iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .sandbox-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.08), rgba(7, 9, 14, 0.95));
+      text-align: center;
+      padding: 24px;
+      z-index: 2;
+    }
+    .placeholder-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    .placeholder-title {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .placeholder-sub {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      max-width: 44ch;
+      margin: 0 auto;
+    }
+
+    /* Code Snippet Box */
+    .code-export-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .code-snippet {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--code-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .btn-copy-code {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 8px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .btn-copy-code:hover {
+      background: var(--btn-cta-bg);
+      color: var(--btn-cta-text);
+      border-color: var(--btn-cta-bg);
+    }
+    .btn-copy-code.copied {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    .btn-copy-code svg {
+      width: 14px;
+      height: 14px;
+      stroke-width: 2;
+    }
+
+    /* -------------------------------------------------------------
+       FEATURES SECTION (Clean two-column Near style - 4.png)
+       ------------------------------------------------------------- */
+    .features-section {
+      padding: 40px 0 96px;
+    }
+    .features-heading {
+      font-size: clamp(28px, 3.5vw, 42px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    .features-sub {
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 48px;
+    }
+
+    .features-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    @media (max-width: 960px) {
+      .features-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .features-row { grid-template-columns: 1fr; }
+    }
+    .feature-item-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+    .feature-item-card:hover {
+      border-color: var(--border-strong);
+      transform: translateY(-2px);
+    }
+    .feature-icon-box {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+    .feature-icon-box svg {
+      width: 22px;
+      height: 22px;
+      stroke-width: 1.8;
+    }
+    .feature-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .feature-desc {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* -------------------------------------------------------------
+       INTEGRATION & CODE CHEATSHEET SECTION
+       ------------------------------------------------------------- */
+    .integration-section {
+      padding: 64px 0 96px;
+      border-top: 1px solid var(--border);
+    }
+    .section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 14px;
+    }
+    .integration-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 32px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .integration-grid { grid-template-columns: 1fr; }
+    }
+    .code-card-wrapper {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.15);
+    }
+    .code-card-tabs {
+      display: flex;
+      align-items: center;
+      background: var(--surface-elevated);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      gap: 6px;
+    }
+    .code-tab-btn {
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: none;
+      background: none;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .code-tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .code-card-body {
+      padding: 20px;
+      position: relative;
+    }
+    .code-pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--code-text);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .param-table-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.15);
+    }
+    .param-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .param-table th, .param-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .param-table th {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      background: var(--surface-elevated);
+    }
+    .param-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    /* -------------------------------------------------------------
+       COMPARISON MATRIX SECTION
+       ------------------------------------------------------------- */
+    .comparison-section {
+      padding: 64px 0 96px;
+      border-top: 1px solid var(--border);
+    }
+    .matrix-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.15);
+    }
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .matrix-table th, .matrix-table td {
+      padding: 16px 20px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .matrix-table th {
+      background: var(--surface-elevated);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .matrix-table th.highlight-col, .matrix-table td.highlight-col {
+      background: var(--accent-soft);
+      border-left: 1px solid var(--accent);
+      border-right: 1px solid var(--accent);
+    }
+    .check-icon {
+      color: var(--accent);
+      font-weight: 800;
+      margin-right: 6px;
+    }
+    .cross-icon {
+      color: #ef4444;
+      font-weight: 800;
+      margin-right: 6px;
+    }
+
+    /* -------------------------------------------------------------
+       FAQ ACCORDION SECTION
+       ------------------------------------------------------------- */
+    .faq-section {
+      padding: 64px 0 96px;
+      border-top: 1px solid var(--border);
+    }
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    @media (max-width: 768px) {
+      .faq-grid { grid-template-columns: 1fr; }
+    }
+    .faq-item {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+    .faq-item:hover {
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+    }
+    .faq-q {
+      font-size: 15.5px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .faq-q-icon {
+      color: var(--accent);
+      font-size: 14px;
+    }
+    .faq-a {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* -------------------------------------------------------------
+       RICH MULTI-COLUMN FOOTER
+       ------------------------------------------------------------- */
+    .rich-footer {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 64px 0 32px;
+    }
+    .footer-cols {
+      display: grid;
+      grid-template-columns: 1.5fr repeat(3, 1fr);
+      gap: 40px;
+      margin-bottom: 48px;
+    }
+    @media (max-width: 960px) {
+      .footer-cols { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      .footer-cols { grid-template-columns: 1fr; }
+    }
+    .footer-col-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+    .footer-link-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .footer-link-list a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13.5px;
+      transition: color 0.15s ease;
+    }
+    .footer-link-list a:hover {
+      color: var(--accent);
+    }
+    .footer-bottom-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+      font-size: 13px;
+      color: var(--text-dim);
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .network-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .network-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Webmaster samples */
+    .samples-section { padding: 54px 0 8px; }
+    .samples-head { margin-bottom: 18px; }
+    .samples-title { font-family: var(--font-display); font-size: 28px; font-weight: 700; margin: 6px 0 4px; color: var(--text); }
+    .samples-sub { color: var(--text-muted); font-size: 14px; margin: 0; max-width: 760px; }
+    .samples-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .sample-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-card);
+    }
+    .sample-kicker {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .sample-title { font-size: 16px; margin: 0; color: var(--text); }
+    .sample-meta { margin: 0; font-size: 12px; color: var(--text-dim); }
+    .sample-actions { display: flex; gap: 8px; margin-top: 6px; }
+    .sample-btn {
+      flex: 1 1 auto;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-elevated);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .sample-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .sample-btn.primary { background: var(--accent-soft); border-color: rgba(16, 185, 129, 0.45); color: var(--accent); }
+    .sample-btn.primary:hover { background: var(--accent-glow); }
+    @media (max-width: 640px) {
+      .samples-grid { grid-template-columns: 1fr; }
+    }  </style>
+</head>
+<body>
+
+  <!-- Top Sticky Navigation -->
+  <nav class="navbar">
+    <div class="container nav-inner">
+      <a href="/" class="brand">
+        <span class="brand-text">vidlyte</span>
+      </a>
+
+      <div class="nav-right">
+        <div class="status-badge" id="edgeStatusBadge">
+          <span class="status-dot" id="edgeStatusDot"></span>
+          <span id="edgeStatusText">Edge Network: Checking…</span>
+        </div>
+
+        <!-- Light / Dark Mode Toggle Button -->
+        <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle Theme" onclick="toggleTheme()">
+          <!-- Sun Icon (shown in dark mode) -->
+          <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <!-- Moon Icon (shown in light mode) -->
+          <svg class="moon-icon" style="display:none;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+
+        <a href="#sandbox" class="nav-cta-btn">
+          Try Sandbox
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section (Near style) -->
+  <header class="hero">
+    <div class="container">
+      <div class="hero-pretitle">
+        <span class="hero-pretitle-dot"></span>
+        <span>Universal Video Streaming</span>
+      </div>
+
+      <h1>One universal embed. Zero buffering.<br>Your streaming player, sovereign & reliable.</h1>
+      
+      <p class="lead">
+        Adaptive 1080p–360p HLS playback, multi-track regional dubs, and instantaneous seeking — packaged into one drop-in iframe URL.
+      </p>
+
+      <div class="hero-action-row">
+        <a href="#sandbox" class="btn-hero">
+          <span>Try Live Sandbox</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </a>
+        <span class="hero-subtext">Instant playback. No registration required. Built for webmasters.</span>
+      </div>
+
+      <!-- Product Showcase Bezel (Near card style - 4.png) -->
+      <div id="sandbox" class="showcase-bezel">
+        <div class="showcase-inner">
+          <!-- Topbar Controls -->
+          <div class="sandbox-topbar">
+            <div class="media-type-pills">
+              <button type="button" class="media-type-btn" id="btnMovie" onclick="setMediaType('movie')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+                <span>Movie</span>
+              </button>
+              <button type="button" class="media-type-btn active" id="btnTV" onclick="setMediaType('tv')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+                <span>TV Series</span>
+              </button>
+            </div>
+
+            <div class="preset-pills-wrap">
+              <span class="preset-tag">Presets:</span>
+              <button type="button" class="preset-chip" onclick="applyPreset('tv', '1399', 1, 1)">GoT S1E1 (#1399)</button>
+              <button type="button" class="preset-chip" onclick="applyPreset('tv', '1399', 1, 2)">GoT S1E2 (#1399)</button>
+              <button type="button" class="preset-chip" onclick="applyPreset('tv', '250670', 1, 1)">Maxton Hall (#250670)</button>
+              <button type="button" class="preset-chip" onclick="applyPreset('movie', '550')">Fight Club (#550)</button>
+              <button type="button" class="preset-chip" onclick="applyPreset('tv', '95396', 1, 1)">Severance (#95396)</button>
+            </div>
+          </div>
+
+          <!-- Input Fields Row -->
+          <div class="sandbox-inputs-grid">
+            <div class="input-field-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="inputId" class="input-field" value="1399" placeholder="Enter TMDB ID (e.g. 1399)">
+            </div>
+
+            <div class="input-field-wrap input-num-wrap" id="wrapSeason">
+              <span style="font-size:12px; color:#64748b; font-weight:700;">S</span>
+              <input type="number" id="inputSeason" class="input-field" value="1" min="1">
+            </div>
+
+            <div class="input-field-wrap input-num-wrap" id="wrapEpisode">
+              <span style="font-size:12px; color:#64748b; font-weight:700;">E</span>
+              <input type="number" id="inputEpisode" class="input-field" value="1" min="1">
+            </div>
+
+            <button type="button" id="btnLoadSandbox" class="btn-load-sandbox" onclick="updatePlayer()">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              <span>Load & Play</span>
+            </button>
+
+            <div class="toggles-wrap">
+              <label class="toggle-label">
+                <input type="checkbox" id="checkAutoplay" checked onchange="updateSnippetOnly()">
+                <span>Autoplay</span>
+              </label>
+              <label class="toggle-label">
+                <input type="checkbox" id="checkMuted" onchange="updateSnippetOnly()">
+                <span>Muted</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 16:9 Live Preview Surface -->
+          <div class="video-surface-container" id="videoSurface">
+            <div class="sandbox-placeholder" id="sandboxPlaceholder">
+              <div class="placeholder-content">
+                <div class="placeholder-badge">High-Performance Sovereign Embed</div>
+                <h3 class="placeholder-title">Interactive Player Sandbox</h3>
+                <p class="placeholder-sub">Click "Load Player" to stream with 1080p adaptive bitrate, 12 regional audio dubs, and instant seeking.</p>
+                <button type="button" class="btn-load-sandbox" onclick="updatePlayer()" style="margin: 16px auto 0;">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  <span>Load Player</span>
+                </button>
+              </div>
+            </div>
+            <iframe id="livePreviewIframe" src="" style="display:none;" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
+          </div>
+
+          <!-- One-Click Code Snippet Box -->
+          <div class="code-export-box">
+            <div class="code-snippet" id="codeIframe"></div>
+            <button type="button" class="btn-copy-code" id="copyBtn" onclick="copyEmbedCode()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span id="copyBtnText">Copy Iframe</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Webmaster samples: live embeds + copyable iframe -->
+  <section class="samples-section" id="samples">
+    <div class="container">
+      <div class="samples-head">
+        <div class="section-tag">Samples</div>
+        <h2 class="samples-title">See it running. Then paste one line.</h2>
+        <p class="samples-sub">These are live embeds served by this worker. Preview one in the sandbox or copy its iframe straight into your site. Swap the TMDB ID for any title you already have.</p>
+      </div>
+
+      <div class="samples-grid">
+        <article class="sample-card">
+          <div class="sample-kicker">Movie · TMDB 550</div>
+          <h3 class="sample-title">Fight Club</h3>
+          <p class="sample-meta">Single movie embed</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('movie', 550)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('movie', 550, null, null, this)">Copy embed</button>
+          </div>
+        </article>
+
+        <article class="sample-card">
+          <div class="sample-kicker">Movie · TMDB 27205</div>
+          <h3 class="sample-title">Inception</h3>
+          <p class="sample-meta">Single movie embed</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('movie', 27205)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('movie', 27205, null, null, this)">Copy embed</button>
+          </div>
+        </article>
+
+        <article class="sample-card">
+          <div class="sample-kicker">Movie · TMDB 157336</div>
+          <h3 class="sample-title">Interstellar</h3>
+          <p class="sample-meta">Single movie embed</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('movie', 157336)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('movie', 157336, null, null, this)">Copy embed</button>
+          </div>
+        </article>
+
+        <article class="sample-card">
+          <div class="sample-kicker">TV · TMDB 1396</div>
+          <h3 class="sample-title">Breaking Bad</h3>
+          <p class="sample-meta">Season 1 · Episode 1</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('tv', 1396, 1, 1)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('tv', 1396, 1, 1, this)">Copy embed</button>
+          </div>
+        </article>
+
+        <article class="sample-card">
+          <div class="sample-kicker">TV · TMDB 66732</div>
+          <h3 class="sample-title">Stranger Things</h3>
+          <p class="sample-meta">Season 1 · Episode 1</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('tv', 66732, 1, 1)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('tv', 66732, 1, 1, this)">Copy embed</button>
+          </div>
+        </article>
+
+        <article class="sample-card">
+          <div class="sample-kicker">TV · TMDB 100088</div>
+          <h3 class="sample-title">The Last of Us</h3>
+          <p class="sample-meta">Season 1 · Episode 1</p>
+          <div class="sample-actions">
+            <button type="button" class="sample-btn primary" onclick="loadSample('tv', 100088, 1, 1)">Preview</button>
+            <button type="button" class="sample-btn" onclick="copySample('tv', 100088, 1, 1, this)">Copy embed</button>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+  <!-- Features Grid (Balanced 6-Card Layout) -->
+  <section class="features-section">
+    <div class="container">
+      <h2 class="features-heading">Engineered for streaming sites. No compromises.</h2>
+      <p class="features-sub">Solve playback stalls, broken audio dubs, and buffering bottlenecks with sovereign edge architecture.</p>
+
+      <div class="features-row">
+        <!-- Card 1 -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          </div>
+          <h3 class="feature-title">Adaptive 4-Tier Resolution</h3>
+          <p class="feature-desc">Full 1080p Full HD, 720p HD, 480p SD, and 360p Data Saver variants. Smooth playback adapts automatically to viewer network speeds.</p>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
+          </div>
+          <h3 class="feature-title">Native Multi-Track Audio Dubs</h3>
+          <p class="feature-desc">Seamless in-player switching between English, Hindi, Spanish, Portuguese, Telugu, Tamil, and Kannada dubs without restarting playback.</p>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          </div>
+          <h3 class="feature-title">Original Title Logo Overlay</h3>
+          <p class="feature-desc">Transparent official show and movie logos render automatically on center pause overlays, replacing generic fallback text.</p>
+        </div>
+
+        <!-- Card 4 -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </div>
+          <h3 class="feature-title">Instant Seek & Atomic Transmuxing</h3>
+          <p class="feature-desc">Zero seek buffering. Fragmented media chunks transmux atomically to eliminate player lockups during scrub and skip operations.</p>
+        </div>
+
+        <!-- Card 5 (NEW) -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
+          <h3 class="feature-title">Autonomous Edge Swarm Mesh</h3>
+          <p class="feature-desc">Segment requests load-balance across multiple independent edge worker nodes. If any upstream mirror stalls, failover is sub-second and transparent.</p>
+        </div>
+
+        <!-- Card 6 (NEW) -->
+        <div class="feature-item-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </div>
+          <h3 class="feature-title">Zero-Leak Cryptographic Shield</h3>
+          <p class="feature-desc">Upstream provider hosts and deep stream URLs are obfuscated with AES-256-GCM tokens. Reverse engineering source manifests is mathematically prevented.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Webmaster Integration & SDK Quickstart -->
+  <section class="integration-section" id="integration">
+    <div class="container">
+      <div class="section-tag">Integration Guide</div>
+      <h2 class="features-heading">Embed in 60 seconds. Zero API keys.</h2>
+      <p class="features-sub">Drop a single responsive iframe on your streaming site. Works with any standard TMDB Movie or TV Series identifier.</p>
+
+      <div class="integration-grid">
+        <!-- Left: Tabbed Code Generator -->
+        <div class="code-card-wrapper">
+          <div class="code-card-tabs">
+            <button class="code-tab-btn active" onclick="switchCodeTab('html', this)">HTML Iframe</button>
+            <button class="code-tab-btn" onclick="switchCodeTab('react', this)">React / Next.js</button>
+            <button class="code-tab-btn" onclick="switchCodeTab('api', this)">Direct Stream URL</button>
+          </div>
+          <div class="code-card-body">
+            <pre class="code-pre" id="integrationSnippet">&lt;!-- Movie: Fight Club (TMDB #550) --&gt;
+&lt;iframe
+  src="https://vidlyte.workers.dev/embed/movie/550?autoplay=true"
+  width="100%"
+  height="100%"
+  frameborder="0"
+  allowfullscreen
+  allow="autoplay; fullscreen; picture-in-picture"&gt;
+&lt;/iframe&gt;</pre>
+          </div>
+        </div>
+
+        <!-- Right: URL Parameters Cheat Sheet -->
+        <div class="param-table-card">
+          <table class="param-table">
+            <thead>
+              <tr>
+                <th>Param</th>
+                <th>Type</th>
+                <th>Default</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-badge">autoplay</span></td>
+                <td>boolean</td>
+                <td><code>true</code></td>
+                <td>Starts playback automatically upon load</td>
+              </tr>
+              <tr>
+                <td><span class="param-badge">muted</span></td>
+                <td>boolean</td>
+                <td><code>false</code></td>
+                <td>Launches with audio muted to bypass mobile restrictions</td>
+              </tr>
+              <tr>
+                <td><span class="param-badge">theme</span></td>
+                <td>string</td>
+                <td><code>dark</code></td>
+                <td>Player aesthetic theme (<code>dark</code> or <code>light</code>)</td>
+              </tr>
+              <tr>
+                <td><span class="param-badge">start</span></td>
+                <td>number</td>
+                <td><code>0</code></td>
+                <td>Initial seek offset in seconds (e.g. <code>start=120</code>)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Edge Architecture Comparison Matrix -->
+  <section class="comparison-section" id="comparison">
+    <div class="container">
+      <div class="section-tag">Benchmark Analysis</div>
+      <h2 class="features-heading">VidLyte vs Legacy Embed Services</h2>
+      <p class="features-sub">Engineered to outperform legacy scraped player embeds across latency, stability, and viewer retention.</p>
+
+      <div class="matrix-card">
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th>Performance Dimension</th>
+              <th class="highlight-col" style="color: var(--accent);">vidlyte Edge Gateway</th>
+              <th>Legacy Embeds (2Embed / VidCloud / StreamWish)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Seek Latency (Time-To-Frame)</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>&lt; 150ms instant scrub</strong> (Atomic transmuxing)</td>
+              <td><span class="cross-icon">✗</span> 3,000ms – 7,000ms lockup & spinner freeze</td>
+            </tr>
+            <tr>
+              <td><strong>Multi-Language Audio Dubs</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>In-Player Seamless Switch</strong> (English, Hindi, Spanish, etc.)</td>
+              <td><span class="cross-icon">✗</span> Locked to 1 track or requires full page reload</td>
+            </tr>
+            <tr>
+              <td><strong>Origin Concealment & Anti-Scraping</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>Zero Origin Leak</strong> (AES-256-GCM opaque tokens)</td>
+              <td><span class="cross-icon">✗</span> Upstream URLs leaked directly in Network tab</td>
+            </tr>
+            <tr>
+              <td><strong>Multi-Worker Swarm Failover</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>Autonomous Sub-Second Mesh Relay</strong></td>
+              <td><span class="cross-icon">✗</span> Single point of failure (403/404 halts stream)</td>
+            </tr>
+            <tr>
+              <td><strong>Ad Experience & Malware Protection</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>Clean 1-Popunder Max</strong> (Admin Configurable)</td>
+              <td><span class="cross-icon">✗</span> 5–8 aggressive redirects & misleading APK popups</td>
+            </tr>
+            <tr>
+              <td><strong>Adaptive Bitrate Qualities</strong></td>
+              <td class="highlight-col"><span class="check-icon">✓</span> <strong>1080p, 720p, 480p, 360p</strong> Clean Menu</td>
+              <td><span class="cross-icon">✗</span> Fake resolution pills with no bitrate switch</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive FAQ Accordion -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="section-tag">Frequently Asked Questions</div>
+      <h2 class="features-heading">Frequently Asked Questions</h2>
+      <p class="features-sub">Everything you need to know about sovereign edge streaming and domain whitelisting.</p>
+
+      <div class="faq-grid">
+        <div class="faq-item">
+          <div class="faq-q">
+            <span class="faq-q-icon">✦</span>
+            <span>Do I need an API key to embed VidLyte?</span>
+          </div>
+          <p class="faq-a">No. VidLyte is designed for zero-friction integration. Simply embed the standard iframe URL with any TMDB movie or TV show ID. All metadata and streams resolve automatically.</p>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-q">
+            <span class="faq-q-icon">✦</span>
+            <span>How does the multi-worker swarm failover work?</span>
+          </div>
+          <p class="faq-a">When configured, our primary gateway transparently proxies and fetches chunks through secondary edge worker relays with sub-second failover. If an upstream CDN blocks one node IP, playback transfers instantly without dropping frames.</p>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-q">
+            <span class="faq-q-icon">✦</span>
+            <span>Can other webmasters scrape my deep stream URLs?</span>
+          </div>
+          <p class="faq-a">No. All manifests and chunk URLs are encrypted with ephemeral, IP-bound HMAC tokens and AES-256-GCM opaque keys. Upstream provider origins are never exposed in client inspect tools or network captures.</p>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-q">
+            <span class="faq-q-icon">✦</span>
+            <span>How can I control which domains are allowed to embed?</span>
+          </div>
+          <p class="faq-a">Administrators have full domain governance inside the Domain Governance Dashboard. You can track all referer domains, view visitor metrics, and instantly block unauthorized hostnames with one click.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Rich Multi-Column Footer -->
+  <footer class="rich-footer">
+    <div class="container">
+      <div class="footer-cols">
+        <!-- Col 1: Brand Info -->
+        <div>
+          <div class="brand" style="margin-bottom: 14px;">
+            <span class="brand-text">vidlyte</span>
+          </div>
+          <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; max-width: 300px; margin-bottom: 20px;">
+            Sovereign edge streaming gateway engineered for modern streaming webmasters. Sub-second seek, zero buffering, multi-language dubs.
+          </p>
+          <div class="network-badge" id="networkStatusBadge">
+            <span class="network-pulse" id="networkStatusDot"></span>
+            <span id="networkStatusText">Global Edge Network: Checking…</span>
+          </div>
+        </div>
+
+        <!-- Col 2: Platform -->
+        <div>
+          <div class="footer-col-title">Platform</div>
+          <ul class="footer-link-list">
+            <li><a href="#sandbox">Live Sandbox</a></li>
+            <li><a href="#integration">Embed Documentation</a></li>
+            <li><a href="#comparison">Benchmark Matrix</a></li>
+            <li><a href="#faq">Integration FAQ</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Architecture -->
+        <div>
+          <div class="footer-col-title">Architecture</div>
+          <ul class="footer-link-list">
+            <li><a href="#integration">Zero-Buffer Edge Mesh</a></li>
+            <li><a href="#comparison">Multi-Worker Swarm</a></li>
+            <li><a href="#comparison">Cryptographic Shield</a></li>
+            <li><a href="#comparison">Domain Governance</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: Protocols -->
+        <div>
+          <div class="footer-col-title">Standards</div>
+          <ul class="footer-link-list">
+            <li><a href="https://datatracker.ietf.org/doc/html/rfc8216" target="_blank" rel="noopener">RFC 8216 HLS Spec</a></li>
+            <li><a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB API Standard</a></li>
+            <li><a href="https://www.w3.org/TR/webvtt1/" target="_blank" rel="noopener">WebVTT Subtitles</a></li>
+            <li><a href="#comparison">Sub-Second Latency</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom-row">
+        <div>vidlyte · Sovereign Streaming Gateway · 100% Confidential</div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span>Zero Logging</span>
+          <span>·</span>
+          <span>Edge Transmuxing</span>
+          <span>·</span>
+          <button onclick="toggleTheme()" style="background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12.5px; text-decoration: underline;">Switch Theme</button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script nonce="__CSP_NONCE__">
+    /* __VIDLYTE_CONFIG__ */
+
+    // 1. Theme Management (Light / Dark Mode with Persistence)
+    function initTheme() {
+      var saved = localStorage.getItem('vidlyte-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', saved);
+      updateThemeIcon(saved);
+      syncThemeToIframe(saved);
+    }
+
+    function toggleTheme() {
+      var current = document.documentElement.getAttribute('data-theme') || 'dark';
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('vidlyte-theme', next);
+      updateThemeIcon(next);
+      syncThemeToIframe(next);
+    }
+
+    function updateThemeIcon(theme) {
+      var sun = document.querySelector('.sun-icon');
+      var moon = document.querySelector('.moon-icon');
+      if (sun && moon) {
+        if (theme === 'light') {
+          sun.style.display = 'none';
+          moon.style.display = 'block';
+        } else {
+          sun.style.display = 'block';
+          moon.style.display = 'none';
+        }
+      }
+    }
+
+    function syncThemeToIframe(theme) {
+      var iframe = document.getElementById('livePreviewIframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ action: 'setTheme', theme: theme }, '*');
+        } catch (e) {}
+      }
+    }
+
+    // 2. Interactive Sandbox State & Live Iframe Logic
+    var currentMediaType = 'tv';
+    var origin = window.location.origin;
+
+    function setMediaType(type) {
+      currentMediaType = type;
+      var btnMovie = document.getElementById('btnMovie');
+      var btnTV = document.getElementById('btnTV');
+      var wrapSeason = document.getElementById('wrapSeason');
+      var wrapEpisode = document.getElementById('wrapEpisode');
+      var inputId = document.getElementById('inputId');
+
+      if (type === 'movie') {
+        btnMovie.classList.add('active');
+        btnTV.classList.remove('active');
+        wrapSeason.style.display = 'none';
+        wrapEpisode.style.display = 'none';
+        if (inputId.value === '1399') inputId.value = '550';
+      } else {
+        btnTV.classList.add('active');
+        btnMovie.classList.remove('active');
+        wrapSeason.style.display = 'flex';
+        wrapEpisode.style.display = 'flex';
+        if (inputId.value === '550') inputId.value = '1399';
+      }
+      updateSnippetOnly();
+    }
+
+    function applyPreset(type, id, season, episode) {
+      document.getElementById('inputId').value = id;
+      if (type === 'tv') {
+        document.getElementById('inputSeason').value = season || 1;
+        document.getElementById('inputEpisode').value = episode || 1;
+        setMediaType('tv');
+      } else {
+        setMediaType('movie');
+      }
+      updateSnippetOnly();
+    }
+
+    function updatePlayer(startAt) {
+      var id = document.getElementById('inputId').value.trim() || '1399';
+      var autoplay = document.getElementById('checkAutoplay').checked;
+      var muted = document.getElementById('checkMuted').checked;
+      var currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+
+      var embedUrl = origin;
+      if (currentMediaType === 'tv') {
+        var s = document.getElementById('inputSeason').value || 1;
+        var e = document.getElementById('inputEpisode').value || 1;
+        embedUrl += '/embed/tv/' + encodeURIComponent(id) + '/' + s + '/' + e;
+      } else {
+        embedUrl += '/embed/movie/' + encodeURIComponent(id);
+      }
+
+      var params = [];
+      if (!autoplay) params.push('autoplay=false');
+      if (muted) params.push('muted=true');
+      if (currentTheme === 'light') params.push('theme=light');
+      if (typeof startAt === 'number' && startAt > 0) params.push('t=' + Math.floor(startAt));
+      if (params.length > 0) {
+        embedUrl += '?' + params.join('&');
+      }
+
+      var placeholder = document.getElementById('sandboxPlaceholder');
+      if (placeholder) placeholder.style.display = 'none';
+
+      var iframe = document.getElementById('livePreviewIframe');
+      iframe.style.display = 'block';
+      if (iframe.src !== embedUrl) {
+        iframe.src = embedUrl;
+      }
+
+      var iframeCode = '<iframe src="' + embedUrl + '" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>';
+      document.getElementById('codeIframe').textContent = iframeCode;
+      updateIntegrationSnippets(embedUrl);
+    }
+
+    function copyEmbedCode() {
+      var text = document.getElementById('codeIframe').textContent;
+      var btn = document.getElementById('copyBtn');
+      var btnText = document.getElementById('copyBtnText');
+
+      navigator.clipboard.writeText(text).then(function() {
+        btn.classList.add('copied');
+        btnText.textContent = '✓ Copied!';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btnText.textContent = 'Copy Iframe';
+        }, 2000);
+      });
+    }
+
+    // 3. Tabbed Integration Snippet Switcher
+    var currentSnippetTab = 'html';
+    function switchCodeTab(tab, btn) {
+      currentSnippetTab = tab;
+      document.querySelectorAll('.code-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      if (btn) btn.classList.add('active');
+      var id = document.getElementById('inputId').value.trim() || '1399';
+      var embedUrl = origin + (currentMediaType === 'tv' ? '/embed/tv/' + id + '/1/1' : '/embed/movie/' + id);
+      updateIntegrationSnippets(embedUrl);
+    }
+
+    function updateIntegrationSnippets(embedUrl) {
+      var pre = document.getElementById('integrationSnippet');
+      if (!pre) return;
+
+      if (currentSnippetTab === 'html') {
+        pre.textContent = '<!-- Responsive VidLyte Iframe -->\n<div style="position:relative;padding-top:56.25%;width:100%;height:0;overflow:hidden;">\n  <iframe\n    src="' + embedUrl + '"\n    style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;"\n    allowfullscreen\n    allow="autoplay; fullscreen; picture-in-picture">\n  </iframe>\n</div>';
+      } else if (currentSnippetTab === 'react') {
+        pre.textContent = 'export default function VideoPlayer() {\n  return (\n    <div className="relative w-full aspect-video overflow-hidden rounded-xl shadow-2xl">\n      <iframe\n        src="' + embedUrl + '"\n        className="absolute inset-0 w-full h-full border-0"\n        allowFullScreen\n        allow="autoplay; fullscreen; picture-in-picture"\n      />\n    </div>\n  );\n}';
+      } else if (currentSnippetTab === 'api') {
+        pre.textContent = '# Direct Master Manifest Endpoint\nGET ' + embedUrl.replace('/embed/', '/hls/') + '/master.m3u8\n\n# Dynamic Source Metadata API\nGET ' + origin + '/api/source/' + currentMediaType + '/' + (document.getElementById('inputId').value.trim() || '550');
+      }
+    }
+
+    function updateSnippetOnly() {
+      var id = document.getElementById('inputId').value.trim() || '1399';
+      var autoplay = document.getElementById('checkAutoplay').checked;
+      var muted = document.getElementById('checkMuted').checked;
+      var currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+
+      var embedUrl = origin;
+      if (currentMediaType === 'tv') {
+        var s = document.getElementById('inputSeason').value || 1;
+        var e = document.getElementById('inputEpisode').value || 1;
+        embedUrl += '/embed/tv/' + encodeURIComponent(id) + '/' + s + '/' + e;
+      } else {
+        embedUrl += '/embed/movie/' + encodeURIComponent(id);
+      }
+
+      var params = [];
+      if (!autoplay) params.push('autoplay=false');
+      if (muted) params.push('muted=true');
+      if (currentTheme === 'light') params.push('theme=light');
+      if (params.length > 0) {
+        embedUrl += '?' + params.join('&');
+      }
+
+      var iframeCode = '<iframe src="' + embedUrl + '" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>';
+      document.getElementById('codeIframe').textContent = iframeCode;
+      updateIntegrationSnippets(embedUrl);
+    }
+
+    // Keyboard 'Enter' Trigger & Input Snippet Update (no aggressive auto-scraping while typing)
+    ['inputId', 'inputSeason', 'inputEpisode'].forEach(function(fieldId) {
+      var el = document.getElementById(fieldId);
+      if (el) {
+        el.addEventListener('input', updateSnippetOnly);
+        el.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            updatePlayer();
+          }
+        });
+      }
+    });
+
+    // -------------------------------------------------------------
+    // Sample embeds: preview in the sandbox or copy the iframe
+    // -------------------------------------------------------------
+    function sampleEmbedUrl(type, id, season, episode) {
+      return origin + (type === 'tv'
+        ? '/embed/tv/' + encodeURIComponent(id) + '/' + (season || 1) + '/' + (episode || 1)
+        : '/embed/movie/' + encodeURIComponent(id));
+    }
+
+    function loadSample(type, id, season, episode) {
+      applyPreset(type, id, season, episode);
+      var sandbox = document.getElementById('sandbox');
+      if (sandbox && sandbox.scrollIntoView) {
+        sandbox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      setTimeout(function() { updatePlayer(); }, 150);
+    }
+
+    function copySample(type, id, season, episode, btn) {
+      var url = sampleEmbedUrl(type, id, season, episode);
+      var code = '<iframe src="' + url + '" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>';
+      var done = function() {
+        if (!btn) return;
+        var original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = original; }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done).catch(function() {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = code;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    }
+
+    // Live edge-status badge: never claim "Online" without checking.
+    function initEdgeStatus() {
+      fetch('/health', { headers: { Accept: 'application/json' } })
+        .then(function(resp) {
+          var online = resp.ok;
+          var text = online ? 'Edge Network: Online' : 'Edge Network: Degraded';
+          var els = ['edgeStatusText', 'networkStatusText'];
+          els.forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = id === 'edgeStatusText' ? text : 'Global Edge Network: ' + (online ? 'Online' : 'Degraded');
+          });
+          ['edgeStatusBadge', 'networkStatusBadge'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el && !online) el.classList.add('offline');
+          });
+        })
+        .catch(function() {
+          ['edgeStatusBadge', 'networkStatusBadge'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.classList.add('offline');
+          });
+          var a = document.getElementById('edgeStatusText');
+          var b = document.getElementById('networkStatusText');
+          if (a) a.textContent = 'Edge Network: Offline';
+          if (b) b.textContent = 'Global Edge Network: Offline';
+        });
+    }
+
+    // Initialize on DOM load (only update snippets and placeholder - load player on user interaction)
+    document.addEventListener('DOMContentLoaded', function() {
+      initTheme();
+      updateSnippetOnly();
+      initEdgeStatus();
+    });
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      initTheme();
+      updateSnippetOnly();
+      initEdgeStatus();
+    }
+  </script>
+</body>
+</html>

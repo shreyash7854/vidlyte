@@ -1,0 +1,12 @@
+# Dependencies and local Wrangler state
+node_modules/
+.wrangler/
+
+# Generated build outputs (regenerate with `npm run build:wasm` / `wrangler deploy`)
+dist/
+dist.js
+src/vidlyte.wasm
+worker-configuration.d.ts
+
+# External watchdog state (GitHub Actions restores this via actions/cache)
+.watchdog-state/
