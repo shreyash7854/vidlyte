@@ -18,7 +18,9 @@
     "test:phase7": "node test_phase7.mjs",
     "test:all": "node test_phase1.mjs && node test_phase2.mjs && node test_phase3.mjs && node test_phase4.mjs && node test_phase5.mjs && node test_phase6.mjs && node test_phase7.mjs",
     "test:live": "node test_live.js",
-    "watchdog": "node scripts/watchdog.mjs"
+    "watchdog": "node scripts/watchdog.mjs",
+    "sweep": "node scripts/sweep.mjs",
+    "quota": "node scripts/quota.mjs"
   },
   "dependencies": {},
   "devDependencies": {

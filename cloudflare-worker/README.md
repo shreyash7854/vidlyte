@@ -13,8 +13,11 @@ cloudflare-worker/
 ├── wrangler.toml              # Cloudflare Worker deployment configuration
 ├── package.json               # NPM scripts (dev, deploy, tests, watchdog)
 ├── AGENTS.md                  # Scoped AI/human development rules
+├── ENV_TODO.md                # Pending secrets/variables checklist (no values)
 ├── WATCHDOG.md                # External monitoring + Telegram runbook
 ├── scripts/watchdog.mjs       # Real-playback-chain uptime watchdog
+├── scripts/sweep.mjs          # Random TMDB playback coverage sweep
+├── scripts/quota.mjs          # Workers Free daily-quota guard
 ├── test_phase1..7.mjs         # Contract/static test harnesses
 └── src/
     ├── index.js               # Core edge worker gateway & request router
@@ -25,7 +28,8 @@ cloudflare-worker/
     └── vidlyte.wasm           # Compiled Go WASM binary (optional dual-engine)
 ```
 
-Repo-level monitoring lives in `.github/workflows/uptime-watchdog.yml`;
+Repo-level monitoring lives in `.github/workflows/uptime-watchdog.yml`,
+`.github/workflows/tmdb-sweep.yml` and `.github/workflows/quota-watch.yml`;
 repository rules live in the root `AGENTS.md`.
 
 ---
@@ -255,6 +259,9 @@ Some titles do not follow the `/<slug>-<year>/` convention. Add an override thro
 * **Strict readiness**: `GET /health/ready` (`/readyz`) returns `503` with `reasons[]` when HMAC/admin secrets, `CONFIG_KV`, runtime config or the persisted playback canary fail. The scheduled canary resolves a real asset and validates the manifest through `WATCHDOG_CANARY_PROVIDER`.
 * **Telegram open/recovery alerts**: the worker and the external watchdog both support Telegram. Duplicates are suppressed for `ALERT_COOLDOWN_MIN`; a recovery message is sent only after a previously notified incident. Tokens never appear in responses or logs.
 * **Admin controls**: the Upstreams pane shows alert status, a **Send Test** button and a **Run Canary** button. Matching APIs are `GET <admin>/api/alerts/status`, `POST <admin>/api/alerts/test` and `POST <admin>/api/watchdog/canary`.
+* **Random TMDB sweep**: `.github/workflows/tmdb-sweep.yml` runs daily (and on demand). `scripts/sweep.mjs` picks random popular TMDB ids (or a curated fallback pool when TMDB is unreachable), resolves each through `/api/source`, and verifies a real media segment. It exits non-zero below `SWEEP_MIN_SUCCESS_RATE` (default 60%) and alerts through Telegram. Assets are reported by id only — never upstream URLs or tokens.
+* **Workers quota guard**: `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's (UTC) Workers request count with a read-only Cloudflare Analytics token and warns at `QUOTA_WARN_PCT` (70%) / `QUOTA_CRITICAL_PCT` (90%) of `QUOTA_DAILY_LIMIT` (100000), with recovery notices and a 6-hour dedupe. It reports `cloudflare_not_configured` and exits 0 until `CF_API_TOKEN` / `CF_ACCOUNT_ID` are set.
+* **Pending configuration**: [ENV_TODO.md](ENV_TODO.md) tracks every unset secret/variable, where it belongs, and how to verify it. Values are never stored there.
 * **Free-only**: GitHub Actions + Telegram Bot API + Cloudflare free tier; no billing profile is required. See [WATCHDOG.md](WATCHDOG.md).
 
 ## 13. Verification
@@ -267,12 +274,12 @@ node test_phase3.mjs      # rate limits, metrics, logs, headers, config import/e
 node test_phase4.mjs      # player resume/prefs/episodes, portal samples
 node test_phase5.mjs      # CSRF, session TTL, CSP nonce/SRI, config history/rollback
 node test_phase6.mjs      # share timestamps, subtitle prefs, engagement, removals
-node test_phase7.mjs      # readiness, canary, Telegram, watchdog, AGENTS/workflow
+node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota, AGENTS/workflow
 npx wrangler deploy --dry-run
 ```
 
-Expected: `25`, `32`, `37`, `25`, `32`, `26` and `26` tests passing (203 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
+Expected: `25`, `32`, `37`, `25`, `32`, `26` and `35` tests passing (212 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
 
-## 13. Operations Runbook
+## 14. Operations Runbook
 
 See [PHASES.md](./PHASES.md) for the deployment checklist, health triage, breaker recovery and rollback steps.

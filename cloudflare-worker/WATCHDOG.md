@@ -71,8 +71,13 @@ Repository → **Settings → Secrets and variables → Actions**:
 |---|---|---|
 | Secret | `TELEGRAM_BOT_TOKEN` | same bot token |
 | Secret | `TELEGRAM_CHAT_ID` | same chat id |
+| Secret | `CF_API_TOKEN` | read-only Account Analytics token (quota guard) |
+| Secret | `CF_ACCOUNT_ID` | Cloudflare account tag (quota guard) |
 | Variable (optional) | `WATCHDOG_BASE_URL` | defaults to `https://vid.lyte.workers.dev` |
 | Variable (optional) | `WATCHDOG_ASSETS` | defaults to `tv/66732/1/1,movie/550` |
+| Variable (optional) | `SWEEP_COUNT` | random assets per daily sweep, default 10 |
+| Variable (optional) | `QUOTA_DAILY_LIMIT` | default `100000` (Workers Free) |
+| Variable (optional) | `QUOTA_WARN_PCT` / `QUOTA_CRITICAL_PCT` | default `70` / `90` |
 
 The workflow runs every 5 minutes and can be triggered manually from the
 **Actions → Uptime watchdog → Run workflow** button. GitHub's minimum schedule is
@@ -152,3 +157,63 @@ forces a live resolver check (the external watchdog always uses it).
 - Cloudflare Workers Free has a ~100k request/day quota. At one run per 5
   minutes, the watchdog consumes roughly 2–3k requests/day; leave headroom for
   real traffic.
+
+## 9. Random TMDB sweep
+
+Known-good assets only prove the gateway works for those ids. The daily sweep
+checks arbitrary correct TMDB ids:
+
+```powershell
+cd cloudflare-worker
+$env:SWEEP_DRY_RUN = "true"
+$env:SWEEP_COUNT = "10"
+node scripts/sweep.mjs
+```
+
+- The workflow (`.github/workflows/tmdb-sweep.yml`) runs at **03:17 UTC** and
+  can be dispatched manually. It uses free Actions minutes on the public repo.
+- It fetches TMDB popular movies/shows, takes a random sample, then verifies
+  `/api/source` → playlist → first segment for each. If TMDB is unreachable it
+  falls back to a curated corpus of valid ids, so the probe still runs.
+- `SWEEP_ASSETS=movie/550,tv/1399/1/1` skips randomization for a targeted run.
+- Exit code `1` when the pass rate is below `SWEEP_MIN_SUCCESS_RATE` (default
+  `0.6`). Failures send one Telegram message with asset ids and reason codes
+  only — never tokens or upstream URLs.
+- Reports stay free of secrets; the JSON is uploaded as a 14-day artifact.
+
+A low pass rate usually means provider coverage changed, not that the ids are
+wrong. Compare the failing ids with the admin provider probe before changing the
+threshold.
+
+## 10. Workers quota guard
+
+`scripts/quota.mjs` reads today's (UTC) Workers request count from the
+Cloudflare GraphQL Analytics API using a **read-only** token. It never needs a
+billing profile.
+
+```powershell
+cd cloudflare-worker
+$env:CF_API_TOKEN = "<read-only token>"
+$env:CF_ACCOUNT_ID = "<account tag>"
+$env:QUOTA_DRY_RUN = "true"
+node scripts/quota.mjs
+```
+
+- `.github/workflows/quota-watch.yml` runs hourly at **:07** and on demand.
+- Warns at `QUOTA_WARN_PCT` (70%) and goes critical at `QUOTA_CRITICAL_PCT`
+  (90%) of `QUOTA_DAILY_LIMIT` (100000). It sends a recovery notice when usage
+  drops back below the warn threshold and deduplicates for
+  `QUOTA_COOLDOWN_HOURS` (6h).
+- Until `CF_API_TOKEN` / `CF_ACCOUNT_ID` are set it prints
+  `skipped: "cloudflare_not_configured"` and exits `0`, so the workflow stays
+  green. Add them before public traffic. See `ENV_TODO.md`.
+- The token only needs **Account → Account Analytics: Read**. Never add a paid
+  plan or billing profile to raise the limit.
+
+### Capacity math (why the guard matters)
+
+Each full episode play fetches hundreds of HLS segments through the gateway
+(~675 for a 45-minute episode at 4-second segments) plus manifest and subtitle
+requests. At 100k requests/day that is roughly 100–140 full plays/day across all
+webmasters. Watch the guard, keep the 5-minute watchdog to a small number of
+assets, and do not run the random sweep more than daily.

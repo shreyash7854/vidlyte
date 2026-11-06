@@ -1,8 +1,9 @@
 /**
  * VidLyte Phase 7 verification harness
  * ---------------------------------------------------------------------------
- * Covers the external watchdog, strict readiness, Telegram alerting, admin
- * test APIs, the AI-development rules files, and the GitHub Actions workflow.
+ * Covers the external watchdog, strict readiness, Telegram alerting, random
+ * TMDB sweep, quota guard, admin test APIs, the AI-development rules files and
+ * the free GitHub Actions workflows.
  *
  *   node test_phase7.mjs
  */
@@ -23,9 +24,14 @@ const observability = read("src/observability.js");
 const admin = read("src/admin.html");
 const wrangler = read("wrangler.toml");
 const watchdog = read("scripts/watchdog.mjs");
+const sweep = read("scripts/sweep.mjs");
+const quota = read("scripts/quota.mjs");
+const envTodo = read("ENV_TODO.md");
 const rootAgents = readRoot("AGENTS.md");
 const workerAgents = read("AGENTS.md");
 const workflow = readRoot(".github/workflows/uptime-watchdog.yml");
+const sweepWorkflow = readRoot(".github/workflows/tmdb-sweep.yml");
+const quotaWorkflow = readRoot(".github/workflows/quota-watch.yml");
 const pkg = JSON.parse(read("package.json"));
 
 let passed = 0;
@@ -72,6 +78,20 @@ await test("src/observability.js parses", () => {
 
 await test("scripts/watchdog.mjs parses", () => {
   const result = spawnSync(process.execPath, ["--check", join(here, "scripts/watchdog.mjs")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+await test("scripts/sweep.mjs parses", () => {
+  const result = spawnSync(process.execPath, ["--check", join(here, "scripts/sweep.mjs")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+await test("scripts/quota.mjs parses", () => {
+  const result = spawnSync(process.execPath, ["--check", join(here, "scripts/quota.mjs")], {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -271,6 +291,68 @@ await test("watchdog does not leak tokens in output", () => {
   ], "watchdog");
 });
 
+console.log("\n[sweep] random TMDB coverage");
+await test("sweep resolves random assets and verifies a real segment", () => {
+  hasAll(sweep, [
+    "/api/source/",
+    "SWEEP_MIN_SUCCESS_RATE",
+    "SWEEP_COUNT",
+    "FALLBACK_MOVIES",
+    "pool_source",
+    "#EXT-X-STREAM-INF",
+    "#EXTINF",
+    'Range: "bytes=0-2047"',
+    "source_rejected",
+    "process.exitCode = 1",
+  ]);
+});
+
+await test("sweep does not leak tokens or upstream error text", () => {
+  hasNone(sweep, [
+    "console.log(TELEGRAM_TOKEN",
+    "token: TELEGRAM_TOKEN",
+    "payload.error",
+  ], "sweep");
+});
+
+console.log("\n[quota] Workers Free capacity guard");
+await test("quota guard reads account usage and warns before the limit", () => {
+  hasAll(quota, [
+    "workersInvocationsAdaptive",
+    "CF_API_TOKEN",
+    "CF_ACCOUNT_ID",
+    "cloudflare_not_configured",
+    "QUOTA_DAILY_LIMIT",
+    "QUOTA_WARN_PCT",
+    "QUOTA_CRITICAL_PCT",
+    "utcDayStart",
+    "process.exitCode = 1",
+  ]);
+});
+
+await test("quota guard does not log credentials", () => {
+  hasNone(quota, [
+    "console.log(API_TOKEN",
+    "console.log(TELEGRAM_TOKEN",
+    "token: API_TOKEN",
+  ], "quota");
+});
+
+console.log("\n[env] pending configuration tracker");
+await test("ENV_TODO tracks unset secrets without values", () => {
+  assert.ok(existsSync(join(here, "ENV_TODO.md")));
+  hasAll(envTodo, [
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "CF_API_TOKEN",
+    "CF_ACCOUNT_ID",
+    "PENDING",
+    "wrangler secret put",
+  ]);
+  hasNone(envTodo, ["HMAC_SECRET =", "ADMIN_SECRET =", "TELEGRAM_BOT_TOKEN ="], "ENV_TODO.md");
+  assert.ok(!/\b[a-f0-9]{32,}\b/i.test(envTodo), "ENV_TODO.md must not contain secret-like hex values");
+});
+
 console.log("\n[workflow] free external monitoring");
 await test("GitHub Actions schedule + secrets + state cache", () => {
   hasAll(workflow, [
@@ -286,6 +368,31 @@ await test("GitHub Actions schedule + secrets + state cache", () => {
 
 await test("workflow has no hardcoded credentials", () => {
   hasNone(workflow, ["bot123", "chat_id: 123", "password", "api_key"], "workflow");
+});
+
+await test("daily random sweep workflow is free and report-only", () => {
+  hasAll(sweepWorkflow, [
+    'cron: "17 3 * * *"',
+    "workflow_dispatch",
+    "node scripts/sweep.mjs",
+    "secrets.TELEGRAM_BOT_TOKEN",
+    "secrets.TELEGRAM_CHAT_ID",
+    "actions/upload-artifact@v4",
+  ]);
+  hasNone(sweepWorkflow, ["api_key: ", "password"], "sweep workflow");
+});
+
+await test("hourly quota workflow uses read-only analytics", () => {
+  hasAll(quotaWorkflow, [
+    'cron: "7 * * * *"',
+    "workflow_dispatch",
+    "node scripts/quota.mjs",
+    "secrets.CF_API_TOKEN",
+    "secrets.CF_ACCOUNT_ID",
+    "actions/cache@v4",
+    "actions/upload-artifact@v4",
+  ]);
+  hasNone(quotaWorkflow, ["password"], "quota workflow");
 });
 
 console.log("\n[config] free-tier knobs and secrets hygiene");
@@ -305,6 +412,8 @@ await test("wrangler exposes watchdog tuning without secrets", () => {
 await test("test:all includes phase 7", () => {
   assert.match(pkg.scripts["test:all"], /test_phase7\.mjs/);
   assert.equal(pkg.scripts["test:phase7"], "node test_phase7.mjs");
+  assert.equal(pkg.scripts.sweep, "node scripts/sweep.mjs");
+  assert.equal(pkg.scripts.quota, "node scripts/quota.mjs");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

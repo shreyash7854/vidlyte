@@ -1,0 +1,50 @@
+name: Random TMDB sweep
+
+# Daily coverage probe for arbitrary correct TMDB ids. Complements the 5-minute
+# watchdog, which only exercises known-good assets.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tmdb-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run random playback sweep
+        working-directory: cloudflare-worker
+        env:
+          SWEEP_BASE_URL: ${{ vars.WATCHDOG_BASE_URL }}
+          SWEEP_COUNT: ${{ vars.SWEEP_COUNT }}
+          SWEEP_SEED: ${{ github.run_id }}-${{ github.run_attempt }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -o pipefail
+          node scripts/sweep.mjs | tee sweep-report.json
+
+      - name: Upload sweep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmdb-sweep-${{ github.run_id }}
+          path: cloudflare-worker/sweep-report.json
+          retention-days: 14
+          if-no-files-found: ignore

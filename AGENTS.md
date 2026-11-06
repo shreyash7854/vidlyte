@@ -33,6 +33,11 @@ code and docs are reference/parity material unless a task explicitly targets the
   | Alerts | Telegram Bot API | Free; bot token + chat id |
   | Optional uptime | UptimeRobot / Better Stack free | No card; secondary signal |
 - Never enable a paid plan, add a card, or "just upgrade" to fix a limit.
+- Track daily Workers usage with `cloudflare-worker/scripts/quota.mjs` (read-only
+  Cloudflare Analytics token, hourly GitHub Actions). Warn at 70%, critical at
+  90% of the free daily limit; reduce traffic instead of upgrading.
+- Keep the 5-minute watchdog small and the random sweep daily; both consume the
+  same free request budget as real playback.
 
 ## 3. Token-efficiency rules
 

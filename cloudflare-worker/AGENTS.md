@@ -16,6 +16,9 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 | `src/observability.js` | CSP, metrics, route classes, health grade, rate limits |
 | `src/resilience.js` | TTL cache, coalescer, circuit breaker, retry |
 | `scripts/watchdog.mjs` | External end-to-end watchdog |
+| `scripts/sweep.mjs` | Random TMDB playback coverage sweep |
+| `scripts/quota.mjs` | Workers Free daily-quota guard |
+| `ENV_TODO.md` | Pending secrets/variables checklist (no values) |
 | `test_phase*.mjs` | Static/contract test harness (`npm run test:all`) |
 
 ## Runtime facts
@@ -45,6 +48,10 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 - Readiness returns 503 with `reasons[]`. Never leak secret values or raw
   upstream URLs in the payload.
 - Scheduled maintenance stores canary state in KV `watchdog_canary_v1`.
+- Coverage beyond known-good ids: `npm run sweep` (random TMDB, daily workflow).
+- Daily budget: `npm run quota` reads Workers requests with a read-only
+  Cloudflare token; it reports `cloudflare_not_configured` until set. Never
+  raise the free limit with billing.
 
 ## Telegram alerting
 
@@ -64,6 +71,9 @@ npm run test:all
 npx wrangler deploy
 npx wrangler secret list
 npx wrangler tail
+npm run watchdog
+npm run sweep
+npm run quota
 ```
 
 Live smoke (PowerShell-safe):

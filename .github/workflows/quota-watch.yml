@@ -1,0 +1,61 @@
+name: Workers quota guard
+
+# Hourly read-only check of the Workers Free daily request budget. Runs outside
+# the Worker so it still reports when the Worker is throttled or down.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workers-quota
+  cancel-in-progress: false
+
+jobs:
+  quota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Preserve the alert dedupe state across ephemeral runners.
+      - name: Restore quota state
+        uses: actions/cache@v4
+        with:
+          path: cloudflare-worker/.quota-state
+          key: quota-state-${{ github.run_id }}
+          restore-keys: |
+            quota-state-
+
+      - name: Check daily Workers usage
+        working-directory: cloudflare-worker
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          QUOTA_DAILY_LIMIT: ${{ vars.QUOTA_DAILY_LIMIT }}
+          QUOTA_WARN_PCT: ${{ vars.QUOTA_WARN_PCT }}
+          QUOTA_CRITICAL_PCT: ${{ vars.QUOTA_CRITICAL_PCT }}
+          QUOTA_STATE_DIR: .quota-state
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -o pipefail
+          node scripts/quota.mjs | tee quota-report.json
+
+      - name: Upload quota report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quota-report-${{ github.run_id }}
+          path: cloudflare-worker/quota-report.json
+          retention-days: 14
+          if-no-files-found: ignore
