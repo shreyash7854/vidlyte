@@ -247,6 +247,8 @@ promoting the service.
 | 2026-11-07 | GitHub repository secrets | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `CF_ACCOUNT_ID` present |
 | 2026-11-07 | Forced watchdog open | Invalid host produced `ok:false`, `step:connect`, `fetch failed (ENOTFOUND)`; Telegram alert `sent:true` |
 | 2026-11-07 | Forced watchdog recovery | Production run passed readiness, `tv/66732/1/1` and `movie/550`; recovery alert `sent:true` |
+| 2026-11-07 | GitHub watchdog dispatch | Run `42282826670` succeeded; `telegram_configured=true`; readiness, `tv/66732/1/1` and `movie/550` passed |
+| 2026-11-07 | GitHub quota dispatch | Run `42282946673` succeeded; `telegram_configured=true`, `cloudflare_configured=false`, `skipped:cloudflare_not_configured` (expected until the token exists) |
 
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the

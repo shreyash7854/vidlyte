@@ -19,6 +19,8 @@ visible one.
       the same `scripts/watchdog.mjs` that GitHub Actions runs.
 - [x] Workflows fail loudly with `telegram_configured=false` if the GitHub
       secrets are ever removed.
+- [x] GitHub Actions watchdog dispatch on `main` succeeded with
+      `telegram_configured=true` (run `42282826670`).
 - [ ] Optional owner check: Admin → **Send Test** returns 200. This exercises
       the Worker's own notifier; it is not launch-blocking because the external
       watchdog covers readiness/canary failures and the notifier uses the same
@@ -62,7 +64,8 @@ supports about **250–400 full plays/day**, minus monitoring overhead.
       secret, then run `npm run quota` and confirm it reports a real percentage
       (not `cloudflare_not_configured`). The token can only be created by the
       account owner; no billing profile is required.
-- [ ] Confirm the hourly quota workflow is green on `main`.
+- [x] Hourly quota workflow runs and is green on `main` (run `42282946673`);
+      it reports `cloudflare_not_configured` until the token is added.
 
 Without this, the first traffic spike can exhaust the free tier and the Worker
 goes dark with no warning.
