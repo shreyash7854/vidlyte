@@ -27,6 +27,15 @@ jobs:
         with:
           node-version: 20
 
+      - name: Verify alert channel is configured
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$TELEGRAM_BOT_TOKEN" || { echo "telegram_configured=false"; exit 1; }
+          test -n "$TELEGRAM_CHAT_ID" || { echo "telegram_configured=false"; exit 1; }
+          echo "telegram_configured=true"
+
       - name: Run random playback sweep
         working-directory: cloudflare-worker
         env:

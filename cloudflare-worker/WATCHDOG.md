@@ -242,6 +242,11 @@ promoting the service.
 | 2026-11-06 | Random sweep, 6 arbitrary TMDB ids (fallback corpus) | 6/6 passed, each with a real segment |
 | 2026-11-06 | `tv/305551/1/4` in Chromium | **5 audio tracks** (English, Spanish, Portuguese, French, English), **7 subtitles** (English active by default), playback advancing, audio switch English → Spanish worked |
 | 2026-11-06 | Client-assisted path | Network log shows `embed.vidrift.net/api/source/tv/305551/1/4` → `/hls/tv-305551-1-4/client.m3u8`, confirming the BigBang upgrade |
+| 2026-11-07 | Worker Telegram secrets | `wrangler secret list` shows `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` |
+| 2026-11-07 | Telegram delivery | Direct Bot API message delivered (`ok:true`, message id 4) to the configured chat |
+| 2026-11-07 | GitHub repository secrets | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `CF_ACCOUNT_ID` present |
+| 2026-11-07 | Forced watchdog open | Invalid host produced `ok:false`, `step:connect`, `fetch failed (ENOTFOUND)`; Telegram alert `sent:true` |
+| 2026-11-07 | Forced watchdog recovery | Production run passed readiness, `tv/66732/1/1` and `movie/550`; recovery alert `sent:true` |
 
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the

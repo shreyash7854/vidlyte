@@ -276,20 +276,31 @@ async function checkAsset(asset) {
   };
 }
 
+function asFailure(error, fallbackStep) {
+  if (error && error.step && error.detail) return error;
+  const cause = error && error.cause && (error.cause.code || error.cause.message);
+  const detail = `${(error && error.message) || "network error"}${cause ? ` (${cause})` : ""}`.slice(0, 200);
+  const wrapped = new Error(detail);
+  wrapped.step = fallbackStep;
+  wrapped.detail = detail;
+  wrapped.extra = {};
+  return wrapped;
+}
+
 async function runChecks() {
   const checks = [];
   let failure = null;
   try {
     checks.push(await checkReadiness());
   } catch (error) {
-    failure = error;
+    failure = asFailure(error, "connect");
   }
   if (!failure) {
     for (const asset of ASSETS) {
       try {
         checks.push(await checkAsset(asset));
       } catch (error) {
-        failure = error;
+        failure = asFailure(error, `asset ${asset}`);
         break;
       }
     }

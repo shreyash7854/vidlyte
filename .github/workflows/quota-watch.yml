@@ -27,6 +27,23 @@ jobs:
         with:
           node-version: 20
 
+      - name: Check monitoring credentials
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          test -n "$TELEGRAM_BOT_TOKEN" || { echo "telegram_configured=false"; exit 1; }
+          test -n "$TELEGRAM_CHAT_ID" || { echo "telegram_configured=false"; exit 1; }
+          echo "telegram_configured=true"
+          if [ -n "$CF_API_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ]; then
+            echo "cloudflare_configured=true"
+          else
+            echo "cloudflare_configured=false"
+            echo "::warning::CF_API_TOKEN and/or CF_ACCOUNT_ID missing; quota guard will report cloudflare_not_configured."
+          fi
+
       # Preserve the alert dedupe state across ephemeral runners.
       - name: Restore quota state
         uses: actions/cache@v4

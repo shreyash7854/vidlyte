@@ -281,6 +281,16 @@ await test("watchdog sends open/recovery alerts with cooldown", () => {
     "state.last_notified_at",
     "recoveryText",
     "process.exitCode = 1",
+    "asFailure",
+    'asFailure(error, "connect")',
+  ]);
+});
+
+await test("watchdog annotates raw network failures with a step", () => {
+  hasAll(watchdog, [
+    "error.cause",
+    "wrapped.step = fallbackStep",
+    "wrapped.detail = detail",
   ]);
 });
 
@@ -379,6 +389,8 @@ await test("GitHub Actions schedule + secrets + state cache", () => {
     "node scripts/watchdog.mjs",
     "secrets.TELEGRAM_BOT_TOKEN",
     "secrets.TELEGRAM_CHAT_ID",
+    "Verify alert channel is configured",
+    "telegram_configured=true",
     "actions/upload-artifact@v4",
   ]);
 });
@@ -394,6 +406,8 @@ await test("daily random sweep workflow is free and report-only", () => {
     "node scripts/sweep.mjs",
     "secrets.TELEGRAM_BOT_TOKEN",
     "secrets.TELEGRAM_CHAT_ID",
+    "Verify alert channel is configured",
+    "telegram_configured=true",
     "actions/upload-artifact@v4",
   ]);
   hasNone(sweepWorkflow, ["api_key: ", "password"], "sweep workflow");
@@ -406,6 +420,8 @@ await test("hourly quota workflow uses read-only analytics", () => {
     "node scripts/quota.mjs",
     "secrets.CF_API_TOKEN",
     "secrets.CF_ACCOUNT_ID",
+    "Check monitoring credentials",
+    "cloudflare_configured=false",
     "actions/cache@v4",
     "actions/upload-artifact@v4",
   ]);

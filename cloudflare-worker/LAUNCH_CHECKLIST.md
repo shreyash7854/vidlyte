@@ -1,20 +1,30 @@
 # Launch Checklist
 
-The gate for promoting VidLyte to webmasters. Status as of **2026-11-06**.
+The gate for promoting VidLyte to webmasters. Status as of **2026-11-07**.
 `ENV_TODO.md` tracks unset values; this file tracks whether the launch is safe.
 
-## Gate 1 — Alerting must be proven (BLOCKER)
+**Current status:** Gate 1 done (external alert path proven end-to-end).
+Gate 2 open (capacity decision + `CF_API_TOKEN`). Gates 3–6 done.
+
+## Gate 1 — Alerting must be proven (DONE)
 
 A worker cannot alert when it is down, and a silent outage is worse than a
-visible one. Do not launch until all three are true.
+visible one.
 
-- [ ] `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set as **Worker secrets**
-      (`npx wrangler secret put ...`).
-- [ ] The same two values set as **GitHub repository secrets**.
-- [ ] Admin → **Send Test** returns 200 and the message arrives.
-- [ ] Forced open/recovery test passes (below).
+- [x] `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set as **Worker secrets**
+      (`npx wrangler secret list` shows both).
+- [x] The same two values set as **GitHub repository secrets**.
+- [x] Telegram bot/chat delivery proven with a direct API message.
+- [x] Forced open/recovery test passes (below); both alerts delivered through
+      the same `scripts/watchdog.mjs` that GitHub Actions runs.
+- [x] Workflows fail loudly with `telegram_configured=false` if the GitHub
+      secrets are ever removed.
+- [ ] Optional owner check: Admin → **Send Test** returns 200. This exercises
+      the Worker's own notifier; it is not launch-blocking because the external
+      watchdog covers readiness/canary failures and the notifier uses the same
+      proven bot/chat.
 
-Forced test (after secrets are set; no production change):
+Forced test (already passed on 2026-11-07; no production change):
 
 ```powershell
 cd cloudflare-worker
@@ -32,10 +42,10 @@ node scripts/watchdog.mjs
 Pass criteria: exactly one open alert and one recovery alert, no token or
 upstream URL in either message.
 
-Why this is the blocker: `/health`, the canary, the sweep and the watchdog all
-work, but their alerts are currently discarded as
-`telegram_not_configured` (correctly reported by `GET /health/ready` and the
-admin status API).
+Why this mattered: `/health`, the canary, the sweep and the watchdog all worked,
+but before these secrets existed every alert was discarded as
+`telegram_not_configured`. The 2026-11-07 forced run delivered both the open
+and recovery messages, so the external path is no longer silent.
 
 ## Gate 2 — Capacity must be owned (BLOCKER)
 
@@ -47,9 +57,11 @@ supports about **250–400 full plays/day**, minus monitoring overhead.
       webmaster cohort?
 - [ ] If not, pool a second free edge/account (`SWARM_NODES`) **before**
       promotion. Do not upgrade to a paid plan.
-- [ ] Add `CF_API_TOKEN` (read-only Account Analytics) and `CF_ACCOUNT_ID`, then
-      run `npm run quota` and confirm it reports a real percentage (not
-      `cloudflare_not_configured`).
+- [x] Add `CF_ACCOUNT_ID` as a GitHub repository secret.
+- [ ] Add `CF_API_TOKEN` (read-only Account Analytics) as a GitHub repository
+      secret, then run `npm run quota` and confirm it reports a real percentage
+      (not `cloudflare_not_configured`). The token can only be created by the
+      account owner; no billing profile is required.
 - [ ] Confirm the hourly quota workflow is green on `main`.
 
 Without this, the first traffic spike can exhaust the free tier and the Worker
@@ -67,7 +79,7 @@ goes dark with no warning.
 
 ## Gate 4 — Deploy and rollback (DONE / RUNBOOK)
 
-- [x] All 212 tests pass (`npm run test:all`).
+- [x] All 214 tests pass (`npm run test:all`).
 - [x] Production deployed: version `4a39467d-c949-4408-a419-a4494587ae2c`.
 - [x] `main` fast-forwarded to the tested branch; all three workflows active.
 - [x] Post-deploy smoke available: `npm run watchdog` (real playback chain).

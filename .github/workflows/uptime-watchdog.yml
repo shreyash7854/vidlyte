@@ -28,6 +28,17 @@ jobs:
         with:
           node-version: 20
 
+      # Fail loudly if the alert channel is missing. A green watchdog that
+      # cannot notify anyone is worse than a red one.
+      - name: Verify alert channel is configured
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$TELEGRAM_BOT_TOKEN" || { echo "telegram_configured=false"; exit 1; }
+          test -n "$TELEGRAM_CHAT_ID" || { echo "telegram_configured=false"; exit 1; }
+          echo "telegram_configured=true"
+
       # actions/cache is immutable, so use a unique key and restore the newest
       # previous state via the prefix. This keeps open/recovery dedupe working
       # across ephemeral runners without committing state to the repo.
