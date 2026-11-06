@@ -27,6 +27,7 @@ const watchdog = read("scripts/watchdog.mjs");
 const sweep = read("scripts/sweep.mjs");
 const quota = read("scripts/quota.mjs");
 const envTodo = read("ENV_TODO.md");
+const launchChecklist = read("LAUNCH_CHECKLIST.md");
 const rootAgents = readRoot("AGENTS.md");
 const workerAgents = read("AGENTS.md");
 const workflow = readRoot(".github/workflows/uptime-watchdog.yml");
@@ -351,6 +352,22 @@ await test("ENV_TODO tracks unset secrets without values", () => {
   ]);
   hasNone(envTodo, ["HMAC_SECRET =", "ADMIN_SECRET =", "TELEGRAM_BOT_TOKEN ="], "ENV_TODO.md");
   assert.ok(!/\b[a-f0-9]{32,}\b/i.test(envTodo), "ENV_TODO.md must not contain secret-like hex values");
+});
+
+await test("launch checklist gates alerting and capacity", () => {
+  assert.ok(existsSync(join(here, "LAUNCH_CHECKLIST.md")));
+  hasAll(launchChecklist, [
+    "Gate 1 — Alerting must be proven",
+    "Gate 2 — Capacity must be owned",
+    "TELEGRAM_BOT_TOKEN",
+    "CF_API_TOKEN",
+    "npx wrangler rollback",
+    "Sign-off",
+  ]);
+  assert.ok(
+    !/\b[a-f0-9]{32,}\b/i.test(launchChecklist),
+    "LAUNCH_CHECKLIST.md must not contain secret-like hex values"
+  );
 });
 
 console.log("\n[workflow] free external monitoring");

@@ -321,7 +321,7 @@ The worker is stateless except for KV. To roll back:
 
 | Limit | Value | Mitigation |
 |---|---|---|
-| Requests/day | 100,000 | Source and manifest caches absorb repeat work. |
+| Requests/day | 100,000 | Caches absorb repeat work. Measured 250–350 requests per full HLS play (~250–400 plays/day). Watch the hourly quota guard; pool a second free account/edge if launch traffic exceeds this. |
 | CPU/request | 10 ms | No WASM bundle; resolution is network-bound. |
 | Memory | 128 MB | Caches are bounded (`TTLCache`, manifest map). |
 | Subrequests/request | 50 | Provider racing is capped; swarm tries at most 5 nodes. |

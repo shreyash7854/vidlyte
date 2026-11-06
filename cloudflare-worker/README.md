@@ -14,6 +14,7 @@ cloudflare-worker/
 ├── package.json               # NPM scripts (dev, deploy, tests, watchdog)
 ├── AGENTS.md                  # Scoped AI/human development rules
 ├── ENV_TODO.md                # Pending secrets/variables checklist (no values)
+├── LAUNCH_CHECKLIST.md        # Must-pass launch gates and sign-off
 ├── WATCHDOG.md                # External monitoring + Telegram runbook
 ├── scripts/watchdog.mjs       # Real-playback-chain uptime watchdog
 ├── scripts/sweep.mjs          # Random TMDB playback coverage sweep
@@ -262,6 +263,7 @@ Some titles do not follow the `/<slug>-<year>/` convention. Add an override thro
 * **Random TMDB sweep**: `.github/workflows/tmdb-sweep.yml` runs daily (and on demand). `scripts/sweep.mjs` picks random popular TMDB ids (or a curated fallback pool when TMDB is unreachable), resolves each through `/api/source`, and verifies a real media segment. It exits non-zero below `SWEEP_MIN_SUCCESS_RATE` (default 60%) and alerts through Telegram. Assets are reported by id only — never upstream URLs or tokens.
 * **Workers quota guard**: `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's (UTC) Workers request count with a read-only Cloudflare Analytics token and warns at `QUOTA_WARN_PCT` (70%) / `QUOTA_CRITICAL_PCT` (90%) of `QUOTA_DAILY_LIMIT` (100000), with recovery notices and a 6-hour dedupe. It reports `cloudflare_not_configured` and exits 0 until `CF_API_TOKEN` / `CF_ACCOUNT_ID` are set.
 * **Pending configuration**: [ENV_TODO.md](ENV_TODO.md) tracks every unset secret/variable, where it belongs, and how to verify it. Values are never stored there.
+* **Launch gate**: [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md) blocks launch until alert delivery is proven and the free-tier capacity decision is made.
 * **Free-only**: GitHub Actions + Telegram Bot API + Cloudflare free tier; no billing profile is required. See [WATCHDOG.md](WATCHDOG.md).
 
 ## 13. Verification
@@ -278,7 +280,7 @@ node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota,
 npx wrangler deploy --dry-run
 ```
 
-Expected: `25`, `32`, `37`, `25`, `32`, `26` and `35` tests passing (212 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
+Expected: `25`, `32`, `37`, `25`, `32`, `26` and `36` tests passing (213 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
 
 ## 14. Operations Runbook
 

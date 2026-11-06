@@ -212,11 +212,25 @@ node scripts/quota.mjs
 
 ### Capacity math (why the guard matters)
 
-Each full episode play fetches hundreds of HLS segments through the gateway
-(~675 for a 45-minute episode at 4-second segments) plus manifest and subtitle
-requests. At 100k requests/day that is roughly 100–140 full plays/day across all
-webmasters. Watch the guard, keep the 5-minute watchdog to a small number of
-assets, and do not run the random sweep more than daily.
+Measured on 2026-11-06 through the gateway:
+
+| Asset | Media segments | Avg segment | Duration |
+|---|---|---|---|
+| `tv/305551/1/4` (server-side) | 334 | ~10.0 s | 55.7 min |
+| `tv/66732/1/1` | 238 | ~12.0 s | 47.5 min |
+
+That is roughly **250–350 requests per full play** (segments plus manifests and
+subtitle fetches). At 100k requests/day the free tier therefore supports about
+**250–400 full plays/day** across all webmasters, before the watchdog/sweep
+overhead (~3k/day) and before browser-side BigBang audio switching, which
+re-buffers additional segments. MP4 assets are cheaper (ranged requests), HLS
+episodes dominate.
+
+Treat this as an upper bound: provider segment lengths vary, and a viewer who
+seeks or switches audio consumes more. Watch the quota guard, keep the 5-minute
+watchdog to a small number of assets, run the random sweep at most daily, and
+decide the launch traffic cap (or pool a second free edge/account) before
+promoting the service.
 
 ## 11. Live verification log
 
