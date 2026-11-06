@@ -102,7 +102,7 @@ abuse without a Durable Object (not available on the free tier).
 | Random sweep | `.github/workflows/tmdb-sweep.yml` runs daily. `scripts/sweep.mjs` resolves random popular TMDB ids (fallback corpus when TMDB is blocked) through `/api/source` → playlist → segment, exits non-zero below `SWEEP_MIN_SUCCESS_RATE`, and alerts through Telegram. |
 | Quota guard | `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's UTC Workers requests with a read-only analytics token and warns at 70%/90% of the 100k free daily limit, with recovery + 6-hour dedupe. Reports `cloudflare_not_configured` until credentials exist. |
 | Pending config | `ENV_TODO.md` tracks unset secrets/variables and verification steps without recording values. |
-| Limits | GitHub cron is best-effort (5-minute minimum). The watchdog validates the server-side chain, not the browser-only BigBang upgrade; check `tv/305551/1/4` manually. |
+| Limits | GitHub cron is best-effort (5-minute minimum). The watchdog validates the server-side chain, not the browser-only BigBang upgrade; `tv/305551/1/4` was manually verified with 5 audio tracks on 2026-11-06 (see `WATCHDOG.md`). |
 
 ---
 

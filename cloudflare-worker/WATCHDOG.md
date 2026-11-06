@@ -217,3 +217,18 @@ Each full episode play fetches hundreds of HLS segments through the gateway
 requests. At 100k requests/day that is roughly 100–140 full plays/day across all
 webmasters. Watch the guard, keep the 5-minute watchdog to a small number of
 assets, and do not run the random sweep more than daily.
+
+## 11. Live verification log
+
+| Date | Check | Result |
+|---|---|---|
+| 2026-11-05 | `GET /health`, `/health/ready?canary=1` | 200, `ready:true`, canary `framextv` ok |
+| 2026-11-05 | Watchdog dry run (`tv/66732/1/1`, `movie/550`) | readiness → source → playlist → segment passed |
+| 2026-11-05 | Admin login + alert/canary APIs | 200 + CSRF; test alert 503 `telegram_not_configured` (expected until secrets are set) |
+| 2026-11-06 | Random sweep, 6 arbitrary TMDB ids (fallback corpus) | 6/6 passed, each with a real segment |
+| 2026-11-06 | `tv/305551/1/4` in Chromium | **5 audio tracks** (English, Spanish, Portuguese, French, English), **7 subtitles** (English active by default), playback advancing, audio switch English → Spanish worked |
+| 2026-11-06 | Client-assisted path | Network log shows `embed.vidrift.net/api/source/tv/305551/1/4` → `/hls/tv-305551-1-4/client.m3u8`, confirming the BigBang upgrade |
+
+The 2026-11-06 browser check is the manual evidence the server-side canary
+cannot produce. Re-run it after any change to the player upgrade logic or the
+vidrift allowlist.
