@@ -61,16 +61,24 @@ first cohort. When usage approaches the guard thresholds, add 3–4 worker node
 URLs from **Admin → Worker Swarm**. Nodes are runtime config, so there is no
 redeploy and no change to the public embed URL. Do not upgrade to a paid plan.
 
+> **Quota rule:** Workers Free limits are **per Cloudflare account**, not per
+> worker. Three or four worker URLs in the same account share the same
+> 100k/day budget and add only redundancy/latency. To actually raise the daily
+> ceiling, each node must run under its **own free Cloudflare account** (each
+> gets its own 100k/day). The current quota guard reads one account; when
+> separate accounts are added, extend it to sum each account's usage.
+
 - [x] Launch cap decided: one account, ~250–400 plays/day, then scale
-      horizontally by adding free worker nodes.
+      horizontally with free worker nodes on separate accounts.
 - [x] `CF_ACCOUNT_ID` set as a GitHub repository secret.
 - [x] `CF_API_TOKEN` (read-only Account Analytics) set as a GitHub repository
       secret. Verified live: **2,465 requests / 2.5% / level `ok`**.
 - [x] Hourly quota workflow green on `main` with
       `cloudflare_configured=true` (run `42284302268`).
-- [x] Scaling path documented: deploy the same worker code under a new name,
-      set the same `HMAC_SECRET`, paste the URL in Admin → Worker Swarm, then
-      Ping Swarm. Visitors only ever use the primary URL.
+- [x] Scaling path documented: deploy the same worker code under a new
+      account/worker name, set the same `HMAC_SECRET`, paste the URL in
+      Admin → Worker Swarm, then Ping Swarm. Visitors only ever use the primary
+      URL.
 
 The guard now warns at 70% and goes critical at 90%, so the first traffic spike
 cannot silently exhaust the free tier.
@@ -121,7 +129,8 @@ succeeded with `telegram_configured=true`; quota run `42284302268` succeeded wit
 pass; multi-audio verified live on `tv/305551/1/4`.
 
 **Scale-up trigger:** when the hourly quota guard reports **70%**, deploy 3–4
-additional free worker nodes and register them in Admin → Worker Swarm. Do not
-add a paid plan or a billing profile.
+additional free worker nodes **on separate free Cloudflare accounts** and
+register them in Admin → Worker Swarm. Same-account nodes share the 100k/day
+budget and do not add capacity. Do not add a paid plan or a billing profile.
 
 Test evidence (without tokens) is recorded in `WATCHDOG.md` §11.

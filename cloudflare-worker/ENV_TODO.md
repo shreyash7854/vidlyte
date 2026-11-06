@@ -69,5 +69,7 @@ Still open (non-blocking):
 2. Optional: add `TMDB_API_KEY` as a GitHub secret for live popular-TMDB picks;
    without it the daily sweep uses the curated corpus.
 3. Scale-up: when the quota guard reaches 70%, deploy 3–4 additional free
-   workers, set the same `HMAC_SECRET`, and register them in Admin → Worker
-   Swarm. Do not add a paid plan.
+   workers **on separate free Cloudflare accounts** (same-account workers share
+   the 100k/day limit), set the same `HMAC_SECRET`, and register them in
+   Admin → Worker Swarm. Extend `scripts/quota.mjs` to sum each account's usage
+   at that point. Do not add a paid plan.
