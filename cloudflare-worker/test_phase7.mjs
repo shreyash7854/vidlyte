@@ -26,6 +26,8 @@ const wrangler = read("wrangler.toml");
 const watchdog = read("scripts/watchdog.mjs");
 const sweep = read("scripts/sweep.mjs");
 const quota = read("scripts/quota.mjs");
+const opsStatusScript = read("scripts/ops-status.mjs");
+const publishStatus = read("scripts/publish-status.mjs");
 const envTodo = read("ENV_TODO.md");
 const launchChecklist = read("LAUNCH_CHECKLIST.md");
 const rootAgents = readRoot("AGENTS.md");
@@ -455,6 +457,93 @@ await test("test:all includes phase 7", () => {
   assert.equal(pkg.scripts["test:phase7"], "node test_phase7.mjs");
   assert.equal(pkg.scripts.sweep, "node scripts/sweep.mjs");
   assert.equal(pkg.scripts.quota, "node scripts/quota.mjs");
+});
+
+console.log("\n[ops] dashboard feeds (quota, watchdog, sweep)");
+await test("worker serves cached ops snapshots behind admin auth", () => {
+  hasAll(indexSource, [
+    'url.pathname === `${adminRoute}/api/ops`',
+    "loadOpsStatus",
+    'OPS_STATUS_KV_KEY = "ops_status_v1"',
+    'OPS_KINDS = ["quota", "watchdog", "sweep"]',
+    '`${getOpsStatusBase(env)}/ops-${kind}/${kind}.json`',
+    'url.searchParams.get("refresh") === "1"',
+    "expirationTtl: 900",
+  ]);
+});
+
+await test("ops feed reader never touches secrets or upstream URLs", () => {
+  var start = indexSource.indexOf("External ops feeds");
+  var end = indexSource.indexOf("function makeRequestId");
+  assert.ok(start > 0 && end > start, "ops section not found");
+  var section = indexSource.slice(start, end);
+  hasNone(section, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "HMAC_SECRET", "ADMIN_SECRET", "streamUrl"], "ops feed reader");
+});
+
+await test("readiness reports quota level as a non-fatal warning", () => {
+  hasAll(indexSource, [
+    '"quota_budget"',
+    'quotaLevel !== "critical"',
+    'quotaLevel === "unknown"',
+  ]);
+  var readiness = indexSource.slice(indexSource.indexOf("async function buildReadinessPayload"), indexSource.indexOf("External ops feeds"));
+  assert.match(readiness, /add\(\s*"quota_budget",\s*quotaLevel !== "critical",/);
+  assert.match(readiness, /quotaLevel === "unknown"[\s\S]{0,120}false\s*\)/);
+});
+
+await test("admin dashboard renders an Ops & Quota pane", () => {
+  hasAll(admin, [
+    'data-pane="pane-ops"',
+    'id="pane-ops"',
+    "function loadOps(",
+    "function renderOps(",
+    "adminFetch('/api/ops'",
+    "opsQuotaPercent",
+    "opsWatchdogLevel",
+    "opsSweepLevel",
+  ]);
+});
+
+await test("wrangler points ops feeds at the public status branches", () => {
+  hasAll(wrangler, [
+    'OPS_STATUS_BASE = "https://raw.githubusercontent.com/shreyash7854/vidlyte"',
+  ]);
+});
+
+await test("monitor scripts write compact ops snapshots", () => {
+  hasAll(quota, ['writeOpsStatus("quota"'], "quota script");
+  hasAll(watchdog, ['writeOpsStatus("watchdog"'], "watchdog script");
+  hasAll(sweep, ['writeOpsStatus("sweep"'], "sweep script");
+  hasAll(opsStatusScript, [
+    "export async function writeOpsStatus",
+    'OPS_KINDS = ["quota", "watchdog", "sweep"]',
+    "OPS_STATUS_DIR",
+  ]);
+});
+
+await test("publish script force-pushes one branch and masks the token", () => {
+  hasAll(publishStatus, [
+    'refs/heads/${branch}',
+    '"--force"',
+    'OPS_STATUS_BRANCH_PREFIX',
+    'split(token).join("***")',
+    "process.exit(0)",
+  ]);
+});
+
+await test("each monitor workflow publishes its status branch", () => {
+  [
+    [workflow, "watchdog"],
+    [sweepWorkflow, "sweep"],
+    [quotaWorkflow, "quota"],
+  ].forEach(function(entry) {
+    assert.ok(entry[0].includes("contents: write"), `${entry[1]} workflow needs contents: write`);
+    assert.ok(entry[0].includes("continue-on-error: true"), `${entry[1]} publish step must not fail the run`);
+    assert.ok(
+      entry[0].includes(`node scripts/publish-status.mjs ${entry[1]}`),
+      `${entry[1]} workflow missing publish step`
+    );
+  });
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -2656,6 +2656,20 @@ async function buildReadinessPayload(request, env, canary = undefined) {
     false
   );
 
+  // Quota is reported by the external hourly guard. Only the KV snapshot is
+  // read here (no network call) so readiness stays fast. Critical quota is a
+  // warning, not a readiness failure: at 100% Cloudflare throttles before the
+  // Worker can answer, and the watchdog reports that separately.
+  const cachedOps = await readCachedOpsStatus(env);
+  const quotaSnapshot = cachedOps && cachedOps.quota && cachedOps.quota.available !== false ? cachedOps.quota : null;
+  const quotaLevel = quotaSnapshot ? normalizeOpsLevel(quotaSnapshot.level, quotaSnapshot.percent) : "unknown";
+  add(
+    "quota_budget",
+    quotaLevel !== "critical",
+    quotaLevel === "unknown" ? "unknown" : `${quotaLevel}:${quotaSnapshot.percent}%`,
+    false
+  );
+
   if (canary === undefined) canary = await loadCanaryState(env);
   const requireCanary = envFlag(env && env.WATCHDOG_REQUIRE_CANARY, false);
   const maxAgeSec = envInt(env && env.WATCHDOG_CANARY_MAX_AGE_SEC, 1800, 60, 604800);
@@ -2704,6 +2718,115 @@ async function buildReadinessPayload(request, env, canary = undefined) {
         }
       : null,
   };
+}
+
+/* ---------------------------------------------------------------------------
+ * External ops feeds (quota, watchdog, sweep)
+ * ---------------------------------------------------------------------------
+ * GitHub Actions publishes one small JSON document per monitor to an
+ * `ops-<kind>` branch. The Worker reads those public documents (raw.github)
+ * and caches them in KV so the admin panel can render a single pane without
+ * being able to call GitHub on every page load.
+ * ------------------------------------------------------------------------ */
+
+const OPS_STATUS_KV_KEY = "ops_status_v1";
+const OPS_STATUS_CACHE_MS = 120000;
+const OPS_STATUS_TIMEOUT_MS = 4000;
+const OPS_STATUS_BASE_DEFAULT = "https://raw.githubusercontent.com/shreyash7854/vidlyte";
+const OPS_KINDS = ["quota", "watchdog", "sweep"];
+const OPS_QUOTA_WARN_PCT = 70;
+const OPS_QUOTA_CRITICAL_PCT = 90;
+
+function getOpsStatusBase(env) {
+  const raw = (env && env.OPS_STATUS_BASE) || OPS_STATUS_BASE_DEFAULT;
+  return String(raw).trim().replace(/\/+$/, "");
+}
+
+function opsStatusUrl(env, kind) {
+  return `${getOpsStatusBase(env)}/ops-${kind}/${kind}.json`;
+}
+
+function normalizeOpsLevel(level, percent) {
+  const value = String(level || "").toLowerCase();
+  if (value === "ok" || value === "warning" || value === "critical") return value;
+  const pct = Number(percent);
+  if (!Number.isFinite(pct)) return "unknown";
+  if (pct >= OPS_QUOTA_CRITICAL_PCT) return "critical";
+  if (pct >= OPS_QUOTA_WARN_PCT) return "warning";
+  return "ok";
+}
+
+function opsAgeSec(iso) {
+  const parsed = Date.parse(String(iso || ""));
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.round((Date.now() - parsed) / 1000));
+}
+
+async function readCachedOpsStatus(env) {
+  if (!env || !env.CONFIG_KV) return null;
+  try {
+    const cached = await env.CONFIG_KV.get(OPS_STATUS_KV_KEY, { type: "json" });
+    return cached && typeof cached === "object" ? cached : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function fetchOpsStatusFile(env, kind) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), OPS_STATUS_TIMEOUT_MS) : null;
+  try {
+    const response = await fetch(opsStatusUrl(env, kind), {
+      headers: { Accept: "application/json" },
+      cf: { cacheTtl: 60, cacheEverything: true },
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!response.ok) return { ok: false, error: `http_${response.status}` };
+    const data = await response.json();
+    if (!data || typeof data !== "object") return { ok: false, error: "invalid_json" };
+    return { ok: true, data };
+  } catch (error) {
+    const message = String((error && error.message) || error).slice(0, 120);
+    return { ok: false, error: message || "fetch_failed" };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function loadOpsStatus(env, options = {}) {
+  const cached = await readCachedOpsStatus(env);
+  const cachedAt = cached ? Number(cached.generated_at_ms) || 0 : 0;
+  const fresh = cachedAt > 0 && Date.now() - cachedAt < OPS_STATUS_CACHE_MS;
+  if (cached && fresh && !options.force) return { ...cached, cached: true };
+
+  const results = await Promise.all(OPS_KINDS.map((kind) => fetchOpsStatusFile(env, kind)));
+  const payload = {
+    generated_at: new Date().toISOString(),
+    generated_at_ms: Date.now(),
+    cached: false,
+    base: getOpsStatusBase(env),
+    sources: {},
+  };
+
+  OPS_KINDS.forEach((kind, index) => {
+    const result = results[index] || { ok: false, error: "unavailable" };
+    if (!result.ok) {
+      payload[kind] = { available: false, error: result.error || "unavailable" };
+      payload.sources[kind] = { ok: false, error: result.error || "unavailable" };
+      return;
+    }
+    const entry = { available: true, ...result.data };
+    if (kind === "quota") entry.level = normalizeOpsLevel(entry.level, entry.percent);
+    payload[kind] = entry;
+    payload.sources[kind] = { ok: true, age_sec: opsAgeSec(entry.checked_at) };
+  });
+
+  if (env && env.CONFIG_KV) {
+    try {
+      await env.CONFIG_KV.put(OPS_STATUS_KV_KEY, JSON.stringify(payload), { expirationTtl: 900 });
+    } catch (error) {}
+  }
+  return payload;
 }
 
 function makeRequestId() {
@@ -3683,6 +3806,34 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         history_id: historyEntry ? historyEntry.id : "",
         config: runtimeConfig,
       }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
+    // 7.3 Admin Ops Feeds (quota / watchdog / sweep snapshots)
+    if (url.pathname === `${adminRoute}/api/ops` && request.method === "GET") {
+      if (!checkAdminAuth(request, env)) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      const force = url.searchParams.get("refresh") === "1";
+      let ops;
+      try {
+        ops = await loadOpsStatus(env, { force });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "ops_feeds_unavailable",
+          detail: String((error && error.message) || error).slice(0, 160),
+        }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      return new Response(JSON.stringify({ success: true, ...ops }), {
         status: 200,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });

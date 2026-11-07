@@ -259,3 +259,46 @@ promoting the service.
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the
 vidrift allowlist.
+
+## 12. Dashboard ops feeds (quota / watchdog / sweep)
+
+The admin dashboard's **Ops & Quota** pane reads one combined snapshot from
+`GET <admin>/api/ops` (admin session required). The data is produced outside
+Cloudflare so it survives a throttled or broken Worker.
+
+Pipeline:
+
+1. Each monitor writes `<OPS_STATUS_DIR>/<kind>.json` (default
+   `cloudflare-worker/.ops-status/`). Only counts, timings and statuses — never
+   tokens, cookies or upstream URLs.
+2. `scripts/publish-status.mjs <kind>` force-pushes that single file to an
+   orphan branch: `ops-quota`, `ops-watchdog` or `ops-sweep`. Each workflow owns
+   one branch, so the three monitors never overwrite each other.
+3. The Worker fetches
+   `https://raw.githubusercontent.com/shreyash7854/vidlyte/ops-<kind>/<kind>.json`
+   (`OPS_STATUS_BASE`), combines the three documents and caches them in
+   `CONFIG_KV` under `ops_status_v1` for 2 minutes (`?refresh=1` bypasses it).
+
+Operational notes:
+
+- Publishing is `continue-on-error: true`; a git hiccup never fails a monitor.
+- The public status branches contain no secrets. Review them before making the
+  repository private.
+- `/health/ready` adds a non-fatal `quota_budget` check from the cached quota
+  snapshot (critical at `>= 90%`). It never makes a network call.
+- To backfill the pane after a configuration change:
+
+  ```powershell
+  cd cloudflare-worker
+  $env:GITHUB_REPOSITORY="shreyash7854/vidlyte"
+  node scripts/watchdog.mjs           # writes .ops-status/watchdog.json
+  node scripts/publish-status.mjs watchdog
+  ```
+
+  Repeat with `quota` (needs `CF_API_TOKEN` + `CF_ACCOUNT_ID`) and `sweep`.
+- `OPS_STATUS_DRY_RUN=true` prints the payload instead of pushing.
+
+Free-tier note: GitHub Actions minutes are **unlimited for public
+repositories**; the 2,000-minute allowance applies to private repositories.
+Scheduled workflows are disabled after 60 days without repository activity —
+these status-branch pushes count as activity, which keeps the schedules alive.

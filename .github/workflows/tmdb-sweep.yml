@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: tmdb-sweep
@@ -48,6 +48,14 @@ jobs:
         run: |
           set -o pipefail
           node scripts/sweep.mjs | tee sweep-report.json
+
+      - name: Publish status to ops-sweep branch
+        if: always()
+        continue-on-error: true
+        working-directory: cloudflare-worker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-status.mjs sweep
 
       - name: Upload sweep report
         if: always()

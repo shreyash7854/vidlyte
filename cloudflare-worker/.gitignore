@@ -11,5 +11,6 @@ worker-configuration.d.ts
 # External watchdog state (GitHub Actions restores this via actions/cache)
 .watchdog-state/
 .quota-state/
+.ops-status/
 sweep-report.json
 quota-report.json

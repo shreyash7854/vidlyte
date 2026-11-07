@@ -25,6 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { writeOpsStatus } from "./ops-status.mjs";
 
 const env = process.env;
 const BASE_URL = String(env.SWEEP_BASE_URL || env.WATCHDOG_BASE_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
@@ -398,6 +399,28 @@ async function main() {
 
   console.log(JSON.stringify(summary, null, 2));
 
+  await writeOpsStatus("sweep", {
+    ok: healthOk,
+    checked_at: startedAt,
+    base_url: BASE_URL,
+    seed: SEED,
+    pool_source: poolSource,
+    count: results.length,
+    passed,
+    failed: results.length - passed,
+    success_rate: summary.success_rate,
+    min_success_rate: MIN_SUCCESS_RATE,
+    alert: summary.alert,
+    failures: results
+      .filter((result) => !result.ok)
+      .slice(0, 10)
+      .map((result) => ({
+        asset: assetLabel(result.asset),
+        provider: result.provider || "",
+        error: String(result.error || "").slice(0, 160),
+      })),
+  });
+
   if (env.GITHUB_STEP_SUMMARY) {
     try {
       const { writeFile } = await import("node:fs/promises");
@@ -431,5 +454,13 @@ main().catch(async (error) => {
   await sendTelegram(
     `🚨 <b>VidLyte sweep crashed</b>\n• ${escapeHtml(error && error.message || error)}\n• Time: ${new Date().toISOString()}`
   );
+  await writeOpsStatus("sweep", {
+    ok: false,
+    fatal: true,
+    checked_at: new Date().toISOString(),
+    base_url: BASE_URL,
+    seed: SEED,
+    failure: String(error && error.message || error).slice(0, 300),
+  });
   process.exitCode = 1;
 });

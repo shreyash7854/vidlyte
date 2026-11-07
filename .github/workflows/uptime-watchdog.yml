@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: uptime-watchdog
@@ -61,6 +61,14 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node scripts/watchdog.mjs
+
+      - name: Publish status to ops-watchdog branch
+        if: always()
+        continue-on-error: true
+        working-directory: cloudflare-worker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-status.mjs watchdog
 
       - name: Upload watchdog report
         if: always()

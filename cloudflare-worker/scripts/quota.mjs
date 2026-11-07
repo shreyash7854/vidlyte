@@ -27,6 +27,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { writeOpsStatus } from "./ops-status.mjs";
 
 const env = process.env;
 const API_TOKEN = String(env.CF_API_TOKEN || "").trim();
@@ -188,6 +189,13 @@ async function main() {
         2
       )
     );
+    await writeOpsStatus("quota", {
+      ok: false,
+      checked_at: startedIso,
+      skipped: "cloudflare_not_configured",
+      daily_limit: DAILY_LIMIT,
+      detail: "Set CF_API_TOKEN and CF_ACCOUNT_ID (read-only analytics) to enable the quota guard.",
+    });
     return;
   }
 
@@ -211,6 +219,13 @@ async function main() {
         2
       )
     );
+    await writeOpsStatus("quota", {
+      ok: false,
+      checked_at: startedIso,
+      error: message,
+      daily_limit: DAILY_LIMIT,
+      alert,
+    });
     process.exitCode = 1;
     return;
   }
@@ -273,6 +288,20 @@ async function main() {
   }
 
   console.log(JSON.stringify(summary, null, 2));
+
+  await writeOpsStatus("quota", {
+    ok: level !== "critical",
+    checked_at: summary.checked_at,
+    window_start: summary.day_start_utc,
+    daily_limit: DAILY_LIMIT,
+    requests: usage.total,
+    percent: summary.percent,
+    level,
+    warn_pct: WARN_PCT,
+    critical_pct: CRITICAL_PCT,
+    top_scripts: usage.scripts.slice(0, 6),
+    alert: summary.alert,
+  });
 
   if (env.GITHUB_STEP_SUMMARY) {
     try {

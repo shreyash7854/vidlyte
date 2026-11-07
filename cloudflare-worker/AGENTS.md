@@ -52,6 +52,11 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 - Daily budget: `npm run quota` reads Workers requests with a read-only
   Cloudflare token; it reports `cloudflare_not_configured` until set. Never
   raise the free limit with billing.
+- Dashboard ops feeds: each monitor writes `.ops-status/<kind>.json`, and
+  `scripts/publish-status.mjs <kind>` force-pushes it to the `ops-<kind>`
+  branch. `GET ${ADMIN_ROUTE}/api/ops` reads those public documents through
+  `OPS_STATUS_BASE` and caches them in `CONFIG_KV` (`ops_status_v1`, 2 min).
+  Never add secrets or upstream URLs to those documents.
 
 ## Telegram alerting
 

@@ -47,7 +47,13 @@ Read`. Do not add a billing profile or a paid plan.
 Configured in `wrangler.toml` and verified live: `ADMIN_ROUTE`,
 `DEFAULT_TTL_SEC`, `BIND_CLIENT_IP`, `UPSTREAM_ALLOWLIST`, rate limits,
 `ADMIN_SESSION_TTL_SEC`, `ALERT_WEBHOOK_URL` (empty), `TELEGRAM_ALERTS_ENABLED`,
-`ALERT_MIN_SEVERITY`, `ALERT_COOLDOWN_MIN`, and the `WATCHDOG_CANARY_*` group.
+`ALERT_MIN_SEVERITY`, `ALERT_COOLDOWN_MIN`, the `WATCHDOG_CANARY_*` group, and
+`OPS_STATUS_BASE` (public raw.githubusercontent base for the dashboard feeds).
+
+`OPS_STATUS_BASE` is not a secret and needs no setup: each monitor workflow
+force-pushes its snapshot to an `ops-<kind>` branch using the automatic
+`GITHUB_TOKEN` (workflows declare `permissions: contents: write`). No new
+repository secret is required.
 
 ## 4. Remaining items
 

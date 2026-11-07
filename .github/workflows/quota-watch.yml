@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: workers-quota
@@ -67,6 +67,14 @@ jobs:
         run: |
           set -o pipefail
           node scripts/quota.mjs | tee quota-report.json
+
+      - name: Publish status to ops-quota branch
+        if: always()
+        continue-on-error: true
+        working-directory: cloudflare-worker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-status.mjs quota
 
       - name: Upload quota report
         if: always()

@@ -83,6 +83,7 @@ repository rules live in the root `AGENTS.md`.
 * **`GET /vly-ops-7x/api/alerts/status`**: Telegram/webhook configuration state without leaking secrets (admin session required).
 * **`POST /vly-ops-7x/api/alerts/test`**: Send a forced Telegram test alert (admin session + CSRF required).
 * **`POST /vly-ops-7x/api/watchdog/canary`**: Run the real playback canary now and persist the result (admin session + CSRF required).
+* **`GET /vly-ops-7x/api/ops`**: Combined quota, watchdog and sweep snapshots published by GitHub Actions, cached in KV for 2 minutes. `?refresh=1` bypasses the cache (admin session required).
 
 ---
 
@@ -262,6 +263,7 @@ Some titles do not follow the `/<slug>-<year>/` convention. Add an override thro
 * **Admin controls**: the Upstreams pane shows alert status, a **Send Test** button and a **Run Canary** button. Matching APIs are `GET <admin>/api/alerts/status`, `POST <admin>/api/alerts/test` and `POST <admin>/api/watchdog/canary`.
 * **Random TMDB sweep**: `.github/workflows/tmdb-sweep.yml` runs daily (and on demand). `scripts/sweep.mjs` picks random popular TMDB ids (or a curated fallback pool when TMDB is unreachable), resolves each through `/api/source`, and verifies a real media segment. It exits non-zero below `SWEEP_MIN_SUCCESS_RATE` (default 60%) and alerts through Telegram. Assets are reported by id only — never upstream URLs or tokens.
 * **Workers quota guard**: `.github/workflows/quota-watch.yml` runs hourly. `scripts/quota.mjs` reads today's (UTC) Workers request count with a read-only Cloudflare Analytics token and warns at `QUOTA_WARN_PCT` (70%) / `QUOTA_CRITICAL_PCT` (90%) of `QUOTA_DAILY_LIMIT` (100000), with recovery notices and a 6-hour dedupe. `CF_API_TOKEN` / `CF_ACCOUNT_ID` are configured; the first live run read 2,465 requests (2.5%).
+* **Ops & Quota pane**: the admin dashboard renders the external monitors in one place — daily Workers requests vs. the 100k free limit, watchdog checkpoints and sweep success rate. The data is published by each workflow to a dedicated `ops-quota`, `ops-watchdog` or `ops-sweep` branch (one small public JSON file per monitor) and read by `GET <admin>/api/ops` through a 2-minute KV cache. Publishing is best-effort and never fails a monitor run. Readiness also reports `quota_budget` as a non-fatal warning at 90%.
 * **Pending configuration**: [ENV_TODO.md](ENV_TODO.md) tracks every unset secret/variable, where it belongs, and how to verify it. Values are never stored there.
 * **Launch gate**: [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md) records the approved launch: alert delivery proven, quota guard verified, and a single free account with 3–4 worker nodes to be added later from Admin → Worker Swarm.
 * **Free-only**: GitHub Actions + Telegram Bot API + Cloudflare free tier; no billing profile is required. See [WATCHDOG.md](WATCHDOG.md).
@@ -276,11 +278,11 @@ node test_phase3.mjs      # rate limits, metrics, logs, headers, config import/e
 node test_phase4.mjs      # player resume/prefs/episodes, portal samples
 node test_phase5.mjs      # CSRF, session TTL, CSP nonce/SRI, config history/rollback
 node test_phase6.mjs      # share timestamps, subtitle prefs, engagement, removals
-node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota, AGENTS/workflow
+node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota, ops feeds, AGENTS/workflow
 npx wrangler deploy --dry-run
 ```
 
-Expected: `25`, `32`, `37`, `25`, `32`, `26` and `38` tests passing (215 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
+Expected: `25`, `32`, `37`, `25`, `32`, `26` and `46` tests passing (223 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
 
 ## 14. Operations Runbook
 

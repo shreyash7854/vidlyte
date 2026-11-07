@@ -863,6 +863,11 @@
         <span>Diagnostics</span>
       </div>
 
+      <div class="nav-item" data-pane="pane-ops" onclick="switchPane('pane-ops', 'Ops &amp; Quota')">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+        <span>Ops &amp; Quota</span>
+      </div>
+
       <div class="nav-item" data-pane="pane-docs" onclick="switchPane('pane-docs', 'Docs & Architecture')">
         <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
         <span>Docs & Architecture</span>
@@ -1404,6 +1409,108 @@
         </div>
       </section>
 
+      <section id="pane-ops" class="pane-content" style="display: none;">
+        <div class="panel-card" style="margin-bottom: 24px;">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Ops &amp; Quota</h2>
+              <p class="panel-subtitle">Snapshots published by the external GitHub Actions monitors. These run outside the Worker, so they still report when playback is down or the daily quota is exhausted.</p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" onclick="loadOps(true)" id="opsRefreshBtn">Refresh Feeds</button>
+              <a class="btn btn-secondary" id="opsRunsLink" href="https://github.com/shreyash7854/vidlyte/actions" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">Open Actions ↗</a>
+            </div>
+          </div>
+
+          <div id="opsSourceStatus" style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Loading ops feeds…</div>
+
+          <div class="metrics-grid" style="margin-bottom: 18px;">
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Workers Free Quota</span>
+                <span class="badge" id="opsQuotaLevel">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsQuotaPercent">—</span>
+                  <span class="metric-val-label">Used Today (UTC)</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsQuotaRequests">—</span>
+                  <span class="metric-val-label">Requests</span>
+                </div>
+              </div>
+              <div class="segmented-progress-bar" style="margin-top: 14px; margin-bottom: 10px;">
+                <div id="opsQuotaBar" style="width: 0%; background: var(--accent); transition: width .3s ease;"></div>
+              </div>
+              <div id="opsQuotaMeta" style="font-size: 11.5px; color: var(--text-dim);">Awaiting first quota publish.</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Playback Watchdog</span>
+                <span class="badge" id="opsWatchdogLevel">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsWatchdogChecks">—</span>
+                  <span class="metric-val-label">Checks Passed</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsWatchdogFails">—</span>
+                  <span class="metric-val-label">Consecutive Fails</span>
+                </div>
+              </div>
+              <div id="opsWatchdogMeta" style="font-size: 11.5px; color: var(--text-dim); margin-top: 10px;">Awaiting first watchdog publish.</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Random TMDB Sweep</span>
+                <span class="badge" id="opsSweepLevel">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsSweepPassed">—</span>
+                  <span class="metric-val-label">Passed</span>
+                </div>
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsSweepRate">—</span>
+                  <span class="metric-val-label">Success Rate</span>
+                </div>
+              </div>
+              <div id="opsSweepMeta" style="font-size: 11.5px; color: var(--text-dim); margin-top: 10px;">Awaiting first sweep publish.</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+            <div>
+              <h3 style="font-size: 14px; margin: 0 0 8px;">Quota — Top Workers Scripts</h3>
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Script</th><th>Requests</th></tr></thead>
+                  <tbody id="opsQuotaTable"><tr><td colspan="2">No quota data yet.</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h3 style="font-size: 14px; margin: 0 0 8px;">Watchdog — Last Checkpoint</h3>
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
+                  <tbody id="opsWatchdogTable"><tr><td colspan="3">No watchdog data yet.</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div id="opsSweepFailures" style="margin-top: 18px; font-size: 12px; color: var(--text-muted);"></div>
+          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-dim);">
+            Feeds are public, read-only snapshots on the <code>ops-quota</code>, <code>ops-watchdog</code> and <code>ops-sweep</code> branches, refreshed at most every 2 minutes. Alerts still arrive through Telegram.
+          </div>
+        </div>
+      </section>
+
       <section id="pane-docs" class="pane-content" style="display: none;">
         <div class="panel-card" style="margin-bottom: 24px;">
           <div class="panel-header">
@@ -1774,6 +1881,7 @@
         loadDiagnostics();
         loadConfigHistory();
       }
+      if (paneId === 'pane-ops') loadOps();
     }
 
     // -------------------------------------------------------------
@@ -2292,6 +2400,168 @@
         showToast('Diagnostics unavailable');
       } finally {
         if (btn) btn.disabled = false;
+      }
+    }
+
+    // -------------------------------------------------------------
+    // OPS FEEDS: quota, watchdog, sweep (external GitHub Actions)
+    // -------------------------------------------------------------
+    function opsBadge(el, level, label) {
+      if (!el) return;
+      var cls = level === 'critical' ? 'badge-err' : level === 'warning' ? 'badge-warn' : level === 'ok' ? 'badge-ok' : '';
+      el.className = 'badge ' + cls;
+      el.innerText = label;
+    }
+
+    function opsAgo(iso) {
+      if (!iso) return 'never';
+      var ts = Date.parse(iso);
+      if (!isFinite(ts)) return String(iso);
+      var sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (sec < 60) return sec + 's ago';
+      if (sec < 3600) return Math.round(sec / 60) + 'm ago';
+      if (sec < 86400) return Math.round(sec / 3600) + 'h ago';
+      return Math.round(sec / 86400) + 'd ago';
+    }
+
+    async function loadOps(force) {
+      var btn = document.getElementById('opsRefreshBtn');
+      var statusEl = document.getElementById('opsSourceStatus');
+      if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+      if (statusEl) statusEl.textContent = 'Loading ops feeds…';
+      try {
+        var resp = await adminFetch('/api/ops' + (force ? '?refresh=1' : ''));
+        if (resp.status === 401) { showAuth(); return; }
+        if (!resp.ok) throw new Error('ops failed');
+        var data = await resp.json();
+        renderOps(data);
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Ops feeds unavailable. The Worker could not read the published snapshots.';
+        showToast('Ops feeds unavailable');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Refresh Feeds'; }
+      }
+    }
+
+    function renderOps(data) {
+      var sources = data.sources || {};
+      var statusEl = document.getElementById('opsSourceStatus');
+      if (statusEl) {
+        var bits = ['quota', 'watchdog', 'sweep'].map(function(k) {
+          var s = sources[k] || {};
+          var label = k + (s.ok ? ' ✓' : ' ✗ ' + (s.error || 'unavailable'));
+          if (s.ok && s.age_sec !== null && s.age_sec !== undefined) label += ' · ' + opsAgo(new Date(Date.now() - Number(s.age_sec) * 1000).toISOString());
+          return label;
+        });
+        statusEl.textContent = (data.cached ? 'Cached snapshot' : 'Fresh snapshot') + ' · ' + bits.join('  ·  ');
+      }
+
+      // --- Quota ---
+      var quota = data.quota && data.quota.available ? data.quota : null;
+      var quotaLevel = document.getElementById('opsQuotaLevel');
+      var quotaPct = document.getElementById('opsQuotaPercent');
+      var quotaReq = document.getElementById('opsQuotaRequests');
+      var quotaBar = document.getElementById('opsQuotaBar');
+      var quotaMeta = document.getElementById('opsQuotaMeta');
+      var quotaTable = document.getElementById('opsQuotaTable');
+      if (quota) {
+        var pct = Number(quota.percent) || 0;
+        opsBadge(quotaLevel, quota.level, String(quota.level || 'unknown').toUpperCase());
+        if (quotaPct) quotaPct.innerText = pct.toFixed(1) + '%';
+        if (quotaReq) quotaReq.innerText = (Number(quota.requests) || 0).toLocaleString() + ' / ' + (Number(quota.daily_limit) || 100000).toLocaleString();
+        if (quotaBar) {
+          quotaBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+          quotaBar.style.background = quota.level === 'critical' ? 'var(--danger)' : quota.level === 'warning' ? '#f59e0b' : 'var(--accent)';
+        }
+        if (quotaMeta) {
+          quotaMeta.innerText = 'Checked ' + opsAgo(quota.checked_at) +
+            (quota.alert && quota.alert.sent ? ' · alert sent' : '') +
+            (quota.warn_pct ? ' · warn ' + quota.warn_pct + '% / critical ' + quota.critical_pct + '%' : '');
+        }
+        var scripts = quota.top_scripts || [];
+        if (quotaTable) {
+          quotaTable.innerHTML = scripts.length === 0
+            ? '<tr><td colspan="2">No per-script data reported.</td></tr>'
+            : scripts.map(function(s) {
+                return '<tr><td>' + esc(s.script || 'unknown') + '</td><td>' + (Number(s.requests) || 0).toLocaleString() + '</td></tr>';
+              }).join('');
+        }
+      } else {
+        opsBadge(quotaLevel, 'unknown', 'NO DATA');
+        if (quotaPct) quotaPct.innerText = '—';
+        if (quotaReq) quotaReq.innerText = '—';
+        if (quotaBar) quotaBar.style.width = '0%';
+        if (quotaMeta) quotaMeta.innerText = data.quota && data.quota.error ? 'Feed error: ' + data.quota.error : 'Awaiting first quota publish.';
+        if (quotaTable) quotaTable.innerHTML = '<tr><td colspan="2">No quota data yet.</td></tr>';
+      }
+
+      // --- Watchdog ---
+      var watchdog = data.watchdog && data.watchdog.available ? data.watchdog : null;
+      var wdLevel = document.getElementById('opsWatchdogLevel');
+      var wdChecks = document.getElementById('opsWatchdogChecks');
+      var wdFails = document.getElementById('opsWatchdogFails');
+      var wdMeta = document.getElementById('opsWatchdogMeta');
+      var wdTable = document.getElementById('opsWatchdogTable');
+      if (watchdog) {
+        var checks = watchdog.checks || [];
+        var passedChecks = checks.filter(function(c) { return c && c.ok !== false; }).length;
+        opsBadge(wdLevel, watchdog.ok ? 'ok' : 'critical', watchdog.ok ? 'HEALTHY' : 'FAILING');
+        if (wdChecks) wdChecks.innerText = passedChecks + ' / ' + checks.length;
+        if (wdFails) wdFails.innerText = String(Number(watchdog.consecutive_failures) || 0);
+        if (wdMeta) {
+          var text = 'Checked ' + opsAgo(watchdog.checked_at);
+          if (watchdog.failure && watchdog.failure.step) text += ' · failed at ' + watchdog.failure.step + ': ' + (watchdog.failure.detail || '');
+          else if (watchdog.last_success_at) text += ' · last success ' + opsAgo(watchdog.last_success_at);
+          wdMeta.innerText = text;
+        }
+        if (wdTable) {
+          wdTable.innerHTML = checks.length === 0
+            ? '<tr><td colspan="3">No checkpoints recorded.</td></tr>'
+            : checks.map(function(c) {
+                var ok = c && c.ok !== false;
+                var ms = c && c.latencyMs ? c.latencyMs + 'ms' : '';
+                var detail = (c && (c.detail || c.error || c.asset)) || ms;
+                return '<tr><td>' + esc((c && c.step) || 'check') + '</td><td><span class="badge ' + (ok ? 'badge-ok' : 'badge-err') + '">' + (ok ? 'OK' : 'FAIL') + '</span></td><td>' + esc(detail) + '</td></tr>';
+              }).join('');
+        }
+      } else {
+        opsBadge(wdLevel, 'unknown', 'NO DATA');
+        if (wdChecks) wdChecks.innerText = '—';
+        if (wdFails) wdFails.innerText = '—';
+        if (wdMeta) wdMeta.innerText = data.watchdog && data.watchdog.error ? 'Feed error: ' + data.watchdog.error : 'Awaiting first watchdog publish.';
+        if (wdTable) wdTable.innerHTML = '<tr><td colspan="3">No watchdog data yet.</td></tr>';
+      }
+
+      // --- Sweep ---
+      var sweep = data.sweep && data.sweep.available ? data.sweep : null;
+      var swLevel = document.getElementById('opsSweepLevel');
+      var swPassed = document.getElementById('opsSweepPassed');
+      var swRate = document.getElementById('opsSweepRate');
+      var swMeta = document.getElementById('opsSweepMeta');
+      var swFailures = document.getElementById('opsSweepFailures');
+      if (sweep) {
+        opsBadge(swLevel, sweep.ok ? 'ok' : 'warning', sweep.ok ? 'PASSING' : 'DEGRADED');
+        if (swPassed) swPassed.innerText = (Number(sweep.passed) || 0) + ' / ' + (Number(sweep.count) || 0);
+        if (swRate) swRate.innerText = Math.round((Number(sweep.success_rate) || 0) * 100) + '%';
+        if (swMeta) {
+          swMeta.innerText = 'Checked ' + opsAgo(sweep.checked_at) +
+            ' · seed ' + String(sweep.seed || '—').slice(0, 18) +
+            ' · pool ' + (sweep.pool_source || 'unknown');
+        }
+        if (swFailures) {
+          var fails = sweep.failures || [];
+          swFailures.innerHTML = fails.length === 0
+            ? 'No failures recorded in the last sweep.'
+            : '<b>Last sweep failures</b><br>' + fails.map(function(f) {
+                return '• ' + esc(f.asset) + ' — ' + esc(f.error || 'unknown');
+              }).join('<br>');
+        }
+      } else {
+        opsBadge(swLevel, 'unknown', 'NO DATA');
+        if (swPassed) swPassed.innerText = '—';
+        if (swRate) swRate.innerText = '—';
+        if (swMeta) swMeta.innerText = data.sweep && data.sweep.error ? 'Feed error: ' + data.sweep.error : 'Awaiting first sweep publish.';
+        if (swFailures) swFailures.textContent = '';
       }
     }
 

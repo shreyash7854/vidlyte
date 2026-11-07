@@ -27,6 +27,10 @@ RATE_LIMIT_ADMIN_PER_MINUTE = "40"
 
 # Phase 5: admin session lifetime (seconds). Default 12h, capped at 7 days.
 ADMIN_SESSION_TTL_SEC = "43200"
+# Ops feeds published by GitHub Actions (quota/watchdog/sweep JSON). The Worker
+# reads https://raw.githubusercontent.com/<owner>/<repo>/ops-<kind>/<kind>.json
+# and caches the combined snapshot in CONFIG_KV. Public, non-secret data only.
+OPS_STATUS_BASE = "https://raw.githubusercontent.com/shreyash7854/vidlyte"
 # Optional webhook (Slack/Discord/JSON) notified when scheduled maintenance
 # finds an unhealthy swarm node or provider. Empty disables alerting.
 ALERT_WEBHOOK_URL = ""

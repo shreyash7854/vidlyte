@@ -28,6 +28,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { writeOpsStatus } from "./ops-status.mjs";
 
 const env = process.env;
 const BASE_URL = String(env.WATCHDOG_BASE_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
@@ -457,6 +458,19 @@ async function main() {
     await writeState(state);
   }
 
+  await writeOpsStatus("watchdog", {
+    ok: result.ok,
+    checked_at: startedAt,
+    base_url: BASE_URL,
+    assets: ASSETS,
+    checks: result.checks.slice(0, 20),
+    failure: summary.failure,
+    alert: summary.alert,
+    consecutive_failures: Number(state.consecutive_failures || 0),
+    last_success_at: state.last_success_at || "",
+    last_failure_at: state.last_failure_at || "",
+  });
+
   const output = JSON.stringify(summary, null, 2);
   console.log(output);
   if (env.GITHUB_STEP_SUMMARY) {
@@ -485,6 +499,18 @@ main().catch(async (error) => {
   const alert = await sendTelegram(
     `🚨 <b>VidLyte watchdog CRASHED</b>\n• ${escapeHtml(error.message || error)}\n• Time: ${new Date().toISOString()}`
   );
+
+  await writeOpsStatus("watchdog", {
+    ok: false,
+    fatal: true,
+    checked_at: new Date().toISOString(),
+    base_url: BASE_URL,
+    assets: ASSETS,
+    checks: [],
+    failure: { step: "fatal", detail: String(error.message || error).slice(0, 300), extra: {} },
+    alert,
+  });
+
   console.log(JSON.stringify({ ok: false, fatal: true, error: error.message || String(error), alert }, null, 2));
   process.exitCode = 1;
 });
