@@ -491,6 +491,14 @@ await test("readiness reports quota level as a non-fatal warning", () => {
   assert.match(readiness, /quotaLevel === "unknown"[\s\S]{0,120}false\s*\)/);
 });
 
+await test("scheduled maintenance refreshes the ops cache for readiness", () => {
+  var maintenance = indexSource.slice(
+    indexSource.indexOf("async function runScheduledMaintenance"),
+    indexSource.indexOf("function buildDeepHealthPayload")
+  );
+  hasAll(maintenance, ["await loadOpsStatus(env)", "summary.ops = ops.sources"], "scheduled maintenance");
+});
+
 await test("admin dashboard renders an Ops & Quota pane", () => {
   hasAll(admin, [
     'data-pane="pane-ops"',

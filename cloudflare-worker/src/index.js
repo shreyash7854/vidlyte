@@ -2553,6 +2553,15 @@ async function runScheduledMaintenance(env, event) {
     }
   }
 
+  // Refresh the external ops snapshots so readiness can report the quota level
+  // even when nobody has the admin dashboard open. Three small public files.
+  try {
+    const ops = await loadOpsStatus(env);
+    summary.ops = ops.sources;
+  } catch (e) {
+    summary.ops_error = String((e && e.message) || e).slice(0, 120);
+  }
+
   try {
     summary.persisted = await persistRuntimeConfig(env);
     await persistProviderHealth(env);
