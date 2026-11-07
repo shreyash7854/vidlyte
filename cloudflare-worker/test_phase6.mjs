@@ -237,6 +237,60 @@ await test("English subtitles are preferred by default", () => {
   ]);
 });
 
+console.log("\n[player] multi-audio upgrade resilience");
+await test("client-assisted upgrade retries with backoff", () => {
+  hasAll(player, [
+    "var CLIENT_RESOLVE_DELAYS = [0, 700, 1600]",
+    "function resolveClientStreamOnce",
+    "function resolveClientStream(options)",
+    "setTimeout(function () { resolve(attemptOnce(index + 1)); }",
+    "'boot_http_' + response.status",
+    "'source_no_stream'",
+    "'gateway_not_master'",
+  ]);
+});
+
+await test("upgrade prefers a bigbang rendition", () => {
+  hasAll(player, [
+    "function preferredClientStream(streams)",
+    "String(candidate.provider || '').toLowerCase() === 'bigbang'",
+    "preferredClientStream(payload && payload.streams)",
+  ]);
+});
+
+await test("upgrade state is observable without a debug build", () => {
+  hasAll(player, [
+    "var clientResolveStatus = {",
+    "window.__VIDLYTE_MULTI_AUDIO__ = clientResolveStatus",
+    "state: 'resolving'",
+    "state: 'failed'",
+    "audioCount: result.audioCount",
+  ]);
+});
+
+await test("failed upgrades surface a recovery control and one-time hint", () => {
+  hasAll(player, [
+    "function retryMultiAudio(manual)",
+    "function appendMultiAudioReloadItem",
+    "data-action', 'reload-multi-audio'",
+    "'Reload multi-audio (retry)'",
+    "Use Audio → Reload multi-audio to retry.",
+    "var multiAudioNoticeShown = false",
+    "window.__vidlyteRetryMultiAudio = retryMultiAudio",
+    "'Multi-audio reload failed. Try again in a moment.'",
+    "setupAudioTracks();",
+  ]);
+});
+
+await test("manual reload is offered in both audio menus on single-track fallbacks", () => {
+  var setupStart = player.indexOf("function setupAudioTracks()");
+  var setupEnd = player.indexOf("function switchAudioTrack(idx)");
+  assert.ok(setupStart > 0 && setupEnd > setupStart, "setupAudioTracks not found");
+  var setup = player.slice(setupStart, setupEnd);
+  var occurrences = setup.split("appendMultiAudioReloadItem();").length - 1;
+  assert.ok(occurrences >= 2, `expected the reload item in both fallback branches, found ${occurrences}`);
+});
+
 console.log("\n[worker] Phase 6 endpoints");
 await test("recommendations endpoint is gone", () => {
   hasNone(indexSource, ["tmdbRecommendationsMatch", "/recommendations"]);

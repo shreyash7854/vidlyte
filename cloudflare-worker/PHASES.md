@@ -87,6 +87,7 @@ abuse without a Durable Object (not available on the free tier).
 | Share with timestamp | The player share button copy/native-shares a deep link containing `?t=<seconds>`. |
 | Subtitle appearance | Font, size, position, background, colour and delay persist in `vidlyte_playback_prefs_v1` and are re-applied on load. |
 | Engagement | The player reports allowlisted engagement events; the admin Diagnostics pane shows plays, shares and tracked assets. |
+| Multi-audio upgrade | The browser-assisted BigBang path retries three times (700/1600 ms backoff, 6/6/8 s step timeouts), prefers a `bigbang` rendition, and exposes `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `audioCount`, `error`). A failed upgrade keeps the single-audio stream playing and offers **Audio → Reload multi-audio** plus a one-time toast, with no page reload. |
 | Portal scope | The portal shows webmaster samples (Preview in sandbox / Copy embed). There is no consumer discovery grid, no Continue Watching and no My List. |
 
 ### Phase 7 — external watchdog, strict readiness and Telegram alerts

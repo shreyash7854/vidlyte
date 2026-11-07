@@ -255,6 +255,7 @@ promoting the service.
 | 2026-11-07 | GitHub quota dispatch (pre-token) | Run `42282946673` succeeded; `telegram_configured=true`, `cloudflare_configured=false`, `skipped:cloudflare_not_configured` (expected before the token existed) |
 | 2026-11-07 | Quota guard with real token | `2,465` requests today, **2.5%** of 100k, level `ok` |
 | 2026-11-07 | GitHub quota dispatch (configured) | Run `42284302268` succeeded; `cloudflare_configured=true`, `requests:2465`, `percent:2.5`, `level:ok` |
+| 2026-11-08 | Multi-audio resilience in Chromium | `tv/314939/1/2` reached `state:ready` with 6 dubs, no console errors; forced resolver failure produced `state:failed`, `attempt:3`, `step:boot`, `error:simulated_offline`, and the next retry recovered to 6 dubs. `movie/550` upgraded to 8 tracks, `tv/305551/1/4` to 5; `tv/66732/1/1` honestly stayed `single` with **Reload multi-audio** offered. |
 
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the

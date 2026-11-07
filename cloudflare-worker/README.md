@@ -52,6 +52,8 @@ repository rules live in the root `AGENTS.md`.
   Sub-manifest gateway for video variant playlists and regional audio tracks (e.g., German, Hindi, Spanish, Tamil, Telugu, Portuguese).
 * **`GET /hls/:assetId/client.m3u8?token=...&url=...`**
   Client-assisted master gateway. Some providers (currently BigBang) gate their resolver API to a browser origin that Cloudflare egress cannot impersonate. The player resolves the signed upstream HLS URL in the browser and hands it to this token-validated, allowlist-enforced route, which rewrites every sub-resource back through `/hls/.../res/` and `/stream/chunk/`. The player only upgrades to it when the server-side stream exposes a single audio track.
+
+  The upgrade retries three times with 700/1600 ms backoff and 6/6/8 s step timeouts, prefers a `bigbang` rendition when the payload has several, and records progress on `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `audioCount`, `error`). If every attempt fails, the player stays on the single-audio stream and offers **Audio → Reload multi-audio**; a one-time toast links to the same retry. Nothing reloads the page.
 * **`GET /stream/chunk/:opaqueId`**
   AES-256-GCM encrypted media chunk proxy. Decodes target upstream CDN URL and streams video/audio segments (`.m4s`, `.mp4`, `.ts`, `.aac`) directly to the client with edge caching (`Cache-Control: public, max-age=31536000, immutable`).
 * **`GET /tmdb-image/*`**
@@ -282,7 +284,7 @@ node test_phase7.mjs      # readiness, canary, Telegram, watchdog, sweep, quota,
 npx wrangler deploy --dry-run
 ```
 
-Expected: `25`, `32`, `37`, `25`, `32`, `26` and `46` tests passing (223 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
+Expected: `25`, `32`, `37`, `25`, `32`, `31` and `47` tests passing (229 total), and a bundle well below the 3 MiB free-tier limit (~136 KiB gzip).
 
 ## 14. Operations Runbook
 

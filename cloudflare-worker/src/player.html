@@ -4911,6 +4911,31 @@
       var autoplay = (q.get('autoplay') !== '0') && (config.autoplay !== false);
       var startMuted = (q.get('muted') === '1') || initialPrefs.muted === true;
 
+      // Observable state for the client-assisted upgrade. Declared before the
+      // first setupAudioTracks() call so early menu renders can read it. Exposed
+      // on window so a webmaster can inspect `__VIDLYTE_MULTI_AUDIO__` when a
+      // dub menu looks empty, without needing a debug build.
+      var clientResolveStatus = {
+        enabled: false,
+        state: 'idle', // idle | resolving | ready | single | failed | disabled
+        attempt: 0,
+        maxAttempts: 3,
+        step: '',
+        audioCount: 0,
+        error: '',
+        updatedAt: 0,
+        pending: null
+      };
+      window.__VIDLYTE_MULTI_AUDIO__ = clientResolveStatus;
+
+      function setClientResolveStatus(patch) {
+        if (!patch) return;
+        for (var key in patch) {
+          if (Object.prototype.hasOwnProperty.call(patch, key)) clientResolveStatus[key] = patch[key];
+        }
+        clientResolveStatus.updatedAt = Date.now();
+      }
+
       if (typeof initialPrefs.volume === 'number' && initialPrefs.volume >= 0 && initialPrefs.volume <= 1) {
         video.volume = initialPrefs.volume;
       } else {
@@ -5082,6 +5107,7 @@
           if (sheetAudioTracksList) {
             sheetAudioTracksList.innerHTML = '<div class="sheet-item active" data-idx="0"><span>English (Original 5.1)</span><span class="active-check">✓</span></div>';
           }
+          appendMultiAudioReloadItem();
           return;
         }
 
@@ -5117,6 +5143,9 @@
             sheetAudioTracksList.appendChild(shItem);
           }
         });
+
+        // Single-track fallback: offer the manual multi-audio reload.
+        appendMultiAudioReloadItem();
       }
 
       function switchAudioTrack(idx) {
@@ -5428,45 +5457,213 @@
         });
       }
 
-      function resolveClientStream() {
-        var cr = config.clientResolve;
-        if (!cr || !cr.enabled || !cr.bootUrl || !cr.sourceUrl || !cr.gateway || !cr.token) {
-          return Promise.resolve(null);
+      // The provider can return several renditions; prefer the one that carries
+      // the multi-audio master. Falling back to the first URL keeps older
+      // payload shapes working.
+      function preferredClientStream(streams) {
+        var list = Array.isArray(streams) ? streams : [];
+        var fallback = null;
+        for (var i = 0; i < list.length; i++) {
+          var candidate = list[i];
+          if (!candidate || !candidate.url) continue;
+          if (String(candidate.provider || '').toLowerCase() === 'bigbang') return candidate;
+          if (!fallback) fallback = candidate;
         }
+        return fallback;
+      }
+
+      // One full boot -> source -> gateway attempt. Rejects with a short,
+      // non-sensitive step code so the retry loop can report where it stopped.
+      function resolveClientStreamOnce() {
+        var cr = config.clientResolve;
         var provider = cr.provider || 'bigbang';
-        return fetchWithTimeout(cr.bootUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 4500)
-          .then(function (response) { return response.ok ? response.json() : null; })
+        setClientResolveStatus({ step: 'boot', error: '' });
+        return fetchWithTimeout(cr.bootUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 6000)
+          .then(function (response) {
+            if (!response.ok) throw new Error('boot_http_' + response.status);
+            return response.json();
+          })
           .then(function (boot) {
             var playbackToken = boot && boot.meta && boot.meta.playbackToken;
-            if (!playbackToken) return null;
+            if (!playbackToken) throw new Error('boot_no_token');
+            setClientResolveStatus({ step: 'source' });
             var sourceUrl = cr.sourceUrl + '?token=' + encodeURIComponent(playbackToken) +
               '&parent=' + encodeURIComponent(cr.parent || 'vidrift.net') +
               '&provider=' + encodeURIComponent(provider);
-            return fetchWithTimeout(sourceUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 4500)
-              .then(function (response) { return response.ok ? response.json() : null; })
-              .then(function (payload) {
-                var streams = (payload && payload.streams) || [];
-                var upstream = null;
-                for (var i = 0; i < streams.length; i++) {
-                  if (streams[i] && streams[i].url) { upstream = streams[i]; break; }
-                }
-                if (!upstream) return null;
-                var gatewayUrl = cr.gateway + '?token=' + encodeURIComponent(cr.token) +
-                  '&url=' + encodeURIComponent(upstream.url) +
-                  '&provider=' + encodeURIComponent(provider);
-                return fetchWithTimeout(gatewayUrl, { credentials: 'omit', cache: 'no-store' }, 6000)
-                  .then(function (response) {
-                    if (!response.ok) return null;
-                    return response.text().then(function (text) {
-                      if (text.indexOf('#EXTM3U') !== 0 || text.indexOf('#EXT-X-STREAM-INF') < 0) return null;
-                      var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
-                      return { url: gatewayUrl, audioCount: audioCount };
-                    });
-                  });
-              });
+            return fetchWithTimeout(sourceUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 6000);
           })
-          .catch(function () { return null; });
+          .then(function (response) {
+            if (!response.ok) throw new Error('source_http_' + response.status);
+            return response.json();
+          })
+          .then(function (payload) {
+            var upstream = preferredClientStream(payload && payload.streams);
+            if (!upstream) throw new Error('source_no_stream');
+            setClientResolveStatus({ step: 'gateway' });
+            var gatewayUrl = cr.gateway + '?token=' + encodeURIComponent(cr.token) +
+              '&url=' + encodeURIComponent(upstream.url) +
+              '&provider=' + encodeURIComponent(provider);
+            return fetchWithTimeout(gatewayUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
+              .then(function (response) {
+                if (!response.ok) throw new Error('gateway_http_' + response.status);
+                return response.text();
+              })
+              .then(function (text) {
+                if (text.indexOf('#EXTM3U') !== 0 || text.indexOf('#EXT-X-STREAM-INF') < 0) {
+                  throw new Error('gateway_not_master');
+                }
+                var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
+                return { url: gatewayUrl, audioCount: audioCount };
+              });
+          });
       }
+
+      // A blocked extension, a flaky network or a cold upstream can fail one
+      // attempt. Retry with a short backoff before giving up.
+      var CLIENT_RESOLVE_DELAYS = [0, 700, 1600];
+
+      function resolveClientStream(options) {
+        var cr = config.clientResolve;
+        if (!cr || !cr.enabled || !cr.bootUrl || !cr.sourceUrl || !cr.gateway || !cr.token) {
+          setClientResolveStatus({ enabled: false, state: 'disabled' });
+          return Promise.resolve(null);
+        }
+        var force = options && options.force === true;
+        if (clientResolveStatus.state === 'resolving' && clientResolveStatus.pending && !force) {
+          return clientResolveStatus.pending;
+        }
+        var maxAttempts = CLIENT_RESOLVE_DELAYS.length;
+        setClientResolveStatus({
+          enabled: true,
+          state: 'resolving',
+          attempt: 0,
+          maxAttempts: maxAttempts,
+          step: 'boot',
+          audioCount: 0,
+          error: ''
+        });
+
+        function attemptOnce(index) {
+          setClientResolveStatus({ attempt: index + 1 });
+          return resolveClientStreamOnce()
+            .then(function (result) {
+              if (!result) throw new Error('gateway_empty');
+              if (result.audioCount > 1) {
+                setClientResolveStatus({ state: 'ready', step: 'done', audioCount: result.audioCount, error: '' });
+                return result;
+              }
+              // The gateway responded but this master has no alternate audio.
+              // Retrying cannot help, so stop and report the single track.
+              setClientResolveStatus({ state: 'single', step: 'done', audioCount: result.audioCount, error: '' });
+              return null;
+            })
+            .catch(function (error) {
+              var message = String((error && error.message) || error || 'resolve_failed').slice(0, 120);
+              setClientResolveStatus({ error: message });
+              if (index + 1 >= maxAttempts) {
+                setClientResolveStatus({ state: 'failed', step: clientResolveStatus.step || 'unknown' });
+                return null;
+              }
+              return new Promise(function (resolve) {
+                setTimeout(function () { resolve(attemptOnce(index + 1)); },
+                  CLIENT_RESOLVE_DELAYS[index + 1] || 1600);
+              });
+            });
+        }
+
+        var pending = attemptOnce(0).then(function (result) {
+          clientResolveStatus.pending = null;
+          return result;
+        });
+        clientResolveStatus.pending = pending;
+        return pending;
+      }
+
+      // Swap to the multi-audio master once it is verified. Returns true only
+      // when the player actually moved to a stream with more than one track.
+      function applyClientUpgrade(clientStream) {
+        if (!clientStream || !clientStream.url) return false;
+        if (clientStream.audioCount <= 1) return false;
+        if (currentStreamUrl === clientStream.url) return true;
+        loadNewStream(clientStream.url);
+        if (autoplay && video.paused) {
+          video.play().catch(function () { });
+        }
+        return true;
+      }
+
+      var multiAudioRetryInFlight = false;
+
+      function retryMultiAudio(manual) {
+        if (multiAudioRetryInFlight) return Promise.resolve(false);
+        multiAudioRetryInFlight = true;
+        if (manual) showPlayerToast('Reloading multi-audio…', null, null, 2500);
+        return resolveClientStream({ force: true }).then(function (clientStream) {
+          multiAudioRetryInFlight = false;
+          var applied = applyClientUpgrade(clientStream);
+          if (manual) {
+            if (applied) {
+              showPlayerToast('Multi-audio ready · ' + clientStream.audioCount + ' tracks', null, null, 4000);
+            } else if (clientResolveStatus.state === 'single') {
+              showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
+              setupAudioTracks();
+            } else {
+              showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
+              setupAudioTracks();
+            }
+          }
+          return applied;
+        }).catch(function () {
+          multiAudioRetryInFlight = false;
+          if (manual) {
+            showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
+            setupAudioTracks();
+          }
+          return false;
+        });
+      }
+
+      // Support hook: the same retry the menu item calls, for webmasters who
+      // report a missing dub track.
+      window.__vidlyteRetryMultiAudio = retryMultiAudio;
+
+      // Shown in the audio popover so a failed automatic upgrade is always
+      // recoverable without reloading the whole page.
+      function appendMultiAudioReloadItem() {
+        var cr = config.clientResolve;
+        if (!cr || !cr.enabled || config.provider === 'bigbang') return;
+        var label = clientResolveStatus.state === 'failed'
+          ? 'Reload multi-audio (retry)'
+          : 'Reload multi-audio';
+
+        if (audioTracksList) {
+          var aItem = document.createElement('div');
+          aItem.className = 'pop-item';
+          aItem.setAttribute('data-action', 'reload-multi-audio');
+          aItem.innerHTML = '<span>' + label + '</span>';
+          aItem.onclick = function (e) {
+            e.stopPropagation();
+            closePopovers();
+            retryMultiAudio(true);
+          };
+          audioTracksList.appendChild(aItem);
+        }
+
+        if (sheetAudioTracksList) {
+          var shItem = document.createElement('div');
+          shItem.className = 'sheet-item';
+          shItem.setAttribute('data-action', 'reload-multi-audio');
+          shItem.innerHTML = '<span>' + label + '</span>';
+          shItem.onclick = function (e) {
+            e.stopPropagation();
+            closeMobileSheet();
+            retryMultiAudio(true);
+          };
+          sheetAudioTracksList.appendChild(shItem);
+        }
+      }
+
+      var multiAudioNoticeShown = false;
 
       if (!config.clientResolve || !config.clientResolve.enabled) {
         startInitialPlayback(streamUrl);
@@ -5480,13 +5677,18 @@
         // Start instantly with the server stream, then upgrade to a multi-audio
         // rendition in the background when one is available.
         startInitialPlayback(streamUrl);
+        setClientResolveStatus({ enabled: true });
         if (config.provider !== 'bigbang' && (!config.audioTracks || config.audioTracks.length <= 1)) {
           resolveClientStream().then(function (clientStream) {
-            if (!clientStream || !clientStream.url) return;
-            if (clientStream.audioCount <= 1 || currentStreamUrl === clientStream.url) return;
-            loadNewStream(clientStream.url);
-            if (autoplay && video.paused) {
-              video.play().catch(function () { });
+            var applied = applyClientUpgrade(clientStream);
+            if (!applied && !multiAudioNoticeShown) {
+              multiAudioNoticeShown = true;
+              showPlayerToast(
+                'Extra audio tracks did not load. Use Audio → Reload multi-audio to retry.',
+                'Retry',
+                function () { retryMultiAudio(true); },
+                9000
+              );
             }
           });
         }
