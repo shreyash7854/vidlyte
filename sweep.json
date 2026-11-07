@@ -1,0 +1,33 @@
+{
+  "kind": "sweep",
+  "ok": true,
+  "checked_at": "2026-11-07T13:41:17.883Z",
+  "base_url": "https://vid.lyte.workers.dev",
+  "seed": "42378085015-1",
+  "pool_source": "fallback_corpus",
+  "count": 10,
+  "passed": 9,
+  "failed": 1,
+  "success_rate": 0.9,
+  "min_success_rate": 0.6,
+  "alert": {
+    "sent": false,
+    "skipped": "not_needed"
+  },
+  "failures": [
+    {
+      "asset": "tv/1418/1/1",
+      "provider": "",
+      "error": "source_http_404"
+    }
+  ],
+  "_meta": {
+    "kind": "sweep",
+    "published_at": "2026-11-07T13:41:29.833Z",
+    "workflow": "Random TMDB sweep",
+    "run_id": "42378085015",
+    "run_url": "https://github.com/shreyash7854/vidlyte/actions/runs/42378085015",
+    "ref": "main",
+    "event": "workflow_dispatch"
+  }
+}
