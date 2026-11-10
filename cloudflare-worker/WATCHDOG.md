@@ -132,6 +132,7 @@ forces a live resolver check (the external watchdog always uses it).
 | `runtime_config` | yes | must hydrate from KV |
 | `providers` | no | informational; provider probes run every 15 min |
 | `playback_canary` | yes once present | fails when failed or older than `WATCHDOG_CANARY_MAX_AGE_SEC`; missing is allowed unless `WATCHDOG_REQUIRE_CANARY=true` |
+| `multi_audio_resolver` | no | `configured` when both `GITHUB_DISPATCH_TOKEN` and `MULTI_AUDIO_PUBLISH_KEY` exist; missing means blocked viewers stay single-audio |
 
 ## 7. Runbook
 
@@ -256,6 +257,10 @@ promoting the service.
 | 2026-11-07 | Quota guard with real token | `2,465` requests today, **2.5%** of 100k, level `ok` |
 | 2026-11-07 | GitHub quota dispatch (configured) | Run `42284302268` succeeded; `cloudflare_configured=true`, `requests:2465`, `percent:2.5`, `level:ok` |
 | 2026-11-08 | Multi-audio resilience in Chromium | `tv/314939/1/2` reached `state:ready` with 6 dubs, no console errors; forced resolver failure produced `state:failed`, `attempt:3`, `step:boot`, `error:simulated_offline`, and the next retry recovered to 6 dubs. `movie/550` upgraded to 8 tracks, `tv/305551/1/4` to 5; `tv/66732/1/1` honestly stayed `single` with **Reload multi-audio** offered. |
+| 2026-11-10 | GitHub runner egress to vidrift | Direct boot returned `403` Cloudflare challenge (`cf-mitigated: challenge`) from `embed.vidrift.net`, `vidrift.net` and `mb.vidrift.net` for both curl and browser user agents. Jina Reader fallback returned the boot JSON, so the resolver uses it when direct calls are challenged. |
+| 2026-11-10 | External resolver workflow | `tv/314939/1/2` run `42798272526` succeeded via `reader`, resolved **6 audio tracks**, published to KV with `200`; `tv/305551/1/4` run `42798578918` resolved **5 tracks**. No signed URL appeared in the logs. |
+| 2026-11-10 | Player with vidrift blocked | Patched `fetch` to reject `embed.vidrift.net`. Local path failed after 3 attempts, `POST /api/multi-audio/resolve` dispatched the workflow, `/api/multi-audio/status` polled to `ready`, and `tv/305551/1/4` reached `remoteState:ready` with **5 dubs** through `/hls/tv-305551-1-4/remote.m3u8` (`200`). The network log contained no BigBang URL. |
+| 2026-11-10 | Canary fallbacks | `WATCHDOG_CANARY_FALLBACK_ASSETS=movie/550` and `WATCHDOG_CANARY_FALLBACK_PROVIDERS=2vcdn` deployed; `?canary=1` returned `ready:true` with the configured asset, and `provider_miss` now requires all attempts to fail. |
 
 The 2026-11-06 browser check is the manual evidence the server-side canary
 cannot produce. Re-run it after any change to the player upgrade logic or the

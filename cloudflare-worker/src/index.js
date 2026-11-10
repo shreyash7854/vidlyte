@@ -2776,6 +2776,19 @@ async function buildReadinessPayload(request, env, canary = undefined) {
   }
   add("playback_canary", canaryOk, canaryDetail, canaryFatal);
 
+  // The external multi-audio resolver is the fallback for blocked viewers. It
+  // is not fatal: server-side playback still works without it, but a missing
+  // token/key means the dub upgrade will silently fall back to single audio.
+  const resolverConfigured = Boolean(
+    env && env.GITHUB_DISPATCH_TOKEN && env.MULTI_AUDIO_PUBLISH_KEY
+  );
+  add(
+    "multi_audio_resolver",
+    resolverConfigured,
+    resolverConfigured ? "configured" : "missing",
+    false
+  );
+
   return {
     status: reasons.length === 0 ? "ready" : "not_ready",
     ready: reasons.length === 0,

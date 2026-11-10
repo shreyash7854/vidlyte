@@ -45,6 +45,7 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 - `GET /health/ready` — strict readiness. 200 only when fatal checks pass:
   non-default `HMAC_SECRET`, `ADMIN_SECRET`, `CONFIG_KV`, runtime config, and a
   non-failed/non-stale playback canary. Add `?canary=1` to run the canary now.
+  `multi_audio_resolver` is a non-fatal check for the external resolver secrets.
 - `GET /health/ready?deep=1` is not a thing; use `/health?deep=1` for telemetry.
 - Canary asset: `tv/66732/1/1` via `WATCHDOG_CANARY_PROVIDER` (default
   `framextv`). It falls back through `WATCHDOG_CANARY_FALLBACK_ASSETS`

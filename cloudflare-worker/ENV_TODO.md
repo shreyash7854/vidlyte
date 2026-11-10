@@ -19,6 +19,8 @@ these in `wrangler.toml` `[vars]`.
 | `ADMIN_SECRET` | DONE | Owner login for `/vly-ops-7x` | `POST /vly-ops-7x/auth` → 200 + CSRF |
 | `TELEGRAM_BOT_TOKEN` | DONE | Open/recovery alerts from cron and admin tests | Direct API test delivered; `wrangler secret list` shows it |
 | `TELEGRAM_CHAT_ID` | DONE | Destination chat/group for alerts | Same test message arrived (2026-11-07) |
+| `GITHUB_DISPATCH_TOKEN` | DONE | Dispatches `multi-audio-resolve.yml` for blocked viewers | `POST /api/multi-audio/resolve` returns `202`; workflow run appears (2026-11-10) |
+| `MULTI_AUDIO_PUBLISH_KEY` | DONE | HMAC key for `/api/multi-audio/publish` | Resolver logs `published:true`, `publish_status:200` (2026-11-10) |
 
 ## 2. GitHub Actions secrets and variables
 
@@ -31,6 +33,8 @@ public, so Actions minutes are free and no billing profile is required.
 | Secret | `TELEGRAM_CHAT_ID` | DONE | Same destination as the Worker |
 | Secret | `CF_API_TOKEN` | DONE | Read-only Workers analytics for the quota guard; verified at 2.5% |
 | Secret | `CF_ACCOUNT_ID` | DONE | Account tag for the quota guard |
+| Secret | `MULTI_AUDIO_PUBLISH_KEY` | DONE | Same value as the Worker secret; signs resolver publish callbacks (2026-11-10) |
+| Variable | `MULTI_AUDIO_PUBLISH_URL` | OPTIONAL | Defaults to `https://vid.lyte.workers.dev` |
 | Secret | `TMDB_API_KEY` | OPTIONAL | Random popular TMDB picks; without it the sweep uses the curated corpus |
 | Variable | `WATCHDOG_BASE_URL` | OPTIONAL | Defaults to `https://vid.lyte.workers.dev` |
 | Variable | `WATCHDOG_ASSETS` | OPTIONAL | Defaults to `tv/66732/1/1,movie/550` |
@@ -47,7 +51,8 @@ Read`. Do not add a billing profile or a paid plan.
 Configured in `wrangler.toml` and verified live: `ADMIN_ROUTE`,
 `DEFAULT_TTL_SEC`, `BIND_CLIENT_IP`, `UPSTREAM_ALLOWLIST`, rate limits,
 `ADMIN_SESSION_TTL_SEC`, `ALERT_WEBHOOK_URL` (empty), `TELEGRAM_ALERTS_ENABLED`,
-`ALERT_MIN_SEVERITY`, `ALERT_COOLDOWN_MIN`, the `WATCHDOG_CANARY_*` group, and
+`ALERT_MIN_SEVERITY`, `ALERT_COOLDOWN_MIN`, the `WATCHDOG_CANARY_*` group,
+`GITHUB_REPO`, `MULTI_AUDIO_WORKFLOW`, `GITHUB_DISPATCH_REF`, and
 `OPS_STATUS_BASE` (public raw.githubusercontent base for the dashboard feeds).
 
 `OPS_STATUS_BASE` is not a secret and needs no setup: each monitor workflow
@@ -55,7 +60,19 @@ force-pushes its snapshot to an `ops-<kind>` branch using the automatic
 `GITHUB_TOKEN` (workflows declare `permissions: contents: write`). No new
 repository secret is required.
 
-## 4. Remaining items
+## 4. External resolver dependency (free tier)
+
+| Need | Service | Free quota | Failure mode | Fallback |
+|---|---|---|---|---|
+| Resolve vidrift from outside Cloudflare/GitHub | GitHub Actions (public repo, `workflow_dispatch`) | Unlimited minutes for public repos; no card | Dispatch queue delays (5–60 s), workflow failure, Actions outage | Player keeps the single-audio server stream; **Audio → Reload multi-audio** retries |
+| Fetch vidrift when runner IPs are challenged | Jina Reader (`r.jina.ai`, no key) | Anonymous rate limit (~20 req/min per IP); no card | `429`/`5xx` → 3 attempts with backoff, then resolution fails cleanly | Direct client path; player retry |
+| Signed URL storage | Cloudflare KV (`ma_status_v1:*`) | Included in Workers Free | KV write failure → `/publish` returns 503, resolver log shows it | Next resolve dispatch retries |
+
+The runner first tries vidrift directly, then falls back to Jina Reader; the
+signed URL is only ever stored in KV and served through
+`/hls/:assetId/remote.m3u8`.
+
+## 5. Remaining items
 
 Done on 2026-11-07:
 

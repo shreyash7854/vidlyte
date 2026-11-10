@@ -1481,6 +1481,20 @@
               </div>
               <div id="opsSweepMeta" style="font-size: 11.5px; color: var(--text-dim); margin-top: 10px;">Awaiting first sweep publish.</div>
             </div>
+
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Multi-Audio Resolver</span>
+                <span class="badge" id="opsResolverLevel">—</span>
+              </div>
+              <div class="metric-values-row">
+                <div class="metric-val-block">
+                  <span class="metric-val-large" id="opsResolverState">—</span>
+                  <span class="metric-val-label">External Fallback</span>
+                </div>
+              </div>
+              <div id="opsResolverMeta" style="font-size: 11.5px; color: var(--text-dim); margin-top: 10px;">Checking readiness…</div>
+            </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
@@ -2435,11 +2449,35 @@
         if (!resp.ok) throw new Error('ops failed');
         var data = await resp.json();
         renderOps(data);
+        loadResolverStatus();
       } catch (e) {
         if (statusEl) statusEl.textContent = 'Ops feeds unavailable. The Worker could not read the published snapshots.';
         showToast('Ops feeds unavailable');
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Refresh Feeds'; }
+      }
+    }
+
+    async function loadResolverStatus() {
+      var level = document.getElementById('opsResolverLevel');
+      var stateEl = document.getElementById('opsResolverState');
+      var meta = document.getElementById('opsResolverMeta');
+      try {
+        var resp = await fetch('/health/ready', { cache: 'no-store' });
+        var payload = await resp.json();
+        var check = payload && payload.checks && payload.checks.multi_audio_resolver;
+        var ok = Boolean(check && check.ok);
+        opsBadge(level, ok ? 'ok' : 'warning', ok ? 'READY' : 'MISSING');
+        if (stateEl) stateEl.innerText = ok ? 'Configured' : 'Not configured';
+        if (meta) {
+          meta.innerText = ok
+            ? 'Blocked viewers upgrade through GitHub Actions; signed URLs stay in KV.'
+            : 'Set GITHUB_DISPATCH_TOKEN and MULTI_AUDIO_PUBLISH_KEY to enable dub upgrades for blocked viewers.';
+        }
+      } catch (e) {
+        opsBadge(level, 'unknown', 'UNKNOWN');
+        if (stateEl) stateEl.innerText = '—';
+        if (meta) meta.innerText = 'Readiness check unavailable.';
       }
     }
 

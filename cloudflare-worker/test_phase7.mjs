@@ -525,6 +525,9 @@ await test("admin dashboard renders an Ops & Quota pane", () => {
     "opsQuotaPercent",
     "opsWatchdogLevel",
     "opsSweepLevel",
+    "opsResolverState",
+    "function loadResolverStatus(",
+    "multi_audio_resolver",
   ]);
 });
 
@@ -648,6 +651,19 @@ await test("wrangler configures the resolver without secrets", () => {
     'WATCHDOG_CANARY_FALLBACK_PROVIDERS = "2vcdn"',
   ]);
   hasNone(wrangler, ["GITHUB_DISPATCH_TOKEN =", "MULTI_AUDIO_PUBLISH_KEY ="], "wrangler [vars]");
+});
+
+await test("readiness reports the multi-audio resolver as a non-fatal check", () => {
+  var readiness = indexSource.slice(
+    indexSource.indexOf("async function buildReadinessPayload"),
+    indexSource.indexOf("External ops feeds")
+  );
+  hasAll(readiness, [
+    '"multi_audio_resolver"',
+    "GITHUB_DISPATCH_TOKEN",
+    "MULTI_AUDIO_PUBLISH_KEY",
+  ], "readiness");
+  assert.match(readiness, /add\(\s*"multi_audio_resolver",[\s\S]{0,120}false\s*\)/);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
