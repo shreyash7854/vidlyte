@@ -3376,7 +3376,7 @@ const MULTI_AUDIO_DISPATCH_PREFIX = "ma_dispatch_v1:";
 const MULTI_AUDIO_DISPATCH_TTL_SEC = 120;
 const MULTI_AUDIO_STATUS_MIN_TTL_SEC = 300;
 const MULTI_AUDIO_STATUS_MAX_TTL_SEC = 172800;
-const MULTI_AUDIO_PUBLISH_MAX_BYTES = 131072;
+const MULTI_AUDIO_PUBLISH_MAX_BYTES = 1048576;
 const GITHUB_API_VERSION = "2022-11-28";
 
 function normalizeMultiAudioAsset(value) {
@@ -3967,6 +3967,17 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
       };
       const persisted = await writeMultiAudioRecord(env, asset, record);
+      if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && env && env.CONFIG_KV) {
+        const ttl = Number(record.exp) > 0 ? Math.max(300, Math.round(Number(record.exp) - Date.now() / 1000) + 600) : 86400;
+        for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
+          try {
+            const decompressed = decompressGzipBase64(b64);
+            if (decompressed && decompressed.includes("#EXTM3U")) {
+              await env.CONFIG_KV.put(`orion_sub:${subKey}`, decompressed, { expirationTtl: ttl });
+            }
+          } catch (e) {}
+        }
+      }
       return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
         status: persisted ? 200 : 503,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },

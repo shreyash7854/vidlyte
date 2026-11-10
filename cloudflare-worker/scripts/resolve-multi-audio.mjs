@@ -18,6 +18,20 @@
  */
 
 import { createHmac } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import { Buffer } from "node:buffer";
+
+function mapOrionPlaylist(text) {
+  const firstChunkMatch = text.match(/https:\/\/[^\r\n]+\.m4s[^\r\n]*/);
+  if (firstChunkMatch) {
+    const firstChunk = firstChunkMatch[0];
+    return text.replace(/#EXT-X-MAP:URI="init-stream(\d+)\.m4s"/g, (m, streamIdx) => {
+      const initUrl = firstChunk.replace(/chunk-stream\d+-\d+\.m4s/, `init-stream${streamIdx}.m4s`);
+      return `#EXT-X-MAP:URI="${initUrl}"`;
+    });
+  }
+  return text;
+}
 
 const PUBLISH_URL = (process.env.MULTI_AUDIO_PUBLISH_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
 const PUBLISH_KEY = process.env.MULTI_AUDIO_PUBLISH_KEY || "";
@@ -412,6 +426,39 @@ async function resolveAsset(target) {
     const masterManifest = `#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n${audioLines}\n${variantLines}\n`;
     const primaryUrl = orionStreams[0].url.startsWith("http") ? orionStreams[0].url : `${base}${orionStreams[0].url}`;
 
+    const subManifestsGz = {};
+    const fetchHeaders = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://embed.vidrift.net/",
+      "Origin": "https://embed.vidrift.net",
+    };
+
+    for (const v of variants) {
+      try {
+        const m = v.playlistUri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+        if (m) {
+          const vRes = await fetchWithTimeout(v.playlistUri, { headers: fetchHeaders });
+          if (vRes && vRes.ok) {
+            const mapped = mapOrionPlaylist(await vRes.text());
+            subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
+          }
+        }
+      } catch (e) {}
+    }
+
+    for (const a of audioTracks) {
+      try {
+        const m = a.uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+        if (m) {
+          const aRes = await fetchWithTimeout(a.uri, { headers: fetchHeaders });
+          if (aRes && aRes.ok) {
+            const mapped = mapOrionPlaylist(await aRes.text());
+            subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
+          }
+        }
+      } catch (e) {}
+    }
+
     orionCandidate = {
       ok: true,
       provider: "orion",
@@ -421,6 +468,7 @@ async function resolveAsset(target) {
       masterManifest,
       audioTracks,
       variants,
+      subManifestsGz: Object.keys(subManifestsGz).length > 0 ? subManifestsGz : undefined,
       via,
       latency_ms: Date.now() - started,
     };
@@ -534,6 +582,7 @@ async function publish(asset, result) {
     audioTracks: result.ok && result.audioTracks ? result.audioTracks : undefined,
     variants: result.ok && result.variants ? result.variants : undefined,
     subtitles: result.ok && result.subtitles ? result.subtitles : undefined,
+    subManifestsGz: result.ok && result.subManifestsGz ? result.subManifestsGz : undefined,
     error: result.ok ? "" : String(result.error || "resolver_failed").slice(0, 80),
   });
   const signature = createHmac("sha256", PUBLISH_KEY).update(payload).digest("hex");
