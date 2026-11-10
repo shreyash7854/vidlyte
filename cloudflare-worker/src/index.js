@@ -3462,6 +3462,14 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           pending = Boolean(await env.CONFIG_KV.get(multiAudioDispatchKey(asset)));
         } catch (error) {}
       }
+      // A fresh dispatch must not be masked by an older failed record: the
+      // player should keep polling while the resolver is working.
+      if (pending) {
+        return new Response(JSON.stringify({ ok: true, state: "resolving", asset }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
       if (record && record.ok === false && record.error) {
         return new Response(JSON.stringify({
           ok: true,
@@ -3474,7 +3482,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
         });
       }
-      return new Response(JSON.stringify({ ok: true, state: pending ? "resolving" : "unknown", asset }), {
+      return new Response(JSON.stringify({ ok: true, state: "unknown", asset }), {
         status: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
       });

@@ -601,6 +601,10 @@ await test("multi-audio routes are HMAC-gated and KV-only", () => {
   );
   hasNone(statusRoute, ["url: record.url"], "status response");
   hasAll(statusRoute, ['state: "ready"', "ready: true"], "status response");
+  assert.ok(
+    statusRoute.indexOf('state: "resolving"') < statusRoute.indexOf('state: "failed"'),
+    "status must report a pending dispatch before an older failed record"
+  );
 });
 
 await test("resolver signs its payload and never logs the signed URL", () => {
