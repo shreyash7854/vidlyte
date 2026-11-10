@@ -13,6 +13,9 @@ code and docs are reference/parity material unless a task explicitly targets the
 - **Playback:** multi-audio is a hard requirement. A source with one audio track
   is acceptable only as an instant-start fallback while the client upgrades to a
   multi-audio source. Never ship single-audio-only as the final behaviour.
+  When the viewer's browser cannot reach vidrift, the player upgrades through
+  the external GitHub Actions resolver (`/api/multi-audio/*`); results live in
+  KV only, never in logs or public status documents.
 - **Providers:** server/provider switching is internal. Viewers see neutral
   quality/audio/subtitle controls, never upstream names or URLs.
 - **Subtitles:** English is the default when present.
@@ -84,6 +87,8 @@ code and docs are reference/parity material unless a task explicitly targets the
   readiness → `/api/source` → master manifest → variant → segment.
 - Alert on **open** and **recovery**. Deduplicate with KV (worker) and cache
   state (GitHub Actions); never spam every 5 minutes.
+- The playback canary must try a fallback asset and provider before reporting
+  `provider_miss`; one upstream flake must not page the owner.
 - Include: failing step, HTTP status, latency, asset, timestamp. Never include
   tokens, cookies, or full upstream URLs.
 - New failure modes must get a canary or a readiness check, not just a log line.

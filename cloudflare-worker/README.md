@@ -53,7 +53,10 @@ repository rules live in the root `AGENTS.md`.
 * **`GET /hls/:assetId/client.m3u8?token=...&url=...`**
   Client-assisted master gateway. Some providers (currently BigBang) gate their resolver API to a browser origin that Cloudflare egress cannot impersonate. The player resolves the signed upstream HLS URL in the browser and hands it to this token-validated, allowlist-enforced route, which rewrites every sub-resource back through `/hls/.../res/` and `/stream/chunk/`. The player only upgrades to it when the server-side stream exposes a single audio track.
 
-  The upgrade retries three times with 700/1600 ms backoff and 6/6/8 s step timeouts, prefers a `bigbang` rendition when the payload has several, and records progress on `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `audioCount`, `error`). If every attempt fails, the player stays on the single-audio stream and offers **Audio → Reload multi-audio**; a one-time toast links to the same retry. Nothing reloads the page.
+  The upgrade retries three times with 700/1600 ms backoff and 6/6/8 s step timeouts, prefers a `bigbang` rendition when the payload has several, and records progress on `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `remoteState`, `audioCount`, `error`). When the browser itself is blocked (ISP block, extension, m3u8 sniffer), the player asks the external resolver below and keeps playing the single-audio stream meanwhile. If every path fails, the player stays on the single-audio stream and offers **Audio → Reload multi-audio**; a one-time toast links to the same retry. Nothing reloads the page.
+* **`POST /api/multi-audio/resolve`** (body `{ "asset": "tv/314939/1/2" }`): Asks the Worker to dispatch the GitHub Actions resolver for an asset. Returns `200 { state: "ready", url }` from KV when a fresh signed result exists, otherwise `202 { state: "resolving" }` after dispatching the workflow.
+* **`GET /api/multi-audio/status?asset=...`**: Player polling endpoint. Returns `state` (`ready` / `resolving` / `failed` / `unknown`) plus `audio` and `exp`. The signed URL is returned only to the player; it is never written to logs, status branches or the admin dashboard.
+* **`POST /api/multi-audio/publish`**: Internal callback for the resolver workflow. Requires `X-Multi-Audio-Signature` (HMAC-SHA256 of the raw body with `MULTI_AUDIO_PUBLISH_KEY`) and only accepts `https://*.bigbang.cymru` URLs. Results live in `CONFIG_KV` (`ma_status_v1:*`) until the signature expires.
 * **`GET /stream/chunk/:opaqueId`**
   AES-256-GCM encrypted media chunk proxy. Decodes target upstream CDN URL and streams video/audio segments (`.m4s`, `.mp4`, `.ts`, `.aac`) directly to the client with edge caching (`Cache-Control: public, max-age=31536000, immutable`).
 * **`GET /tmdb-image/*`**
@@ -143,7 +146,14 @@ Once deployed, your Worker will be live globally at:
 | `WATCHDOG_CANARY_ASSET` | String | `"tv/66732/1/1"` | Asset used for the canary (`tv/<id>/<season>/<episode>` or `movie/<id>`). |
 | `WATCHDOG_CANARY_PROVIDER` | String | `"framextv"` | Worker-reachable provider used by the canary. |
 | `WATCHDOG_CANARY_MAX_AGE_SEC` | Integer | `1800` | Canary older than this makes `/health/ready` report not ready. |
+| `WATCHDOG_CANARY_FALLBACK_ASSETS` | String | `"movie/550"` | Known-good assets tried before reporting a canary miss. |
+| `WATCHDOG_CANARY_FALLBACK_PROVIDERS` | String | `"2vcdn"` | Worker-reachable providers tried after the configured one. |
 | `WATCHDOG_REQUIRE_CANARY` | String | `"false"` | When `"true"`, a missing canary also fails readiness. |
+| `GITHUB_REPO` | String | `"shreyash7854/vidlyte"` | Repository that hosts the multi-audio resolver workflow. |
+| `MULTI_AUDIO_WORKFLOW` | String | `"multi-audio-resolve.yml"` | Workflow file dispatched for blocked viewers. |
+| `GITHUB_DISPATCH_REF` | String | `"main"` | Ref the resolver workflow runs from. |
+| `GITHUB_DISPATCH_TOKEN` | Secret | unset | Fine-grained/GitHub token with `actions:write`; dispatches the resolver. |
+| `MULTI_AUDIO_PUBLISH_KEY` | Secret | unset | Shared HMAC key for `/api/multi-audio/publish`. Set in Cloudflare **and** GitHub Actions. |
 
 ### Optional persistent config (KV)
 

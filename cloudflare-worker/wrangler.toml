@@ -50,6 +50,20 @@ WATCHDOG_CANARY_ASSET = "tv/66732/1/1"
 WATCHDOG_CANARY_PROVIDER = "framextv"
 WATCHDOG_CANARY_MAX_AGE_SEC = "1800"
 WATCHDOG_REQUIRE_CANARY = "false"
+# Fallbacks keep one upstream flake from paging the owner. The canary tries the
+# configured provider/asset first, then these assets, then these providers.
+WATCHDOG_CANARY_FALLBACK_ASSETS = "movie/550"
+WATCHDOG_CANARY_FALLBACK_PROVIDERS = "2vcdn"
+
+# Multi-audio resolver. Cloudflare egress to vidrift is blocked by an edge
+# challenge, so the Worker dispatches a GitHub Actions workflow that resolves
+# the signed BigBang URL from outside the block and posts it back over an
+# HMAC-signed endpoint. Secrets (never in [vars]):
+#   npx wrangler secret put GITHUB_DISPATCH_TOKEN
+#   npx wrangler secret put MULTI_AUDIO_PUBLISH_KEY
+GITHUB_REPO = "shreyash7854/vidlyte"
+MULTI_AUDIO_WORKFLOW = "multi-audio-resolve.yml"
+GITHUB_DISPATCH_REF = "main"
 
 # Optional persistent configuration store. Without it the admin panel still
 # works, but runtime config is per-isolate and resets on cold starts.

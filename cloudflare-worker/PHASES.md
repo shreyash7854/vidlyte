@@ -87,7 +87,8 @@ abuse without a Durable Object (not available on the free tier).
 | Share with timestamp | The player share button copy/native-shares a deep link containing `?t=<seconds>`. |
 | Subtitle appearance | Font, size, position, background, colour and delay persist in `vidlyte_playback_prefs_v1` and are re-applied on load. |
 | Engagement | The player reports allowlisted engagement events; the admin Diagnostics pane shows plays, shares and tracked assets. |
-| Multi-audio upgrade | The browser-assisted BigBang path retries three times (700/1600 ms backoff, 6/6/8 s step timeouts), prefers a `bigbang` rendition, and exposes `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `audioCount`, `error`). A failed upgrade keeps the single-audio stream playing and offers **Audio → Reload multi-audio** plus a one-time toast, with no page reload. |
+| Multi-audio upgrade | The browser-assisted BigBang path retries three times (700/1600 ms backoff, 6/6/8 s step timeouts), prefers a `bigbang` rendition, and exposes `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `remoteState`, `audioCount`, `error`). A failed upgrade keeps the single-audio stream playing and offers **Audio → Reload multi-audio** plus a one-time toast, with no page reload. |
+| External multi-audio resolver | When the viewer's browser or network blocks vidrift, the player calls `POST /api/multi-audio/resolve`; the Worker dispatches `.github/workflows/multi-audio-resolve.yml`, the runner resolves the signed BigBang URL from outside the block and POSTs it to `/api/multi-audio/publish` with an HMAC signature. The player polls `/api/multi-audio/status`, rebuilds the opaque gateway URL and upgrades in place. Results live only in `CONFIG_KV` (`ma_status_v1:*`); signed URLs never appear in logs or public status branches. |
 | Portal scope | The portal shows webmaster samples (Preview in sandbox / Copy embed). There is no consumer discovery grid, no Continue Watching and no My List. |
 
 ### Phase 7 — external watchdog, strict readiness and Telegram alerts
@@ -96,7 +97,7 @@ abuse without a Durable Object (not available on the free tier).
 |---|---|
 | External watchdog | `.github/workflows/uptime-watchdog.yml` runs every 5 minutes on free GitHub Actions. It checks `/health/ready?canary=1`, resolves `tv/66732/1/1` and `movie/550`, then fetches master → variant → first segment. |
 | Strict readiness | `GET /health/ready` (alias `/readyz`) fails closed with `503` and `reasons[]` on missing/default secrets, missing `CONFIG_KV`, unhydrated config, or a failed/stale canary. `?canary=1` forces a live resolver check. |
-| Playback canary | Cron resolves `WATCHDOG_CANARY_ASSET` via `WATCHDOG_CANARY_PROVIDER`, validates the manifest and stores `watchdog_canary_v1` in KV. |
+| Playback canary | Cron resolves `WATCHDOG_CANARY_ASSET` via `WATCHDOG_CANARY_PROVIDER`, validates the manifest and stores `watchdog_canary_v1` in KV. It then tries `WATCHDOG_CANARY_FALLBACK_ASSETS` (`movie/550`) and `WATCHDOG_CANARY_FALLBACK_PROVIDERS` (`2vcdn`); `provider_miss` is reported only when every attempt returns nothing, so a single upstream flake no longer pages the owner. |
 | Telegram | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` secrets; `TELEGRAM_ALERTS_ENABLED`, `ALERT_MIN_SEVERITY`, `ALERT_COOLDOWN_MIN`. Open and recovery messages, KV-backed dedupe, no token leakage. |
 | Admin | Upstreams pane shows alert status, **Send Test** and **Run Canary**. APIs: `GET <admin>/api/alerts/status`, `POST <admin>/api/alerts/test`, `POST <admin>/api/watchdog/canary`. |
 | Rules | Root `AGENTS.md` + `cloudflare-worker/AGENTS.md` define free-only, secrets, token-efficiency, verification and definition-of-done rules. |

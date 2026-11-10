@@ -18,6 +18,7 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 | `scripts/watchdog.mjs` | External end-to-end watchdog |
 | `scripts/sweep.mjs` | Random TMDB playback coverage sweep |
 | `scripts/quota.mjs` | Workers Free daily-quota guard |
+| `scripts/resolve-multi-audio.mjs` | External (GitHub Actions) signed BigBang resolver |
 | `ENV_TODO.md` | Pending secrets/variables checklist (no values) |
 | `test_phase*.mjs` | Static/contract test harness (`npm run test:all`) |
 
@@ -28,7 +29,9 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
 - `wrangler.toml` must contain no secrets.
 - Cloudflare egress to `embed.vidrift.net`, `mb.vidrift.net`,
   `relay.vidrift.net`, `edge.milkyway.cymru` is blocked. Do not "fix" this with
-  server-side fetches; use the client-assisted path.
+  Cloudflare server-side fetches; use the client-assisted path or the external
+  GitHub Actions resolver (`scripts/resolve-multi-audio.mjs` +
+  `.github/workflows/multi-audio-resolve.yml`).
 - BigBang multi-audio path: browser resolves `/api/source?...&provider=bigbang`
   on vidrift, then loads through `/hls/:assetID/client.m3u8?token=&url=`.
 - Server-side resolution may return a 1-audio stream; the player upgrades when
@@ -44,7 +47,10 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
   non-failed/non-stale playback canary. Add `?canary=1` to run the canary now.
 - `GET /health/ready?deep=1` is not a thing; use `/health?deep=1` for telemetry.
 - Canary asset: `tv/66732/1/1` via `WATCHDOG_CANARY_PROVIDER` (default
-  `framextv`). The external watchdog also exercises `tv/66732/1/1` + `movie/550`.
+  `framextv`). It falls back through `WATCHDOG_CANARY_FALLBACK_ASSETS`
+  (`movie/550`) and `WATCHDOG_CANARY_FALLBACK_PROVIDERS` (`2vcdn`) before
+  reporting `provider_miss`. The external watchdog also exercises
+  `tv/66732/1/1` + `movie/550`.
 - Readiness returns 503 with `reasons[]`. Never leak secret values or raw
   upstream URLs in the payload.
 - Scheduled maintenance stores canary state in KV `watchdog_canary_v1`.

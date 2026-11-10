@@ -139,7 +139,7 @@ forces a live resolver check (the external watchdog always uses it).
 |---|---|
 | `503 readiness: hmac_secret:missing_or_default` | `npx wrangler secret put HMAC_SECRET` |
 | `503 readiness: admin_secret:missing` | `npx wrangler secret put ADMIN_SECRET` |
-| `503 readiness: playback_canary:failed:provider_miss` | Run **Run Canary**; check provider health; try another `WATCHDOG_CANARY_PROVIDER` |
+| `503 readiness: playback_canary:failed:provider_miss` | Every canary attempt returned nothing. Run **Run Canary**; check provider health; the fallback list (`movie/550`, `2vcdn`) already ran, so this is likely a real upstream outage |
 | `503 readiness: playback_canary:stale` | Check the cron trigger; run **Run Canary** |
 | `source tv/...: HTTP 404` | No provider resolved the canary asset; probe providers in admin |
 | `master/variant/segment HTTP 5xx` | Upstream CDN or gateway issue; check `wrangler tail`, then re-run |

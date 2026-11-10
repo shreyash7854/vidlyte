@@ -2410,24 +2410,51 @@ async function maybeSendAlert(env, summary) {
 }
 
 const WATCHDOG_CANARY_KV_KEY = "watchdog_canary_v1";
+const DEFAULT_CANARY_FALLBACK_ASSETS = ["movie/550"];
+
+function parseCanaryAsset(value) {
+  const parts = String(value || "").replace(/^\/+|\/+$/g, "").split("/");
+  if (parts[0] === "movie" && /^\d{1,9}$/.test(parts[1] || "")) {
+    return { type: "movie", id: parts[1], season: 0, episode: 0 };
+  }
+  if (
+    parts[0] === "tv" &&
+    /^\d{1,9}$/.test(parts[1] || "") &&
+    Number(parts[2]) > 0 &&
+    Number(parts[3]) > 0
+  ) {
+    return {
+      type: "tv",
+      id: parts[1],
+      season: parseInt(parts[2], 10) || 1,
+      episode: parseInt(parts[3], 10) || 1,
+    };
+  }
+  return null;
+}
 
 function getCanaryAsset(env) {
-  const configured = env && env.WATCHDOG_CANARY_ASSET ? String(env.WATCHDOG_CANARY_ASSET).trim() : "";
-  if (configured) {
-    const parts = configured.replace(/^\/+|\/+$/g, "").split("/");
-    if (parts[0] === "movie" && parts[1]) {
-      return { type: "movie", id: parts[1], season: 0, episode: 0 };
-    }
-    if (parts[0] === "tv" && parts[1] && parts[2] && parts[3]) {
-      return {
-        type: "tv",
-        id: parts[1],
-        season: parseInt(parts[2], 10) || 1,
-        episode: parseInt(parts[3], 10) || 1,
-      };
-    }
-  }
-  return { type: "tv", id: "66732", season: 1, episode: 1 };
+  return parseCanaryAsset(env && env.WATCHDOG_CANARY_ASSET) || {
+    type: "tv",
+    id: "66732",
+    season: 1,
+    episode: 1,
+  };
+}
+
+function getCanaryFallbackAssets(env) {
+  const configured = env && env.WATCHDOG_CANARY_FALLBACK_ASSETS;
+  const source = configured ? String(configured) : DEFAULT_CANARY_FALLBACK_ASSETS.join(",");
+  const assets = source
+    .split(/[,\s]+/)
+    .map((value) => parseCanaryAsset(value))
+    .filter(Boolean)
+    .slice(0, 2);
+  return assets.length > 0 ? assets : DEFAULT_CANARY_FALLBACK_ASSETS.map((value) => parseCanaryAsset(value));
+}
+
+function canaryAssetLabel(asset) {
+  return `${asset.type}/${asset.id}${asset.type === "tv" ? `/${asset.season}/${asset.episode}` : ""}`;
 }
 
 async function loadCanaryState(env) {
@@ -2452,7 +2479,27 @@ async function runPlaybackCanary(env) {
   const provider = normalizeProvider(
     (env && env.WATCHDOG_CANARY_PROVIDER) || "framextv"
   );
-  const assetLabel = `${asset.type}/${asset.id}${asset.type === "tv" ? `/${asset.season}/${asset.episode}` : ""}`;
+  const fallbackAssets = getCanaryFallbackAssets(env);
+  const fallbackProviders = String(
+    (env && env.WATCHDOG_CANARY_FALLBACK_PROVIDERS) || "2vcdn"
+  )
+    .split(/[,\s]+/)
+    .map((value) => normalizeProvider(value))
+    .filter((value) => value && value !== provider)
+    .slice(0, 2);
+
+  // A single provider miss on a single asset must not page the owner. Try the
+  // configured asset, then known-good fallback assets, then a fallback
+  // provider. Only report provider_miss when every attempt returns nothing.
+  const attemptsPlan = [];
+  const providersToTry = [provider, ...fallbackProviders];
+  for (const candidateProvider of providersToTry) {
+    for (const candidateAsset of [asset, ...fallbackAssets]) {
+      attemptsPlan.push({ provider: candidateProvider, asset: candidateAsset });
+    }
+  }
+
+  const assetLabel = canaryAssetLabel(asset);
   const started = Date.now();
   const record = {
     ok: false,
@@ -2462,19 +2509,43 @@ async function runPlaybackCanary(env) {
     provider,
     audio_tracks: 0,
     error: "",
+    attempts: [],
   };
 
-  try {
-    const result = await attemptProvider(provider, asset, null, env);
-    if (!result || !result.streamUrl) {
-      record.error = "provider_miss";
-    } else {
-      record.ok = true;
-      record.provider = result.provider || provider;
-      record.audio_tracks = Array.isArray(result.audioTracks) ? result.audioTracks.length : 0;
+  let sawException = false;
+  for (const attempt of attemptsPlan.slice(0, 6)) {
+    const attemptStarted = Date.now();
+    const entry = {
+      provider: attempt.provider,
+      asset: canaryAssetLabel(attempt.asset),
+      ok: false,
+      latency_ms: 0,
+      error: "",
+    };
+    try {
+      const result = await attemptProvider(attempt.provider, attempt.asset, null, env);
+      if (result && result.streamUrl && isStreamUrlUsable(result.streamUrl)) {
+        entry.ok = true;
+        entry.latency_ms = Date.now() - attemptStarted;
+        record.ok = true;
+        record.asset = canaryAssetLabel(attempt.asset);
+        record.provider = result.provider || attempt.provider;
+        record.audio_tracks = Array.isArray(result.audioTracks) ? result.audioTracks.length : 0;
+        record.error = "";
+        record.attempts.push(entry);
+        break;
+      }
+      entry.error = "provider_miss";
+    } catch (error) {
+      sawException = true;
+      entry.error = String((error && error.message) || error).slice(0, 120);
     }
-  } catch (error) {
-    record.error = String((error && error.message) || error).slice(0, 160);
+    entry.latency_ms = Date.now() - attemptStarted;
+    record.attempts.push(entry);
+  }
+
+  if (!record.ok) {
+    record.error = sawException ? "provider_error" : "provider_miss";
   }
 
   record.latency_ms = Date.now() - started;
@@ -2838,6 +2909,156 @@ async function loadOpsStatus(env, options = {}) {
   return payload;
 }
 
+/* ---------------------------------------------------------------------------
+ * Multi-audio resolver (GitHub Actions fallback)
+ * ---------------------------------------------------------------------------
+ * Cloudflare egress to vidrift is blocked, and some viewer browsers/extensions
+ * block the direct vidrift calls the player normally makes. A dispatched
+ * GitHub Actions run resolves the signed BigBang URL from outside Cloudflare
+ * and POSTs it back here, signed with MULTI_AUDIO_PUBLISH_KEY. The result lives
+ * in KV only; signed upstream URLs never appear in a public status document.
+ * ------------------------------------------------------------------------ */
+
+const MULTI_AUDIO_STATUS_PREFIX = "ma_status_v1:";
+const MULTI_AUDIO_DISPATCH_PREFIX = "ma_dispatch_v1:";
+const MULTI_AUDIO_DISPATCH_TTL_SEC = 120;
+const MULTI_AUDIO_STATUS_MIN_TTL_SEC = 300;
+const MULTI_AUDIO_STATUS_MAX_TTL_SEC = 172800;
+const MULTI_AUDIO_PUBLISH_MAX_BYTES = 4096;
+const GITHUB_API_VERSION = "2022-11-28";
+
+function normalizeMultiAudioAsset(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 48) return "";
+  const info = parseAssetInfo(raw.replace(/^\/+|\/+$/g, ""));
+  if (!info || !/^\d{1,9}$/.test(String(info.id))) return "";
+  if (info.type === "tv") {
+    if (!(info.season > 0 && info.season < 100) || !(info.episode > 0 && info.episode < 2000)) return "";
+    return `tv/${info.id}/${info.season}/${info.episode}`;
+  }
+  return `movie/${info.id}`;
+}
+
+function multiAudioStatusKey(asset) {
+  return `${MULTI_AUDIO_STATUS_PREFIX}${asset}`;
+}
+
+function multiAudioDispatchKey(asset) {
+  return `${MULTI_AUDIO_DISPATCH_PREFIX}${asset}`;
+}
+
+async function readMultiAudioRecord(env, asset) {
+  if (!env || !env.CONFIG_KV) return null;
+  try {
+    const record = await env.CONFIG_KV.get(multiAudioStatusKey(asset), { type: "json" });
+    return record && typeof record === "object" ? record : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writeMultiAudioRecord(env, asset, record) {
+  if (!env || !env.CONFIG_KV) return false;
+  const exp = Number(record && record.exp) || 0;
+  const expiresAt = exp > 0 ? exp * 1000 : Date.now() + 1800000;
+  const ttl = Math.min(
+    MULTI_AUDIO_STATUS_MAX_TTL_SEC,
+    Math.max(MULTI_AUDIO_STATUS_MIN_TTL_SEC, Math.round((expiresAt - Date.now()) / 1000) + 600)
+  );
+  try {
+    await env.CONFIG_KV.put(multiAudioStatusKey(asset), JSON.stringify(record), { expirationTtl: ttl });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function multiAudioRecordUsable(record) {
+  if (!record || record.ok !== true || !record.url) return false;
+  const exp = Number(record.exp) || 0;
+  if (exp > 0 && exp * 1000 < Date.now() + 60000) return false;
+  return true;
+}
+
+async function verifyMultiAudioPublishSignature(request, env, rawBody) {
+  const key = env && env.MULTI_AUDIO_PUBLISH_KEY;
+  if (!key) return false;
+  const supplied = String(request.headers.get("X-Multi-Audio-Signature") || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(supplied)) return false;
+  try {
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(String(key)),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const mac = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(rawBody));
+    const expected = Array.from(new Uint8Array(mac))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    return constantTimeEqual(expected, supplied);
+  } catch (error) {
+    return false;
+  }
+}
+
+function isBigBangStreamUrl(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if (parsed.protocol !== "https:") return false;
+    return /(^|\.)bigbang\.cymru$/i.test(parsed.hostname);
+  } catch (error) {
+    return false;
+  }
+}
+
+async function dispatchMultiAudioResolution(env, asset) {
+  const token = env && env.GITHUB_DISPATCH_TOKEN;
+  if (!token) return { ok: false, error: "resolver_not_configured" };
+  if (env && env.CONFIG_KV) {
+    try {
+      const existing = await env.CONFIG_KV.get(multiAudioDispatchKey(asset));
+      if (existing) return { ok: true, state: "resolving", deduped: true };
+      await env.CONFIG_KV.put(multiAudioDispatchKey(asset), "1", {
+        expirationTtl: MULTI_AUDIO_DISPATCH_TTL_SEC,
+      });
+    } catch (error) {}
+  }
+  const repo = (env && env.GITHUB_REPO) || "shreyash7854/vidlyte";
+  const workflow = (env && env.MULTI_AUDIO_WORKFLOW) || "multi-audio-resolve.yml";
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": GITHUB_API_VERSION,
+          "Content-Type": "application/json",
+          "User-Agent": "vidlyte-worker",
+        },
+        body: JSON.stringify({
+          ref: (env && env.GITHUB_DISPATCH_REF) || "main",
+          inputs: { assets: asset },
+        }),
+      }
+    );
+    if (response.status !== 204) {
+      if (env && env.CONFIG_KV) {
+        try {
+          await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
+        } catch (error) {}
+      }
+      return { ok: false, error: `dispatch_http_${response.status}` };
+    }
+    return { ok: true, state: "resolving" };
+  } catch (error) {
+    return { ok: false, error: "dispatch_failed" };
+  }
+}
+
 function makeRequestId() {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -3163,6 +3384,129 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         });
       }
+    }
+
+    // Multi-audio resolver: request a GitHub Actions resolution, read its
+    // result, and accept the signed result from the workflow. The player uses
+    // these when the browser cannot reach vidrift directly.
+    if (url.pathname === "/api/multi-audio/resolve" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      const asset = normalizeMultiAudioAsset(body && body.asset);
+      if (!asset) {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      const existing = await readMultiAudioRecord(env, asset);
+      if (multiAudioRecordUsable(existing)) {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: "ready",
+          asset,
+          url: existing.url,
+          audio: Number(existing.audio) || 0,
+          exp: Number(existing.exp) || 0,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      const dispatched = await dispatchMultiAudioResolution(env, asset);
+      return new Response(JSON.stringify({ ...dispatched, asset }), {
+        status: dispatched.ok ? 202 : 503,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+
+    if (url.pathname === "/api/multi-audio/status" && request.method === "GET") {
+      const asset = normalizeMultiAudioAsset(url.searchParams.get("asset"));
+      if (!asset) {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      const record = await readMultiAudioRecord(env, asset);
+      if (multiAudioRecordUsable(record)) {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: "ready",
+          asset,
+          url: record.url,
+          audio: Number(record.audio) || 0,
+          provider: record.provider || "bigbang",
+          exp: Number(record.exp) || 0,
+          checked_at: record.checked_at || "",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      let pending = false;
+      if (env && env.CONFIG_KV) {
+        try {
+          pending = Boolean(await env.CONFIG_KV.get(multiAudioDispatchKey(asset)));
+        } catch (error) {}
+      }
+      if (record && record.ok === false && record.error) {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: "failed",
+          asset,
+          error: record.error,
+          checked_at: record.checked_at || "",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, state: pending ? "resolving" : "unknown", asset }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+
+    if (url.pathname === "/api/multi-audio/publish" && request.method === "POST") {
+      const rawBody = await request.text();
+      if (!rawBody || rawBody.length > MULTI_AUDIO_PUBLISH_MAX_BYTES) {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_body" }), {
+          status: 413,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      if (!(await verifyMultiAudioPublishSignature(request, env, rawBody))) {
+        return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      let body = null;
+      try {
+        body = JSON.parse(rawBody);
+      } catch (error) {}
+      const asset = normalizeMultiAudioAsset(body && body.asset);
+      if (!asset) {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      const ok = Boolean(body && body.ok) && isBigBangStreamUrl(body && body.url);
+      const record = {
+        ok,
+        url: ok ? String(body.url) : "",
+        audio: ok ? Math.max(0, Math.min(32, Number(body.audio) || 0)) : 0,
+        provider: "bigbang",
+        exp: ok ? Number(body.exp) || 0 : 0,
+        checked_at: new Date().toISOString(),
+        error: ok ? "" : String((body && body.error) || "no_multi_audio").slice(0, 80),
+      };
+      const persisted = await writeMultiAudioRecord(env, asset, record);
+      return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
+        status: persisted ? 200 : 503,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
     }
 
     // Diagnostic probe for upstream stream resolution (admin only).
@@ -4954,6 +5298,16 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
           token: token,
           provider: "bigbang",
+          // External resolver (GitHub Actions) for viewers whose browser or
+          // network blocks vidrift. Disabled when the dispatch token is absent.
+          remote: {
+            enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN),
+            resolve: `${url.origin}/api/multi-audio/resolve`,
+            status: `${url.origin}/api/multi-audio/status`,
+            asset: normalizeMultiAudioAsset(
+              type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
+            ),
+          },
         },
         servers: (runtimeConfig.upstreams || [])
           .filter((upstream) => upstream && upstream.enabled !== false)

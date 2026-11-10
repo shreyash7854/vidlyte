@@ -4923,6 +4923,8 @@
         step: '',
         audioCount: 0,
         error: '',
+        remoteState: 'idle', // idle | dispatching | resolving | ready | failed
+        remoteError: '',
         updatedAt: 0,
         pending: null
       };
@@ -5472,6 +5474,32 @@
         return fallback;
       }
 
+      // Build the opaque gateway URL for any upstream signed URL. Everything
+      // after this point stays behind the Worker, so viewers never see upstream
+      // hosts or query signatures.
+      function buildClientGatewayUrl(upstreamUrl) {
+        var cr = config.clientResolve;
+        return cr.gateway + '?token=' + encodeURIComponent(cr.token) +
+          '&url=' + encodeURIComponent(upstreamUrl) +
+          '&provider=' + encodeURIComponent(cr.provider || 'bigbang');
+      }
+
+      // Fetch the master through the gateway and count alternate audio groups.
+      function verifyClientGateway(gatewayUrl) {
+        return fetchWithTimeout(gatewayUrl, { credentials: 'omit', cache: 'no-store' }, 10000)
+          .then(function (response) {
+            if (!response.ok) throw new Error('gateway_http_' + response.status);
+            return response.text();
+          })
+          .then(function (text) {
+            if (text.indexOf('#EXTM3U') !== 0 || text.indexOf('#EXT-X-STREAM-INF') < 0) {
+              throw new Error('gateway_not_master');
+            }
+            var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
+            return { url: gatewayUrl, audioCount: audioCount };
+          });
+      }
+
       // One full boot -> source -> gateway attempt. Rejects with a short,
       // non-sensitive step code so the retry loop can report where it stopped.
       function resolveClientStreamOnce() {
@@ -5500,21 +5528,7 @@
             var upstream = preferredClientStream(payload && payload.streams);
             if (!upstream) throw new Error('source_no_stream');
             setClientResolveStatus({ step: 'gateway' });
-            var gatewayUrl = cr.gateway + '?token=' + encodeURIComponent(cr.token) +
-              '&url=' + encodeURIComponent(upstream.url) +
-              '&provider=' + encodeURIComponent(provider);
-            return fetchWithTimeout(gatewayUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
-              .then(function (response) {
-                if (!response.ok) throw new Error('gateway_http_' + response.status);
-                return response.text();
-              })
-              .then(function (text) {
-                if (text.indexOf('#EXTM3U') !== 0 || text.indexOf('#EXT-X-STREAM-INF') < 0) {
-                  throw new Error('gateway_not_master');
-                }
-                var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
-                return { url: gatewayUrl, audioCount: audioCount };
-              });
+            return verifyClientGateway(buildClientGatewayUrl(upstream.url));
           });
       }
 
@@ -5579,6 +5593,105 @@
         return pending;
       }
 
+      // Remote resolver fallback: when this browser cannot reach vidrift (ISP
+      // block, extension, m3u8 sniffer), the Worker dispatches a GitHub Actions
+      // run that resolves the signed BigBang URL from outside the block. The
+      // result lives in KV and is handed back here as a gateway URL.
+      var REMOTE_POLL_INTERVAL_MS = 4000;
+      var REMOTE_POLL_MAX = 15;
+      var remoteResolvePending = null;
+
+      function remoteResolverConfig() {
+        var cr = config.clientResolve;
+        var remote = cr && cr.remote;
+        if (!remote || remote.enabled === false || !remote.resolve || !remote.status || !remote.asset) return null;
+        return remote;
+      }
+
+      function fetchJson(url, init, ms) {
+        return fetchWithTimeout(url, init, ms).then(function (response) {
+          if (!response.ok) throw new Error('http_' + response.status);
+          return response.json();
+        });
+      }
+
+      function pollRemoteMultiAudio(remote) {
+        var attempts = 0;
+        return new Promise(function (resolve) {
+          function poll() {
+            attempts++;
+            var statusUrl = remote.status + (remote.status.indexOf('?') >= 0 ? '&' : '?') +
+              'asset=' + encodeURIComponent(remote.asset);
+            fetchJson(statusUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
+              .then(function (payload) {
+                if (payload && payload.state === 'ready' && payload.url) return resolve(payload);
+                if (payload && payload.state === 'failed') return resolve(null);
+                if (attempts >= REMOTE_POLL_MAX) return resolve(null);
+                setTimeout(poll, REMOTE_POLL_INTERVAL_MS);
+              })
+              .catch(function () {
+                if (attempts >= REMOTE_POLL_MAX) return resolve(null);
+                setTimeout(poll, REMOTE_POLL_INTERVAL_MS);
+              });
+          }
+          poll();
+        });
+      }
+
+      function resolveRemoteMultiAudio(manual) {
+        var remote = remoteResolverConfig();
+        if (!remote) return Promise.resolve(null);
+        if (remoteResolvePending) return remoteResolvePending;
+        if (manual) showPlayerToast('Resolving extra audio in the background…', null, null, 4000);
+        setClientResolveStatus({ remoteState: 'dispatching', remoteError: '' });
+
+        var pending = fetchJson(remote.resolve, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset: remote.asset }),
+          credentials: 'omit',
+          cache: 'no-store'
+        }, 10000)
+          .then(function (payload) {
+            if (payload && payload.state === 'ready' && payload.url) return payload;
+            if (!payload || payload.ok !== true) {
+              throw new Error((payload && payload.error) || 'dispatch_failed');
+            }
+            setClientResolveStatus({ remoteState: 'resolving' });
+            return pollRemoteMultiAudio(remote);
+          })
+          .then(function (payload) {
+            remoteResolvePending = null;
+            if (!payload || !payload.url) {
+              setClientResolveStatus({ remoteState: 'failed', remoteError: 'no_result' });
+              return null;
+            }
+            return verifyClientGateway(buildClientGatewayUrl(payload.url)).then(function (result) {
+              if (!result || result.audioCount <= 1) {
+                setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
+                return null;
+              }
+              setClientResolveStatus({
+                remoteState: 'ready',
+                remoteError: '',
+                audioCount: result.audioCount
+              });
+              return result;
+            });
+          })
+          .catch(function (error) {
+            remoteResolvePending = null;
+            setClientResolveStatus({
+              remoteState: 'failed',
+              remoteError: String((error && error.message) || error || 'remote_failed').slice(0, 120)
+            });
+            return null;
+          });
+
+        remoteResolvePending = pending;
+        return pending;
+      }
+
       // Swap to the multi-audio master once it is verified. Returns true only
       // when the player actually moved to a stream with more than one track.
       function applyClientUpgrade(clientStream) {
@@ -5594,33 +5707,52 @@
 
       var multiAudioRetryInFlight = false;
 
-      function retryMultiAudio(manual) {
+      // Try the direct client path first (fast when the browser can reach the
+      // provider), then the external resolver. Both stay behind the gateway, so
+      // no upstream host or signature reaches the page.
+      function upgradeMultiAudio(manual) {
         if (multiAudioRetryInFlight) return Promise.resolve(false);
         multiAudioRetryInFlight = true;
         if (manual) showPlayerToast('Reloading multi-audio…', null, null, 2500);
-        return resolveClientStream({ force: true }).then(function (clientStream) {
-          multiAudioRetryInFlight = false;
-          var applied = applyClientUpgrade(clientStream);
-          if (manual) {
-            if (applied) {
-              showPlayerToast('Multi-audio ready · ' + clientStream.audioCount + ' tracks', null, null, 4000);
-            } else if (clientResolveStatus.state === 'single') {
-              showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
-              setupAudioTracks();
-            } else {
+
+        return resolveClientStream({ force: true })
+          .then(function (clientStream) {
+            var applied = applyClientUpgrade(clientStream);
+            if (applied) return applied;
+            return resolveRemoteMultiAudio(manual).then(function (remoteStream) {
+              return applyClientUpgrade(remoteStream);
+            });
+          })
+          .then(function (applied) {
+            multiAudioRetryInFlight = false;
+            if (manual) {
+              if (applied) {
+                showPlayerToast('Multi-audio ready · ' + clientResolveStatus.audioCount + ' tracks', null, null, 4000);
+              } else if (clientResolveStatus.remoteState === 'failed' && clientResolveStatus.remoteError === 'single_audio') {
+                showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
+                setupAudioTracks();
+              } else if (clientResolveStatus.state === 'single' && !remoteResolverConfig()) {
+                showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
+                setupAudioTracks();
+              } else {
+                showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
+                setupAudioTracks();
+              }
+            }
+            return applied;
+          })
+          .catch(function () {
+            multiAudioRetryInFlight = false;
+            if (manual) {
               showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
               setupAudioTracks();
             }
-          }
-          return applied;
-        }).catch(function () {
-          multiAudioRetryInFlight = false;
-          if (manual) {
-            showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
-            setupAudioTracks();
-          }
-          return false;
-        });
+            return false;
+          });
+      }
+
+      function retryMultiAudio(manual) {
+        return upgradeMultiAudio(manual);
       }
 
       // Support hook: the same retry the menu item calls, for webmasters who
@@ -5632,9 +5764,11 @@
       function appendMultiAudioReloadItem() {
         var cr = config.clientResolve;
         if (!cr || !cr.enabled || config.provider === 'bigbang') return;
-        var label = clientResolveStatus.state === 'failed'
+        var label = clientResolveStatus.state === 'failed' || clientResolveStatus.remoteState === 'failed'
           ? 'Reload multi-audio (retry)'
-          : 'Reload multi-audio';
+          : (clientResolveStatus.remoteState === 'resolving' || clientResolveStatus.remoteState === 'dispatching')
+            ? 'Resolving multi-audio… (tap to retry)'
+            : 'Reload multi-audio';
 
         if (audioTracksList) {
           var aItem = document.createElement('div');
@@ -5681,15 +5815,21 @@
         if (config.provider !== 'bigbang' && (!config.audioTracks || config.audioTracks.length <= 1)) {
           resolveClientStream().then(function (clientStream) {
             var applied = applyClientUpgrade(clientStream);
-            if (!applied && !multiAudioNoticeShown) {
-              multiAudioNoticeShown = true;
-              showPlayerToast(
-                'Extra audio tracks did not load. Use Audio → Reload multi-audio to retry.',
-                'Retry',
-                function () { retryMultiAudio(true); },
-                9000
-              );
-            }
+            if (applied) return;
+            // Browser blocked the provider or returned a single-audio master:
+            // ask the external resolver while the server stream keeps playing.
+            return resolveRemoteMultiAudio(false).then(function (remoteStream) {
+              var remoteApplied = applyClientUpgrade(remoteStream);
+              if (!remoteApplied && !multiAudioNoticeShown) {
+                multiAudioNoticeShown = true;
+                showPlayerToast(
+                  'Extra audio tracks did not load. Use Audio → Reload multi-audio to retry.',
+                  'Retry',
+                  function () { retryMultiAudio(true); },
+                  9000
+                );
+              }
+            });
           });
         }
       }

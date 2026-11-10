@@ -35,6 +35,9 @@ const workerAgents = read("AGENTS.md");
 const workflow = readRoot(".github/workflows/uptime-watchdog.yml");
 const sweepWorkflow = readRoot(".github/workflows/tmdb-sweep.yml");
 const quotaWorkflow = readRoot(".github/workflows/quota-watch.yml");
+const multiAudioWorkflow = readRoot(".github/workflows/multi-audio-resolve.yml");
+const player = read("src/player.html");
+const resolverScript = read("scripts/resolve-multi-audio.mjs");
 const pkg = JSON.parse(read("package.json"));
 
 let passed = 0;
@@ -168,12 +171,25 @@ await test("canary resolves a real asset and validates the manifest", () => {
   hasAll(indexSource, [
     'const WATCHDOG_CANARY_KV_KEY = "watchdog_canary_v1"',
     "async function runPlaybackCanary(env)",
-    "await attemptProvider(provider, asset, null, env)",
+    "attemptProvider(attempt.provider, attempt.asset, null, env)",
     "WATCHDOG_CANARY_PROVIDER",
     "WATCHDOG_CANARY_ASSET",
-    'return { type: "tv", id: "66732", season: 1, episode: 1 }',
+    'id: "66732"',
     "await env.CONFIG_KV.put(WATCHDOG_CANARY_KV_KEY",
   ]);
+});
+
+await test("canary falls back before reporting provider_miss", () => {
+  hasAll(indexSource, [
+    "DEFAULT_CANARY_FALLBACK_ASSETS",
+    "WATCHDOG_CANARY_FALLBACK_ASSETS",
+    "WATCHDOG_CANARY_FALLBACK_PROVIDERS",
+    "record.error = sawException ? \"provider_error\" : \"provider_miss\"",
+    "attemptsPlan.slice(0, 6)",
+  ]);
+  hasNone(indexSource.slice(indexSource.indexOf("async function runPlaybackCanary")), [
+    "if (!result || !result.streamUrl) {\n      record.error = \"provider_miss\";",
+  ], "single-attempt canary");
 });
 
 await test("scheduled maintenance runs the canary and alerts on the result", () => {
@@ -552,6 +568,77 @@ await test("each monitor workflow publishes its status branch", () => {
       `${entry[1]} workflow missing publish step`
     );
   });
+});
+
+console.log("\n[multi-audio] external resolver");
+await test("multi-audio routes are HMAC-gated and KV-only", () => {
+  hasAll(indexSource, [
+    'url.pathname === "/api/multi-audio/resolve"',
+    'url.pathname === "/api/multi-audio/status"',
+    'url.pathname === "/api/multi-audio/publish"',
+    "verifyMultiAudioPublishSignature",
+    "dispatchMultiAudioResolution",
+    'const MULTI_AUDIO_STATUS_PREFIX = "ma_status_v1:"',
+    "isBigBangStreamUrl",
+    "MULTI_AUDIO_PUBLISH_KEY",
+  ]);
+  var publish = indexSource.slice(
+    indexSource.indexOf('url.pathname === "/api/multi-audio/publish"'),
+    indexSource.indexOf("// Diagnostic probe for upstream stream resolution")
+  );
+  assert.ok(publish.includes("await verifyMultiAudioPublishSignature(request, env, rawBody)"));
+  assert.ok(publish.indexOf("verifyMultiAudioPublishSignature") < publish.indexOf("JSON.parse(rawBody)"));
+  hasNone(publish, ["url: record.url", "url: body.url"], "publish response");
+});
+
+await test("resolver signs its payload and never logs the signed URL", () => {
+  hasAll(resolverScript, [
+    'createHmac("sha256", PUBLISH_KEY)',
+    '"X-Multi-Audio-Signature"',
+    "MULTI_AUDIO_ASSETS",
+    "/api/multi-audio/publish",
+    "published: Boolean(published.ok)",
+  ]);
+  hasNone(resolverScript, ["console.log(result.url", "console.log(stream.url", "log(\"resolved\", { url"], "resolver logs");
+});
+
+await test("resolver workflow is a bounded manual dispatch", () => {
+  hasAll(multiAudioWorkflow, [
+    "workflow_dispatch:",
+    "assets:",
+    "contents: read",
+    "MULTI_AUDIO_PUBLISH_KEY",
+    "node scripts/resolve-multi-audio.mjs",
+    "timeout-minutes: 5",
+  ]);
+  hasNone(multiAudioWorkflow, ["contents: write", "pull_request:"], "resolver workflow");
+});
+
+await test("player falls back to the remote resolver behind the gateway", () => {
+  hasAll(player, [
+    "function resolveRemoteMultiAudio",
+    "function pollRemoteMultiAudio",
+    "REMOTE_POLL_MAX",
+    "remoteState",
+    "buildClientGatewayUrl",
+    "verifyClientGateway",
+    "window.__vidlyteRetryMultiAudio = retryMultiAudio",
+  ]);
+  var remote = player.slice(
+    player.indexOf("function resolveRemoteMultiAudio"),
+    player.indexOf("function applyClientUpgrade")
+  );
+  hasNone(remote, ["norway-canary", "bigbang.cymru"], "remote resolver section");
+});
+
+await test("wrangler configures the resolver without secrets", () => {
+  hasAll(wrangler, [
+    'GITHUB_REPO = "shreyash7854/vidlyte"',
+    'MULTI_AUDIO_WORKFLOW = "multi-audio-resolve.yml"',
+    'WATCHDOG_CANARY_FALLBACK_ASSETS = "movie/550"',
+    'WATCHDOG_CANARY_FALLBACK_PROVIDERS = "2vcdn"',
+  ]);
+  hasNone(wrangler, ["GITHUB_DISPATCH_TOKEN =", "MULTI_AUDIO_PUBLISH_KEY ="], "wrangler [vars]");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

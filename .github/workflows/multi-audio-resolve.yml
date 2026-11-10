@@ -1,0 +1,42 @@
+name: Multi-audio resolver
+
+# Dispatched by the Worker when a viewer's browser cannot reach vidrift.
+# GitHub runners are not blocked by the vidrift edge challenge, so this run
+# resolves the signed BigBang URL and posts it back to the Worker. The URL is
+# a secret-like capability: never echo it, never publish it to a status branch.
+on:
+  workflow_dispatch:
+    inputs:
+      assets:
+        description: "Comma-separated assets, e.g. tv/314939/1/2,movie/550"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multi-audio-resolve-${{ inputs.assets }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve and publish signed stream
+        working-directory: cloudflare-worker
+        env:
+          MULTI_AUDIO_ASSETS: ${{ inputs.assets }}
+          MULTI_AUDIO_PUBLISH_URL: ${{ vars.MULTI_AUDIO_PUBLISH_URL || 'https://vid.lyte.workers.dev' }}
+          MULTI_AUDIO_PUBLISH_KEY: ${{ secrets.MULTI_AUDIO_PUBLISH_KEY }}
+          MULTI_AUDIO_TIMEOUT_MS: "12000"
+        run: node scripts/resolve-multi-audio.mjs
