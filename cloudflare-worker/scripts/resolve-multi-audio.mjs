@@ -426,6 +426,7 @@ async function resolveAsset(target) {
     const masterManifest = `#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n${audioLines}\n${variantLines}\n`;
     const primaryUrl = orionStreams[0].url.startsWith("http") ? orionStreams[0].url : `${base}${orionStreams[0].url}`;
 
+    const subManifests = {};
     const subManifestsGz = {};
     const fetchHeaders = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -440,6 +441,7 @@ async function resolveAsset(target) {
           const vRes = await fetchWithTimeout(v.playlistUri, { headers: fetchHeaders });
           if (vRes && vRes.ok) {
             const mapped = mapOrionPlaylist(await vRes.text());
+            subManifests[`${m[1]}:${m[2]}`] = mapped;
             subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
           }
         }
@@ -453,6 +455,7 @@ async function resolveAsset(target) {
           const aRes = await fetchWithTimeout(a.uri, { headers: fetchHeaders });
           if (aRes && aRes.ok) {
             const mapped = mapOrionPlaylist(await aRes.text());
+            subManifests[`${m[1]}:${m[2]}`] = mapped;
             subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
           }
         }
@@ -468,6 +471,7 @@ async function resolveAsset(target) {
       masterManifest,
       audioTracks,
       variants,
+      subManifests: Object.keys(subManifests).length > 0 ? subManifests : undefined,
       subManifestsGz: Object.keys(subManifestsGz).length > 0 ? subManifestsGz : undefined,
       via,
       latency_ms: Date.now() - started,
@@ -582,6 +586,7 @@ async function publish(asset, result) {
     audioTracks: result.ok && result.audioTracks ? result.audioTracks : undefined,
     variants: result.ok && result.variants ? result.variants : undefined,
     subtitles: result.ok && result.subtitles ? result.subtitles : undefined,
+    subManifests: result.ok && result.subManifests ? result.subManifests : undefined,
     subManifestsGz: result.ok && result.subManifestsGz ? result.subManifestsGz : undefined,
     error: result.ok ? "" : String(result.error || "resolver_failed").slice(0, 80),
   });
@@ -646,6 +651,7 @@ for (const target of assets) {
         audioTracks: result.audioTracks,
         variants: result.variants,
         subtitles: result.subtitles || [],
+        subManifests: result.subManifests || undefined,
       };
       const tmpFile = path.resolve(`./tmp_ma_${target.id}.json`);
       fs.writeFileSync(tmpFile, JSON.stringify(rec));

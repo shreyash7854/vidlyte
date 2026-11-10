@@ -5656,7 +5656,7 @@
         var pending = fetchJson(remote.resolve, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset: remote.asset }),
+          body: JSON.stringify({ asset: remote.asset, force: manual === true }),
           credentials: 'omit',
           cache: 'no-store'
         }, 10000)
@@ -5707,6 +5707,7 @@
         if (clientStream.audioCount <= 1) return false;
         if (currentStreamUrl === clientStream.url) return true;
         loadNewStream(clientStream.url);
+        setupAudioTracks();
         if (autoplay && video.paused) {
           video.play().catch(function () { });
         }

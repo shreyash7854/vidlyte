@@ -3446,6 +3446,11 @@ function multiAudioRecordUsable(record) {
   if (!record || record.ok !== true || (!record.url && !record.masterManifest)) return false;
   const exp = Number(record.exp) || 0;
   if (exp > 0 && exp * 1000 < Date.now() + 60000) return false;
+  if (record.provider === "orion") {
+    if (!record.subManifests || typeof record.subManifests !== "object" || Object.keys(record.subManifests).length === 0) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -3868,8 +3873,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
         });
       }
+      const force = Boolean(body && body.force === true);
       const existing = await readMultiAudioRecord(env, asset);
-      if (multiAudioRecordUsable(existing)) {
+      if (!force && multiAudioRecordUsable(existing)) {
         return new Response(JSON.stringify({
           ok: true,
           state: "ready",
@@ -3982,19 +3988,20 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         audioTracks: ok && Array.isArray(body.audioTracks) ? body.audioTracks : undefined,
         variants: ok && Array.isArray(body.variants) ? body.variants : undefined,
         subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
+        subManifests: ok && body.subManifests && typeof body.subManifests === "object" ? body.subManifests : undefined,
       };
-      const persisted = await writeMultiAudioRecord(env, asset, record);
-      if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && env && env.CONFIG_KV) {
-        const ttl = Number(record.exp) > 0 ? Math.max(300, Math.round(Number(record.exp) - Date.now() / 1000) + 600) : 86400;
+      if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && (!record.subManifests || Object.keys(record.subManifests).length === 0)) {
+        record.subManifests = {};
         for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
           try {
             const decompressed = await decompressGzipBase64(b64);
             if (decompressed && decompressed.includes("#EXTM3U")) {
-              await env.CONFIG_KV.put(`orion_sub:${subKey}`, decompressed, { expirationTtl: ttl });
+              record.subManifests[subKey] = decompressed;
             }
           } catch (e) {}
         }
       }
+      const persisted = await writeMultiAudioRecord(env, asset, record);
       return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
         status: persisted ? 200 : 503,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
@@ -4847,7 +4854,23 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
 
       const provider = decoded.provider || "evion";
       try {
-        const rawSubM3U8 = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        const assetNorm = normalizeMultiAudioAsset(assetID);
+        const maRecord = assetNorm ? await readMultiAudioRecord(env, assetNorm) : null;
+        const orionMatch = targetUrl.toString().match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+        let rawSubM3U8 = "";
+        if (orionMatch) {
+          const subKey = `${orionMatch[1]}:${orionMatch[2]}`;
+          if (maRecord && maRecord.subManifests && maRecord.subManifests[subKey]) {
+            rawSubM3U8 = maRecord.subManifests[subKey];
+          } else if (env && env.CONFIG_KV) {
+            try {
+              rawSubM3U8 = (await env.CONFIG_KV.get(`orion_sub:${subKey}`)) || "";
+            } catch (e) {}
+          }
+        }
+        if (!rawSubM3U8) {
+          rawSubM3U8 = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        }
         if (rawSubM3U8.startsWith("#EXTM3U") || rawSubM3U8.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString())) {
           const rewritten = rewriteManifest(rawSubM3U8, {
             baseUrl: targetUrl.toString(),
