@@ -2808,6 +2808,7 @@ async function buildReadinessPayload(request, env, canary = undefined) {
           provider: String(canary.provider || ""),
           audio_tracks: Number(canary.audio_tracks) || 0,
           error: String(canary.error || ""),
+          attempts: Array.isArray(canary.attempts) ? canary.attempts.slice(0, 6) : [],
         }
       : null,
   };

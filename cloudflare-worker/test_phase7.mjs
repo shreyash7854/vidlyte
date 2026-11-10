@@ -186,6 +186,7 @@ await test("canary falls back before reporting provider_miss", () => {
     "WATCHDOG_CANARY_FALLBACK_PROVIDERS",
     "record.error = sawException ? \"provider_error\" : \"provider_miss\"",
     "attemptsPlan.slice(0, 6)",
+    "attempts: Array.isArray(canary.attempts) ? canary.attempts.slice(0, 6) : []",
   ]);
   hasNone(indexSource.slice(indexSource.indexOf("async function runPlaybackCanary")), [
     "if (!result || !result.streamUrl) {\n      record.error = \"provider_miss\";",
