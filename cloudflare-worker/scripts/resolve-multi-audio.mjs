@@ -89,7 +89,7 @@ function requestedAssets() {
     seen.add(parsed.asset);
     assets.push(parsed);
   }
-  return assets.slice(0, 5);
+  return assets.slice(0, 50);
 }
 
 async function fetchWithTimeout(url, options = {}) {
@@ -205,39 +205,292 @@ async function resolveAsset(target) {
     return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
-  const token = boot.meta.playbackToken;
-  const sourceUrl =
-    `${base}/api/source/${target.type}/${target.id}${suffix}` +
-    `?token=${encodeURIComponent(token)}&parent=vidrift.net&provider=bigbang`;
-  let source = null;
-  if (via === "reader") {
+  const langMap = {
+    original: "en",
+    hindi: "hi",
+    tamil: "ta",
+    telugu: "te",
+    arabic: "ar",
+    french: "fr",
+    spanish: "es",
+    german: "de",
+    italian: "it",
+    japanese: "ja",
+    korean: "ko",
+    portuguese: "pt",
+    russian: "ru",
+    turkish: "tr",
+    czech: "cs",
+    danish: "da",
+    filipino: "fil",
+    hungarian: "hu",
+    indonesian: "id",
+    polish: "pol",
+    thai: "th",
+    ukrainian: "uk",
+    vietnamese: "vi",
+  };
+
+  // 1. Check Evion multi-audio candidate
+  let evionCandidate = null;
+  if (boot && boot.meta && boot.meta.evionUrl) {
     try {
-      source = parseLooseJson(await readerFetch(sourceUrl));
-    } catch (error) {
-      failures.push(`source_reader:${String((error && error.message) || error).slice(0, 40)}`);
+      let evText = "";
+      try {
+        const evRes = await fetchWithTimeout(boot.meta.evionUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://embed.vidrift.net/",
+          },
+        });
+        if (evRes && evRes.ok) {
+          evText = await evRes.text();
+        }
+      } catch (e) {}
+
+      if (!evText || !evText.includes("#EXTM3U")) {
+        try {
+          evText = await readerFetch(boot.meta.evionUrl);
+        } catch (e) {}
+      }
+
+      if (evText && evText.includes("#EXTM3U")) {
+        const evAudio = [];
+        const evVariants = [];
+        const evSubs = [];
+
+        const lines = evText.split(/\r?\n/);
+        lines.forEach((l, idx) => {
+          if (l.includes("TYPE=AUDIO")) {
+            const nameMatch = l.match(/NAME="([^"]+)"/);
+            const langMatch = l.match(/LANGUAGE="([^"]+)"/);
+            const uriMatch = l.match(/URI="([^"]+)"/);
+            const defMatch = l.match(/DEFAULT=([A-Z]+)/);
+            const name = nameMatch ? nameMatch[1] : `Audio Track ${idx + 1}`;
+            const cleanName = name.replace(/^\d+\.\s*/, "").trim() || name;
+            const lang = langMatch ? langMatch[1] : langMap[cleanName.toLowerCase()] || "und";
+            const uri = uriMatch ? new URL(uriMatch[1], boot.meta.evionUrl).href : "";
+            const isDefault = defMatch ? defMatch[1] === "YES" : idx === 0;
+            evAudio.push({
+              id: idx,
+              name: cleanName,
+              label: cleanName,
+              language: lang,
+              default: isDefault,
+              uri,
+              proxiedUri: uri,
+              proxied_uri: uri,
+              provider: "evion",
+            });
+          } else if (l.includes("TYPE=SUBTITLES")) {
+            const nameMatch = l.match(/NAME="([^"]+)"/);
+            const langMatch = l.match(/LANGUAGE="([^"]+)"/);
+            const uriMatch = l.match(/URI="([^"]+)"/);
+            if (uriMatch) {
+              const name = nameMatch ? nameMatch[1] : `Subtitles ${idx + 1}`;
+              const lang = langMatch ? langMatch[1] : "en";
+              const uri = new URL(uriMatch[1], boot.meta.evionUrl).href;
+              evSubs.push({
+                language: lang,
+                label: name,
+                url: uri,
+                uri,
+                proxiedUri: uri,
+                proxied_uri: uri,
+              });
+            }
+          }
+        });
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.includes("#EXT-X-STREAM-INF")) {
+            const resMatch = line.match(/RESOLUTION=(\d+x\d+)/);
+            const bwMatch = line.match(/BANDWIDTH=(\d+)/);
+            const nextLine = lines[i + 1] ? lines[i + 1].trim() : "";
+            if (nextLine && !nextLine.startsWith("#")) {
+              const variantUri = new URL(nextLine, boot.meta.evionUrl).href;
+              const height = resMatch ? resMatch[1].split("x")[1] : "1080";
+              evVariants.push({
+                resolution: `${height}p`,
+                bandwidth: bwMatch ? parseInt(bwMatch[1], 10) : 1000000,
+                playlistUri: variantUri,
+                provider: "evion",
+              });
+            }
+          }
+        }
+
+        if (evAudio.length > 0) {
+          evionCandidate = {
+            ok: true,
+            provider: "evion",
+            url: boot.meta.evionUrl,
+            audio: evAudio.length,
+            exp: Math.floor(Date.now() / 1000) + 86400 * 2,
+            masterManifest: evText,
+            audioTracks: evAudio,
+            variants: evVariants,
+            subtitles: evSubs,
+            via,
+            latency_ms: Date.now() - started,
+          };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Check Orion multi-audio candidate
+  let orionCandidate = null;
+  const orionStreams = (boot && boot.meta && Array.isArray(boot.meta.orionStreams) && boot.meta.orionStreams) || [];
+  if (orionStreams.length > 0) {
+    const audioTracks = [];
+    const variants = [];
+    let defaultAudioFilename = "a3.m3u8";
+
+    if (boot.meta.warmManifests) {
+      for (const wmPath of Object.keys(boot.meta.warmManifests)) {
+        if (/\/a\d+\.m3u8$/i.test(wmPath)) {
+          defaultAudioFilename = wmPath.split("/").pop();
+          break;
+        }
+      }
     }
-  } else {
-    const sourceRes = await fetchWithTimeout(sourceUrl, { headers });
-    if (sourceRes.ok) {
-      source = await sourceRes.json().catch(() => null);
+
+    orionStreams.forEach((s, idx) => {
+      const cleanName = s.name ? s.name.replace(/^Orion\s*[·•-]\s*/i, "").trim() : `Audio Track ${idx + 1}`;
+      const fullStreamUrl = s.url.startsWith("http") ? s.url : `${base}${s.url}`;
+      const audioUri = fullStreamUrl.replace(/master\.m3u8$/i, defaultAudioFilename);
+      const langKey = cleanName.toLowerCase();
+      const langCode = langMap[langKey] || "und";
+      audioTracks.push({
+        id: idx,
+        name: cleanName,
+        label: cleanName,
+        language: langCode,
+        default: idx === 0,
+        uri: audioUri,
+        proxiedUri: audioUri,
+        proxied_uri: audioUri,
+        provider: "orion",
+      });
+    });
+
+    const primaryBase = (orionStreams[0].url.startsWith("http")
+      ? orionStreams[0].url
+      : `${base}${orionStreams[0].url}`).replace(/master\.m3u8$/i, "");
+
+    const rungs = orionStreams[0].rungs || [];
+    if (rungs.length > 0) {
+      rungs.forEach((r, idx) => {
+        variants.push({
+          resolution: `${r.height || 720}p`,
+          bandwidth: r.height >= 1080 ? 2500000 : (r.height >= 720 ? 1200000 : 650000),
+          playlistUri: `${primaryBase}v${idx}.m3u8`,
+          provider: "orion",
+        });
+      });
     } else {
-      failures.push(`source:${sourceRes.status}`);
+      variants.push(
+        { resolution: "1080p", bandwidth: 2500000, playlistUri: `${primaryBase}v0.m3u8`, provider: "orion" },
+        { resolution: "720p", bandwidth: 1200000, playlistUri: `${primaryBase}v1.m3u8`, provider: "orion" },
+        { resolution: "480p", bandwidth: 650000, playlistUri: `${primaryBase}v2.m3u8`, provider: "orion" }
+      );
+    }
+
+    const audioLines = audioTracks.map((t) => {
+      const defStr = t.default ? ',DEFAULT=YES,AUTOSELECT=YES' : ',DEFAULT=NO,AUTOSELECT=YES';
+      const langStr = t.language ? `,LANGUAGE="${t.language}"` : '';
+      return `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${t.name}"${defStr}${langStr},URI="${t.uri}"`;
+    }).join("\n");
+
+    const variantLines = variants.map((v) => {
+      const resStr = v.resolution ? `,RESOLUTION=${v.resolution === "1080p" ? "1920x1080" : v.resolution === "720p" ? "1280x720" : "854x480"}` : "";
+      return `#EXT-X-STREAM-INF:BANDWIDTH=${v.bandwidth || 2500000}${resStr},AUDIO="audio"\n${v.playlistUri}`;
+    }).join("\n");
+
+    const masterManifest = `#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n${audioLines}\n${variantLines}\n`;
+    const primaryUrl = orionStreams[0].url.startsWith("http") ? orionStreams[0].url : `${base}${orionStreams[0].url}`;
+
+    orionCandidate = {
+      ok: true,
+      provider: "orion",
+      url: primaryUrl,
+      audio: audioTracks.length,
+      exp: Math.floor(Date.now() / 1000) + 86400 * 2,
+      masterManifest,
+      audioTracks,
+      variants,
+      via,
+      latency_ms: Date.now() - started,
+    };
+  }
+
+  // 3. Multi-server ranking: pick the candidate with the highest audio track count
+  const directCandidates = [];
+  if (evionCandidate && evionCandidate.ok && evionCandidate.audio > 0) directCandidates.push(evionCandidate);
+  if (orionCandidate && orionCandidate.ok && orionCandidate.audio > 0) directCandidates.push(orionCandidate);
+
+  if (directCandidates.length > 0) {
+    directCandidates.sort((a, b) => b.audio - a.audio);
+    return directCandidates[0];
+  }
+
+  const token = boot.meta.playbackToken;
+  const candidateProviders = ["bigbang", "atlas", "titan", "default"];
+  let source = null;
+  let chosenProvider = "bigbang";
+
+  for (const prov of candidateProviders) {
+    const provQuery = prov === "default" ? "parent=vidrift.net" : `parent=vidrift.net&provider=${prov}`;
+    const sourceUrl = `${base}/api/source/${target.type}/${target.id}${suffix}?token=${encodeURIComponent(token)}&${provQuery}`;
+    if (via === "reader") {
       try {
         source = parseLooseJson(await readerFetch(sourceUrl));
-        via = "reader";
+        if (source && Array.isArray(source.streams) && source.streams.length > 0) {
+          chosenProvider = prov;
+          break;
+        }
       } catch (error) {
-        failures.push(`source_reader:${String((error && error.message) || error).slice(0, 40)}`);
+        failures.push(`source_reader_${prov}:${String((error && error.message) || error).slice(0, 40)}`);
+      }
+    } else {
+      try {
+        const sourceRes = await fetchWithTimeout(sourceUrl, { headers });
+        if (sourceRes.ok) {
+          source = await sourceRes.json().catch(() => null);
+          if (source && Array.isArray(source.streams) && source.streams.length > 0) {
+            chosenProvider = prov;
+            break;
+          }
+        } else {
+          failures.push(`source_${prov}:${sourceRes.status}`);
+          try {
+            source = parseLooseJson(await readerFetch(sourceUrl));
+            if (source && Array.isArray(source.streams) && source.streams.length > 0) {
+              chosenProvider = prov;
+              via = "reader";
+              break;
+            }
+          } catch (error) {
+            failures.push(`source_reader_${prov}:${String((error && error.message) || error).slice(0, 40)}`);
+          }
+        }
+      } catch (error) {
+        failures.push(`source_${prov}_err:${String((error && error.message) || error).slice(0, 40)}`);
       }
     }
   }
+
   const streams = (source && Array.isArray(source.streams) && source.streams) || [];
-  const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || ""))) || streams[0];
-  if (!stream || !stream.url) {
+  const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || item.proxyUrl || ""))) || streams[0];
+  const streamUrl = (stream && (stream.url || stream.proxyUrl)) || "";
+  if (!stream || !streamUrl) {
     return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
   let master = "";
-  const masterRes = await fetchWithTimeout(stream.url, {
+  const masterRes = await fetchWithTimeout(streamUrl, {
     headers: { Accept: "*/*", "User-Agent": BROWSER_HEADERS["User-Agent"] },
   }).catch(() => null);
   if (masterRes && masterRes.ok) {
@@ -246,7 +499,7 @@ async function resolveAsset(target) {
   if (!master.startsWith("#EXTM3U")) {
     failures.push(`master_direct:${masterRes ? masterRes.status : "error"}`);
     try {
-      master = extractM3u8(await readerFetch(stream.url));
+      master = extractM3u8(await readerFetch(streamUrl));
     } catch (error) {
       failures.push(`master_reader:${String((error && error.message) || error).slice(0, 40)}`);
     }
@@ -261,11 +514,11 @@ async function resolveAsset(target) {
 
   let exp = 0;
   try {
-    const parsed = new URL(stream.url);
+    const parsed = new URL(streamUrl);
     exp = Number(parsed.searchParams.get("exp")) || 0;
   } catch (error) {}
 
-  return { ok: true, url: stream.url, audio, exp, via, latency_ms: Date.now() - started };
+  return { ok: true, url: streamUrl, provider: chosenProvider, audio, exp, via, latency_ms: Date.now() - started };
 }
 
 async function publish(asset, result) {
@@ -276,6 +529,11 @@ async function publish(asset, result) {
     url: result.ok ? result.url : "",
     audio: result.ok ? result.audio : 0,
     exp: result.ok ? result.exp : 0,
+    provider: result.ok ? (result.provider || "bigbang") : "",
+    masterManifest: result.ok && result.masterManifest ? result.masterManifest : undefined,
+    audioTracks: result.ok && result.audioTracks ? result.audioTracks : undefined,
+    variants: result.ok && result.variants ? result.variants : undefined,
+    subtitles: result.ok && result.subtitles ? result.subtitles : undefined,
     error: result.ok ? "" : String(result.error || "resolver_failed").slice(0, 80),
   });
   const signature = createHmac("sha256", PUBLISH_KEY).update(payload).digest("hex");
@@ -321,4 +579,34 @@ for (const target of assets) {
     published: Boolean(published.ok),
     publish_status: published.status || 0,
   });
+
+  if (process.env.MULTI_AUDIO_SYNC_KV === "1" && result.ok && result.url) {
+    try {
+      const { execSync } = await import("node:child_process");
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const rec = {
+        ok: true,
+        url: result.url,
+        audio: result.audio,
+        provider: result.provider || "bigbang",
+        exp: result.exp,
+        checked_at: new Date().toISOString(),
+        error: "",
+        masterManifest: result.masterManifest,
+        audioTracks: result.audioTracks,
+        variants: result.variants,
+        subtitles: result.subtitles || [],
+      };
+      const tmpFile = path.resolve(`./tmp_ma_${target.id}.json`);
+      fs.writeFileSync(tmpFile, JSON.stringify(rec));
+      execSync(`npx wrangler kv key put --remote --namespace-id 1458cc95d50b4ba99b31ea7b736b5e64 "ma_status_v1:${target.asset}" --path "${tmpFile}" --ttl 86400`, {
+        cwd: path.resolve(import.meta.dirname, ".."),
+        stdio: "inherit",
+      });
+      try { fs.unlinkSync(tmpFile); } catch (e) {}
+    } catch (e) {
+      console.error("KV sync error:", e.message);
+    }
+  }
 }

@@ -14,7 +14,7 @@
 
 export const PROVIDER_DEFINITIONS = [
   { id: "orion", label: "Orion", priority: 1, hosts: ["embed.vidrift.net", "vidrift.net"] },
-  { id: "evion", label: "Evion", priority: 2, hosts: ["img.animecurx.tech"] },
+  { id: "evion", label: "Evion", priority: 2, hosts: ["img.animecurx.tech", "rousav.tech", "rousav.com", "bigbang.observer"] },
   { id: "framextv", label: "FrameX", priority: 3, hosts: ["api.framextv.xyz", "api.framextv.cc", "api.framextv.tech"] },
   { id: "asianflix", label: "AsianFlix", priority: 4, hosts: ["asianflix.one", "rumble.com", "rumble.cloud"] },
   { id: "2vcdn", label: "2Embed", priority: 5, hosts: ["2embed.cc", "2vcdn.skin"] },

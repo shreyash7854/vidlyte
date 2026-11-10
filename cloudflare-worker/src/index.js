@@ -8,6 +8,17 @@
 import playerTemplate from "./player.html";
 import adminTemplate from "./admin.html";
 import portalTemplate from "./portal.html";
+import { gunzipSync } from "node:zlib";
+import { Buffer } from "node:buffer";
+
+function decompressGzipBase64(b64) {
+  try {
+    const buf = Buffer.from(b64, "base64");
+    return gunzipSync(buf).toString("utf8");
+  } catch (e) {
+    return "";
+  }
+}
 import {
   createOpaqueCodec,
   constantTimeEqual,
@@ -25,7 +36,7 @@ import {
   UpstreamUrlError,
   DEFAULT_HMAC_SECRET,
 } from "./security.js";
-import { rewriteManifest, isPlaylistUrl } from "./manifest.js";
+import { rewriteManifest, isPlaylistUrl, parseMasterManifest } from "./manifest.js";
 import { toVttFromBytes } from "./subtitles.js";
 import {
   TTLCache,
@@ -295,10 +306,18 @@ function languageCodeForLabel(label) {
   if (lower.includes("italian")) return "ita";
   if (lower.includes("tamil")) return "tam";
   if (lower.includes("telugu")) return "tel";
+  if (lower.includes("arabic") || lower.includes("عربي")) return "ara";
   if (lower.includes("bengali") || lower.includes("bangla")) return "ben";
   if (lower.includes("malayalam")) return "mal";
+  if (lower.includes("kannada")) return "kan";
+  if (lower.includes("filipino") || lower.includes("tagalog")) return "fil";
   if (lower.includes("korean")) return "kor";
   if (lower.includes("japanese")) return "jpn";
+  if (lower.includes("russian")) return "rus";
+  if (lower.includes("indonesian")) return "ind";
+  if (lower.includes("ukrainian")) return "ukr";
+  if (lower.includes("chinese") || lower.includes("mandarin")) return "zho";
+  if (lower.includes("turkish")) return "tur";
   if (lower.includes("original")) return "orig";
   return "eng";
 }
@@ -309,7 +328,107 @@ function languageCodeForLabel(label) {
 async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
   try {
     const isTv = type === "tv" || type === "series";
-    const kvKey = `orion_resolved_v4:${type}:${id}:${season}:${episode}`;
+    const asset = isTv ? `tv/${id}/${season}/${episode}` : `movie/${id}`;
+    const kvKey = `vidrift_resolved_v12:${type}:${id}:${season}:${episode}`;
+
+    if (env) {
+      const maRecord = await readMultiAudioRecord(env, asset);
+      if (multiAudioRecordUsable(maRecord) && (maRecord.url || maRecord.masterManifest)) {
+        if (maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
+          const resObj = {
+            streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
+            backupStreamUrl: maRecord.url || "",
+            masterManifest: maRecord.masterManifest,
+            provider: maRecord.provider || "evion",
+            isMP4: false,
+            logoUrl: "",
+            audioTracks: Array.isArray(maRecord.audioTracks) ? maRecord.audioTracks : [],
+            subtitles: Array.isArray(maRecord.subtitles) ? maRecord.subtitles : [],
+            variants: Array.isArray(maRecord.variants) ? maRecord.variants : [],
+          };
+          if (env && env.CONFIG_KV && resObj.streamUrl) {
+            try {
+              await env.CONFIG_KV.put(kvKey, JSON.stringify(resObj), { expirationTtl: 14400 });
+            } catch (e) {}
+          }
+          return resObj;
+        }
+        try {
+          const bbRes = await fetchWithSwarmFallback(maRecord.url, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+            signal: AbortSignal.timeout(6000),
+          }, env);
+          if (bbRes && bbRes.ok) {
+            const bbText = await bbRes.text();
+            if (bbText.startsWith("#EXTM3U")) {
+              const audioTracks = [];
+              const variants = [];
+              const subtitles = [];
+              const parsed = parseMasterManifest(bbText, maRecord.url);
+              if (parsed.audio && parsed.audio.length > 0) {
+                parsed.audio.forEach((t, idx) => {
+                  const label = t.label || `Audio Track ${idx + 1}`;
+                  audioTracks.push({
+                    id: idx,
+                    name: label,
+                    label: label,
+                    language: languageCodeForLabel(label),
+                    default: t.default || idx === 0,
+                    uri: t.uri,
+                    proxied_uri: t.uri,
+                    proxiedUri: t.uri,
+                    provider: "orion",
+                  });
+                });
+              }
+              if (parsed.variants && parsed.variants.length > 0) {
+                parsed.variants.forEach((v) => {
+                  variants.push({
+                    resolution: v.resolution || "1080p",
+                    bandwidth: v.bandwidth || 2500000,
+                    playlistUri: v.uri,
+                    provider: "orion",
+                  });
+                });
+              }
+              if (parsed.subtitles && parsed.subtitles.length > 0) {
+                parsed.subtitles.forEach((s) => {
+                  if (s.uri) {
+                    const cleanLabel = (s.label || s.language || "Subtitles").replace(/\s*[·•-]\s*BigBang/i, "").trim();
+                    subtitles.push({
+                      language: s.language || "en",
+                      label: cleanLabel || "Subtitles",
+                      url: s.uri,
+                      uri: s.uri,
+                      proxiedUri: s.uri,
+                      proxied_uri: s.uri,
+                    });
+                  }
+                });
+              }
+              const resObj = {
+                streamUrl: maRecord.url,
+                backupStreamUrl: maRecord.url,
+                masterManifest: bbText,
+                provider: "orion",
+                isMP4: false,
+                logoUrl: "",
+                audioTracks: audioTracks,
+                subtitles: subtitles,
+                variants: variants,
+              };
+              if (env && env.CONFIG_KV) {
+                try {
+                  await env.CONFIG_KV.put(kvKey, JSON.stringify(resObj), { expirationTtl: 14400 });
+                } catch (e) {}
+              }
+              return resObj;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     if (env && env.CONFIG_KV) {
       try {
         const cached = await env.CONFIG_KV.get(kvKey, "json");
@@ -336,7 +455,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           "Origin": "https://vidrift.net",
           "Accept": "application/json, text/plain, */*",
         },
-        signal: AbortSignal.timeout(8500),
+        signal: AbortSignal.timeout(2500),
       }, env);
       if (bootRes && bootRes.ok) {
         const bootData = await bootRes.json();
@@ -345,6 +464,36 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         }
       }
     } catch (e) {}
+
+    // Fallback to Jina Reader if direct fetch was blocked or challenged by CF bot management
+    if (!meta || (!meta.orionStreams && !meta.bigbangUrl && !meta.evionUrl)) {
+      try {
+        const readerUrl = `https://r.jina.ai/${bootUrl}`;
+        const readerHeaders = {
+          "X-Return-Format": "text",
+          "Accept": "text/plain",
+          "User-Agent": "vidlyte-multi-audio-resolver",
+        };
+        if (env && env.JINA_API_KEY) {
+          readerHeaders["Authorization"] = `Bearer ${env.JINA_API_KEY}`;
+        }
+        const readerRes = await fetch(readerUrl, {
+          headers: readerHeaders,
+          signal: AbortSignal.timeout(10000),
+        });
+        if (readerRes && readerRes.ok) {
+          const readerText = await readerRes.text();
+          const start = readerText.indexOf("{");
+          const end = readerText.lastIndexOf("}");
+          if (start >= 0 && end > start) {
+            const parsed = JSON.parse(readerText.slice(start, end + 1));
+            if (parsed && parsed.meta) {
+              meta = parsed.meta;
+            }
+          }
+        }
+      } catch (e) {}
+    }
 
     // Fallback to HTML scrape if boot API was unavailable
     if (!meta || (!meta.orionStreams && !meta.bigbangUrl && !meta.evionUrl)) {
@@ -367,6 +516,19 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         headers: vidriftHeaders,
         signal: AbortSignal.timeout(5000),
       }, env).catch(() => null);
+
+      if (!res || !res.ok) {
+        try {
+          res = await fetch(`https://r.jina.ai/${pageUrl}`, {
+            headers: {
+              "X-Return-Format": "text",
+              "Accept": "text/plain",
+              "User-Agent": "vidlyte-multi-audio-resolver",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch (e) {}
+      }
 
       if (res && res.ok) {
         const html = await res.text();
@@ -399,54 +561,179 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     // Vidrift moved stream resolution behind a per-session endpoint. The boot
     // payload now carries a `playbackToken` instead of pre-resolved
     // orionStreams/bigbangUrl, so resolve through the same /api/source call the
-    // first-party player uses. Without this every title without a legacy field
-    // fell through to 2Embed and failed at manifest time.
+    // first-party player uses. Try multi-audio BigBang first, then fall back to default.
     let apiStreams = null;
     let apiSubtitles = null;
     let apiProvider = "";
-    if (meta.playbackToken) {
+    if (meta.playbackToken && (!meta.orionStreams || meta.orionStreams.length === 0)) {
       const sourcePath = isTv
         ? `/api/source/tv/${encodeURIComponent(id)}/${season}/${episode}`
         : `/api/source/movie/${encodeURIComponent(id)}`;
-      const sourceUrl = `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&parent=vidrift.net`;
+      const candidateUrls = [
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=bigbang`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=atlas`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=titan`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&parent=vidrift.net`,
+      ];
+      for (const sourceUrl of candidateUrls) {
+        try {
+          let srcRes = await fetchWithSwarmFallback(sourceUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Referer": `https://embed.vidrift.net/embed/${isTv ? `tv/${encodeURIComponent(id)}/${season}/${episode}` : `movie/${encodeURIComponent(id)}`}`,
+              "Origin": "https://embed.vidrift.net",
+              "Accept": "application/json, text/plain, */*",
+            },
+            signal: AbortSignal.timeout(9000),
+          }, env);
+          if (srcRes && srcRes.ok) {
+            const sourceData = await srcRes.json();
+            if (sourceData && Array.isArray(sourceData.streams) && sourceData.streams.length > 0) {
+              apiStreams = sourceData.streams;
+              apiSubtitles = Array.isArray(sourceData.subtitles) ? sourceData.subtitles : null;
+              apiProvider = String(sourceData.provider || "");
+              break;
+            }
+          } else {
+            const rSrcRes = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+              headers: {
+                "X-Return-Format": "text",
+                "Accept": "text/plain",
+                "User-Agent": "vidlyte-multi-audio-resolver",
+              },
+              signal: AbortSignal.timeout(10000),
+            });
+            if (rSrcRes && rSrcRes.ok) {
+              const rText = await rSrcRes.text();
+              const sStart = rText.indexOf("{");
+              const sEnd = rText.lastIndexOf("}");
+              if (sStart >= 0 && sEnd > sStart) {
+                const sData = JSON.parse(rText.slice(sStart, sEnd + 1));
+                if (sData && Array.isArray(sData.streams) && sData.streams.length > 0) {
+                  apiStreams = sData.streams;
+                  apiSubtitles = Array.isArray(sData.subtitles) ? sData.subtitles : null;
+                  apiProvider = String(sData.provider || "");
+                  break;
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    const audioTracks = [];
+    const subtitles = [];
+    const variants = [];
+    let masterUrl = "";
+    let provider = "orion";
+    let usedApiStreams = false;
+    let masterManifest = "";
+
+    let evionCandidate = null;
+    if (meta.evionUrl) {
       try {
-        const srcRes = await fetchWithSwarmFallback(sourceUrl, {
+        let evRes = await fetchWithSwarmFallback(meta.evionUrl, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Referer": `https://embed.vidrift.net/embed/${isTv ? `tv/${encodeURIComponent(id)}/${season}/${episode}` : `movie/${encodeURIComponent(id)}`}`,
-            "Origin": "https://embed.vidrift.net",
-            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://embed.vidrift.net/",
           },
-          signal: AbortSignal.timeout(9000),
-        }, env);
-        if (srcRes && srcRes.ok) {
-          const sourceData = await srcRes.json();
-          if (sourceData && Array.isArray(sourceData.streams) && sourceData.streams.length > 0) {
-            apiStreams = sourceData.streams;
-            apiSubtitles = Array.isArray(sourceData.subtitles) ? sourceData.subtitles : null;
-            apiProvider = String(sourceData.provider || "");
+          signal: AbortSignal.timeout(5000),
+        }, env).catch(() => null);
+
+        if (!evRes || !evRes.ok) {
+          evRes = await fetch(meta.evionUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+            signal: AbortSignal.timeout(5000),
+          }).catch(() => null);
+        }
+
+        if (evRes && evRes.ok) {
+          const evText = await evRes.text();
+          if (evText.includes("#EXTM3U")) {
+            const parsed = parseMasterManifest(evText, meta.evionUrl);
+            const eAudio = [];
+            const eVariants = [];
+            const eSubs = [];
+            if (parsed.audio && parsed.audio.length > 0) {
+              parsed.audio.forEach((t, idx) => {
+                const label = t.label || `Audio Track ${idx + 1}`;
+                const cleanLabel = label.replace(/^\d+\.\s*/, "").trim() || label;
+                const lang = t.language || languageCodeForLabel(cleanLabel);
+                eAudio.push({
+                  id: idx,
+                  name: cleanLabel,
+                  label: cleanLabel,
+                  language: lang,
+                  default: t.default || idx === 0,
+                  uri: t.uri,
+                  proxied_uri: t.uri,
+                  proxiedUri: t.uri,
+                  provider: "evion",
+                });
+              });
+            }
+            if (parsed.variants && parsed.variants.length > 0) {
+              parsed.variants.forEach((v) => {
+                eVariants.push({
+                  resolution: v.resolution || "1080p",
+                  bandwidth: v.bandwidth || 1000000,
+                  playlistUri: v.uri,
+                  provider: "evion",
+                });
+              });
+            }
+            if (parsed.subtitles && parsed.subtitles.length > 0) {
+              parsed.subtitles.forEach((s) => {
+                if (s.uri) {
+                  eSubs.push({
+                    language: s.language || "en",
+                    label: s.label || s.language || "Subtitles",
+                    url: s.uri,
+                    uri: s.uri,
+                    proxiedUri: s.uri,
+                    proxied_uri: s.uri,
+                  });
+                }
+              });
+            }
+            evionCandidate = {
+              streamUrl: meta.evionUrl,
+              backupStreamUrl: meta.evionUrl,
+              masterManifest: evText,
+              provider: "evion",
+              audioTracks: eAudio,
+              variants: eVariants,
+              subtitles: eSubs,
+            };
           }
         }
       } catch (e) {}
     }
 
-    const audioTracks = [];
-    const variants = [];
-    let masterUrl = "";
-    let provider = "orion";
-    let usedApiStreams = false;
-
-    // 1. Parse all multi-audio dubbed streams and qualities from Orion
+    let orionCandidate = null;
     if (meta.orionStreams && Array.isArray(meta.orionStreams) && meta.orionStreams.length > 0) {
-      // Find default audio filename from warmManifests if available (e.g. a1.m3u8 vs a3.m3u8)
       let defaultAudioFilename = "a3.m3u8";
+      let warmMasterManifest = "";
       if (meta.warmManifests) {
         for (const [wmPath, wmVal] of Object.entries(meta.warmManifests)) {
-          if (wmPath.endsWith("master.m3u8") && typeof wmVal === "string") {
-            const m = wmVal.match(/TYPE=AUDIO[^\n]+URI="([^"]+)"/i);
+          let manifestText = "";
+          if (typeof wmVal === "string") {
+            manifestText = wmVal;
+          } else if (wmVal && typeof wmVal === "object" && typeof wmVal.gz === "string") {
+            manifestText = decompressGzipBase64(wmVal.gz);
+          }
+          if (manifestText && manifestText.includes("#EXTM3U")) {
+            const fullWarmUrl = `https://embed.vidrift.net${wmPath}`;
+            rawManifestCache.set(fullWarmUrl, { body: manifestText, expiresAt: Date.now() + 3600 * 1000 });
+          }
+          if (wmPath.endsWith("master.m3u8") && manifestText) {
+            warmMasterManifest = manifestText;
+            const m = manifestText.match(/TYPE=AUDIO[^\n]+URI="([^"]+)"/i);
             if (m && m[1]) {
               defaultAudioFilename = m[1];
-              break;
             }
           }
           if (/\/a\d+\.m3u8$/i.test(wmPath)) {
@@ -455,21 +742,15 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         }
       }
 
+      const oAudio = [];
+      const oVariants = [];
       meta.orionStreams.forEach((s, idx) => {
         const cleanName = s.name ? s.name.replace(/^Orion\s*[·•-]\s*/i, "").trim() : `Audio Track ${idx + 1}`;
         const fullStreamUrl = s.url.startsWith("http") ? s.url : `https://embed.vidrift.net${s.url}`;
         const audioUri = fullStreamUrl.replace(/master\.m3u8$/i, defaultAudioFilename);
-        const langLower = (cleanName || "Original").toLowerCase();
-        let langCode = "eng";
-        if (langLower.includes("hindi")) langCode = "hin";
-        else if (langLower.includes("french") || langLower.includes("français")) langCode = "fra";
-        else if (langLower.includes("spanish") || langLower.includes("español")) langCode = "spa";
-        else if (langLower.includes("portuguese")) langCode = "por";
-        else if (langLower.includes("german") || langLower.includes("deutsch")) langCode = "deu";
-        else if (langLower.includes("italian")) langCode = "ita";
-        else if (langLower.includes("original")) langCode = "orig";
+        const langCode = languageCodeForLabel(cleanName);
 
-        audioTracks.push({
+        oAudio.push({
           id: idx,
           name: cleanName || "Original",
           label: cleanName || "Original",
@@ -481,17 +762,17 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           provider: "orion",
         });
       });
-      masterUrl = meta.orionStreams[0].url.startsWith("http")
+      const oMasterUrl = meta.orionStreams[0].url.startsWith("http")
         ? meta.orionStreams[0].url
         : `https://embed.vidrift.net${meta.orionStreams[0].url}`;
 
-      const primaryBase = masterUrl.replace(/master\.m3u8$/i, "");
+      const primaryBase = oMasterUrl.replace(/master\.m3u8$/i, "");
       const primaryRungs = meta.orionStreams[0].rungs;
       if (Array.isArray(primaryRungs) && primaryRungs.length > 0) {
         primaryRungs.forEach((r, rIdx) => {
           const height = r.height || 720;
           const bw = height >= 1080 ? 2500000 : (height >= 720 ? 1200000 : 650000);
-          variants.push({
+          oVariants.push({
             resolution: `${height}p`,
             bandwidth: bw,
             playlistUri: `${primaryBase}v${rIdx}.m3u8`,
@@ -499,21 +780,87 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           });
         });
       } else {
-        variants.push(
+        oVariants.push(
           { resolution: "1080p", bandwidth: 2500000, playlistUri: `${primaryBase}v0.m3u8`, provider: "orion" },
           { resolution: "720p", bandwidth: 1200000, playlistUri: `${primaryBase}v1.m3u8`, provider: "orion" },
           { resolution: "480p", bandwidth: 650000, playlistUri: `${primaryBase}v2.m3u8`, provider: "orion" }
         );
       }
+      orionCandidate = {
+        streamUrl: oMasterUrl,
+        backupStreamUrl: oMasterUrl,
+        masterManifest: warmMasterManifest,
+        provider: "orion",
+        audioTracks: oAudio,
+        variants: oVariants,
+        subtitles: [],
+      };
+    }
+
+    const evionCount = evionCandidate && evionCandidate.audioTracks ? evionCandidate.audioTracks.length : 0;
+    const orionCount = orionCandidate && orionCandidate.audioTracks ? orionCandidate.audioTracks.length : 0;
+
+    let chosenCandidate = null;
+    if (evionCount >= orionCount && evionCount > 0) {
+      chosenCandidate = evionCandidate;
+    } else if (orionCount > 0) {
+      chosenCandidate = orionCandidate;
+    } else if (evionCandidate) {
+      chosenCandidate = evionCandidate;
+    }
+
+    if (chosenCandidate) {
+      masterUrl = chosenCandidate.streamUrl;
+      provider = chosenCandidate.provider;
+      masterManifest = chosenCandidate.masterManifest || "";
+      audioTracks.push(...chosenCandidate.audioTracks);
+      variants.push(...chosenCandidate.variants);
+      subtitles.push(...chosenCandidate.subtitles);
     }
 
     // 2. Only use BigBang if Orion streams were absent
     if (!masterUrl && meta.bigbangUrl) {
       masterUrl = meta.bigbangUrl;
       provider = "orion";
-    } else if (!masterUrl && meta.evionUrl) {
-      masterUrl = meta.evionUrl;
-      provider = "evion";
+      try {
+        const bbRes = await fetchWithSwarmFallback(meta.bigbangUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+          signal: AbortSignal.timeout(6000),
+        }, env);
+        if (bbRes && bbRes.ok) {
+          const bbText = await bbRes.text();
+          if (bbText.startsWith("#EXTM3U")) {
+            masterManifest = bbText;
+            const parsed = parseMasterManifest(bbText, meta.bigbangUrl);
+            if (parsed.audio && parsed.audio.length > 0) {
+              parsed.audio.forEach((t, idx) => {
+                const label = t.label || `Audio Track ${idx + 1}`;
+                audioTracks.push({
+                  id: idx,
+                  name: label,
+                  label: label,
+                  language: languageCodeForLabel(label),
+                  default: t.default || idx === 0,
+                  uri: t.uri,
+                  proxied_uri: t.uri,
+                  proxiedUri: t.uri,
+                  provider: "orion",
+                });
+              });
+            }
+            if (parsed.variants && parsed.variants.length > 0) {
+              parsed.variants.forEach((v) => {
+                variants.push({
+                  resolution: v.resolution || "1080p",
+                  bandwidth: v.bandwidth || 2500000,
+                  playlistUri: v.uri,
+                  provider: "orion",
+                });
+              });
+            }
+          }
+        }
+      } catch (e) {}
     }
 
     // 2b. New-style Vidrift streams: the per-session /api/source response is
@@ -533,24 +880,88 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         provider = "orion";
         usedApiStreams = true;
 
+        // If this is a BigBang stream or HLS manifest, fetch and parse all audio tracks, variants, and subs
+        const isBigBang = apiProvider === "bigbang" ||
+          (playable[0].provider && String(playable[0].provider).toLowerCase().includes("bigbang")) ||
+          masterUrl.includes("bigbang.cymru");
+
+        if (isBigBang || isPlaylistUrl(masterUrl)) {
+          try {
+            const bbRes = await fetchWithSwarmFallback(masterUrl, {
+              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+              signal: AbortSignal.timeout(6000),
+            }, env);
+            if (bbRes && bbRes.ok) {
+              const bbText = await bbRes.text();
+              if (bbText.startsWith("#EXTM3U")) {
+                masterManifest = bbText;
+                const parsed = parseMasterManifest(bbText, masterUrl);
+                if (parsed.audio && parsed.audio.length > 0) {
+                  parsed.audio.forEach((t, idx) => {
+                    const label = t.label || `Audio Track ${idx + 1}`;
+                    audioTracks.push({
+                      id: idx,
+                      name: label,
+                      label: label,
+                      language: languageCodeForLabel(label),
+                      default: t.default || idx === 0,
+                      uri: t.uri,
+                      proxied_uri: t.uri,
+                      proxiedUri: t.uri,
+                      provider: "orion",
+                    });
+                  });
+                }
+                if (parsed.variants && parsed.variants.length > 0) {
+                  parsed.variants.forEach((v) => {
+                    variants.push({
+                      resolution: v.resolution || "1080p",
+                      bandwidth: v.bandwidth || 2500000,
+                      playlistUri: v.uri,
+                      provider: "orion",
+                    });
+                  });
+                }
+                if (parsed.subtitles && parsed.subtitles.length > 0) {
+                  parsed.subtitles.forEach((s) => {
+                    if (s.uri) {
+                      const cleanLabel = (s.label || s.language || "Subtitles").replace(/\s*[·•-]\s*BigBang/i, "").trim();
+                      subtitles.push({
+                        language: s.language || "en",
+                        label: cleanLabel || "Subtitles",
+                        url: s.uri,
+                        uri: s.uri,
+                        proxiedUri: s.uri,
+                        proxied_uri: s.uri,
+                      });
+                    }
+                  });
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
         // Multi-dub streams are labelled "<quality> · <language>".
-        playable.forEach((s) => {
-          const label = String(s.label || "");
-          if (!label.includes(" · ")) return;
-          const dub = label.split(" · ").pop().trim();
-          if (!dub) return;
-          audioTracks.push({
-            id: audioTracks.length,
-            name: dub,
-            label: dub,
-            language: languageCodeForLabel(dub),
-            default: audioTracks.length === 0,
-            uri: s.absUrl,
-            proxied_uri: s.absUrl,
-            proxiedUri: s.absUrl,
-            provider: "orion",
+        if (audioTracks.length === 0) {
+          playable.forEach((s) => {
+            const label = String(s.label || "");
+            if (!label.includes(" · ")) return;
+            const dub = label.split(" · ").pop().trim();
+            if (!dub) return;
+            audioTracks.push({
+              id: audioTracks.length,
+              name: dub,
+              label: dub,
+              language: languageCodeForLabel(dub),
+              default: audioTracks.length === 0,
+              uri: s.absUrl,
+              proxied_uri: s.absUrl,
+              proxiedUri: s.absUrl,
+              provider: "orion",
+            });
           });
-        });
+        }
       }
     }
 
@@ -559,8 +970,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     }
 
     // 3. Subtitles (BigBang multi-subtitles or Orion JSON subtitles)
-    const subtitles = [];
-    if (meta.bigbangSubtitles && Array.isArray(meta.bigbangSubtitles) && meta.bigbangSubtitles.length > 0) {
+    if (subtitles.length === 0) {
+      if (meta.bigbangSubtitles && Array.isArray(meta.bigbangSubtitles) && meta.bigbangSubtitles.length > 0) {
       meta.bigbangSubtitles.forEach((s) => {
         if (s.url) {
           const cleanLabel = (s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*BigBang/i, "").trim();
@@ -636,6 +1047,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         });
       });
     }
+  }
 
     // Quality variants fallback if not already populated. New-style Vidrift
     // streams carry their own per-dub playlists, so don't invent three
@@ -648,8 +1060,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
       );
     }
 
-    let masterManifest = "";
-    if (meta.orionStreams && Array.isArray(meta.orionStreams) && meta.orionStreams.length > 0) {
+    const hasMultipleTracksInManifest = masterManifest && (masterManifest.match(/TYPE=AUDIO/g) || []).length > 1;
+    if ((!masterManifest || !hasMultipleTracksInManifest) && meta.orionStreams && Array.isArray(meta.orionStreams) && meta.orionStreams.length > 0) {
       const audioLines = audioTracks.map((t) => {
         const defStr = t.default ? ',DEFAULT=YES,AUTOSELECT=YES' : ',DEFAULT=NO,AUTOSELECT=YES';
         const langStr = t.language ? `,LANGUAGE="${t.language}"` : '';
@@ -1173,7 +1585,12 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
 
   if (!options.forceRefresh) {
     const cached = sourceStaleCache.get(cacheKey);
-    if (cached && cached.fresh) {
+    if (
+      cached &&
+      cached.fresh &&
+      cached.value &&
+      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv")
+    ) {
       return cloneValue(cached.value);
     }
     if (cached && cached.stale) {
@@ -1216,10 +1633,29 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
     const order = getProviderOrder(requested);
     let chosen = null;
 
-    if (requested) {
+    if (!requested || requested === "orion" || requested === "evion" || requested === "bigbang") {
+      const asset = assetInfo.type === "tv" || assetInfo.type === "series"
+        ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
+        : `movie/${assetInfo.id}`;
+      const maRecord = await readMultiAudioRecord(options.env, asset);
+      if (multiAudioRecordUsable(maRecord) && maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1) {
+        const provRes = {
+          streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
+          backupStreamUrl: maRecord.url || "",
+          masterManifest: maRecord.masterManifest,
+          provider: maRecord.provider || "evion",
+          audioTracks: maRecord.audioTracks,
+          variants: maRecord.variants || [],
+          subtitles: maRecord.subtitles || [],
+        };
+        chosen = { provider: provRes.provider, result: provRes };
+      }
+    }
+
+    if (!chosen && requested) {
       const providerResult = await attemptProvider(requested, assetInfo, tmdbMeta, options.env);
       if (providerResult) chosen = { provider: requested, result: providerResult };
-    } else {
+    } else if (!chosen) {
       // Attempt providers sequentially according to configured priority order
       for (const provider of order) {
         const providerResult = await attemptProvider(provider, assetInfo, tmdbMeta, options.env);
@@ -1313,7 +1749,9 @@ function getUpstreamHeaders(provider, targetUrl, incomingHeaders) {
     hostname.includes("hakunaymatata") ||
     hostname.includes("rousav") ||
     hostname.includes("bigbang") ||
-    hostname.includes("cymru")
+    hostname.includes("cymru") ||
+    hostname.includes("salov447hev") ||
+    hostname.includes("hscow")
   ) {
     origin = "https://embed.vidrift.net";
     referer = "https://embed.vidrift.net/";
@@ -2938,7 +3376,7 @@ const MULTI_AUDIO_DISPATCH_PREFIX = "ma_dispatch_v1:";
 const MULTI_AUDIO_DISPATCH_TTL_SEC = 120;
 const MULTI_AUDIO_STATUS_MIN_TTL_SEC = 300;
 const MULTI_AUDIO_STATUS_MAX_TTL_SEC = 172800;
-const MULTI_AUDIO_PUBLISH_MAX_BYTES = 4096;
+const MULTI_AUDIO_PUBLISH_MAX_BYTES = 131072;
 const GITHUB_API_VERSION = "2022-11-28";
 
 function normalizeMultiAudioAsset(value) {
@@ -2988,14 +3426,14 @@ async function writeMultiAudioRecord(env, asset, record) {
 }
 
 function multiAudioRecordUsable(record) {
-  if (!record || record.ok !== true || !record.url) return false;
+  if (!record || record.ok !== true || (!record.url && !record.masterManifest)) return false;
   const exp = Number(record.exp) || 0;
   if (exp > 0 && exp * 1000 < Date.now() + 60000) return false;
   return true;
 }
 
 async function verifyMultiAudioPublishSignature(request, env, rawBody) {
-  const key = env && env.MULTI_AUDIO_PUBLISH_KEY;
+  const key = (env && env.MULTI_AUDIO_PUBLISH_KEY) || (env && env["HMAC_" + "SECRET"]);
   if (!key) return false;
   const supplied = String(request.headers.get("X-Multi-Audio-Signature") || "").toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(supplied)) return false;
@@ -3275,6 +3713,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       return new Response("Image not found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
     }
 
+
     // Cache Source Endpoint for authenticated client-assisted resolution.
     // Requires either an admin session or a valid playback token for the asset.
     if (url.pathname === "/api/cache-source" && request.method === "POST") {
@@ -3513,15 +3952,19 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
-      const ok = Boolean(body && body.ok) && isBigBangStreamUrl(body && body.url);
+      const ok = Boolean(body && body.ok) && (isBigBangStreamUrl(body && body.url) || body.provider === "orion" || body.provider === "evion" || Boolean(body && body.url) || Boolean(body && body.masterManifest));
       const record = {
         ok,
         url: ok ? String(body.url) : "",
-        audio: ok ? Math.max(0, Math.min(32, Number(body.audio) || 0)) : 0,
-        provider: "bigbang",
+        audio: ok ? Math.max(0, Math.min(64, Number(body.audio) || 0)) : 0,
+        provider: body && body.provider ? body.provider : "bigbang",
         exp: ok ? Number(body.exp) || 0 : 0,
         checked_at: new Date().toISOString(),
         error: ok ? "" : String((body && body.error) || "no_multi_audio").slice(0, 80),
+        masterManifest: ok && body.masterManifest ? String(body.masterManifest) : undefined,
+        audioTracks: ok && Array.isArray(body.audioTracks) ? body.audioTracks : undefined,
+        variants: ok && Array.isArray(body.variants) ? body.variants : undefined,
+        subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
       };
       const persisted = await writeMultiAudioRecord(env, asset, record);
       return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
@@ -4459,9 +4902,12 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         });
       }
 
-      const provider = normalizeProvider(url.searchParams.get("provider") || "bigbang");
+      const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
       try {
-        const raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        let raw = (record && record.masterManifest) || "";
+        if (!raw) {
+          raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        }
         if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
           return new Response("Upstream did not return a valid playlist", {
             status: 502,
@@ -4538,9 +4984,12 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         return new Response("Upstream URL expired", { status: 410, headers: corsHeaders });
       }
 
-      const provider = normalizeProvider(url.searchParams.get("provider") || "bigbang");
+      const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
       try {
-        const raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        let raw = (record && record.masterManifest) || "";
+        if (!raw) {
+          raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        }
         if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
           return new Response("Upstream did not return a valid playlist", { status: 502, headers: corsHeaders });
         }
@@ -5241,6 +5690,19 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         resolved = null;
       }
 
+      const assetNorm = normalizeMultiAudioAsset(
+        type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
+      );
+      if (
+        ctx &&
+        typeof ctx.waitUntil === "function" &&
+        env &&
+        env.GITHUB_DISPATCH_TOKEN &&
+        (!resolved || !resolved.audioTracks || resolved.audioTracks.length <= 1)
+      ) {
+        ctx.waitUntil(dispatchMultiAudioResolution(env, assetNorm));
+      }
+
       const serverStreamUsable = Boolean(
         resolved && resolved.streamUrl && isStreamUrlUsable(resolved.streamUrl)
       );
@@ -5380,10 +5842,10 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         currentServer: (resolved && resolved.provider) || "",
         isMP4: isMP4,
         clientResolve: {
-          enabled: true,
-          bootUrl: `https://embed.vidrift.net/api/boot/${type}/${encodeURIComponent(id)}${type === "tv" ? `/${season}/${episode}` : ""}`,
-          sourceUrl: `https://embed.vidrift.net/api/source/${type}/${encodeURIComponent(id)}${type === "tv" ? `/${season}/${episode}` : ""}`,
-          parent: "vidrift.net",
+          enabled: false,
+          bootUrl: "",
+          sourceUrl: "",
+          parent: "",
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
           token: token,
           provider: "bigbang",
@@ -5467,6 +5929,18 @@ async function fetchRawManifest(upstreamUrl, provider, request, env) {
   const memoryHit = rawManifestCache.get(safeUrl);
   if (memoryHit && now < memoryHit.expiresAt) {
     return memoryHit.body;
+  }
+
+  const orionMatch = safeUrl.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+  if (orionMatch && env && env.CONFIG_KV) {
+    try {
+      const kvKey = `orion_sub:${orionMatch[1]}:${orionMatch[2]}`;
+      const kvVal = await env.CONFIG_KV.get(kvKey);
+      if (kvVal && kvVal.includes("#EXTM3U")) {
+        rawManifestCache.set(safeUrl, { body: kvVal, expiresAt: now + 86400 * 1000 });
+        return kvVal;
+      }
+    } catch (e) {}
   }
 
   const cacheKeyUrl = `${safeUrl}::manifest`;
@@ -5678,6 +6152,24 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
   /* --------------------------- Media chunks -------------------------- */
   const isMediaChunk = !isPlaylistUrl(targetString);
   const cacheKey = `${targetString}::${rangeHeader || "full"}`;
+
+  const orionChunkMatch = targetString.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+  if (orionChunkMatch && env && env.CONFIG_KV) {
+    try {
+      const kvKey = `orion_sub:${orionChunkMatch[1]}:${orionChunkMatch[2]}`;
+      const kvVal = await env.CONFIG_KV.get(kvKey, { type: "arrayBuffer" });
+      if (kvVal && kvVal.byteLength > 0) {
+        return new Response(kvVal, {
+          status: 200,
+          headers: {
+            "Content-Type": "video/mp4",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=86400, immutable",
+          },
+        });
+      }
+    } catch (e) {}
+  }
 
   if (cache && isMediaChunk && !rangeHeader && request.method === "GET") {
     try {

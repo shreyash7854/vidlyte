@@ -5516,7 +5516,7 @@
             if (!playbackToken) throw new Error('boot_no_token');
             setClientResolveStatus({ step: 'source' });
             var sourceUrl = cr.sourceUrl + '?token=' + encodeURIComponent(playbackToken) +
-              '&parent=' + encodeURIComponent(cr.parent || 'vidrift.net') +
+              '&parent=' + encodeURIComponent(cr.parent || '') +
               '&provider=' + encodeURIComponent(provider);
             return fetchWithTimeout(sourceUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 6000);
           })
@@ -5593,7 +5593,7 @@
         return pending;
       }
 
-      // Remote resolver fallback: when this browser cannot reach vidrift (ISP
+      // Remote resolver fallback: when browser cannot reach upstream (ISP
       // block, extension, m3u8 sniffer), the Worker dispatches a GitHub Actions
       // run that resolves the signed BigBang URL from outside the block. The
       // result lives in KV and is handed back here as a gateway URL.
@@ -5771,7 +5771,8 @@
       // recoverable without reloading the whole page.
       function appendMultiAudioReloadItem() {
         var cr = config.clientResolve;
-        if (!cr || !cr.enabled || config.provider === 'bigbang') return;
+        var remote = remoteResolverConfig();
+        if ((!cr || !cr.enabled) && !remote) return;
         var label = clientResolveStatus.state === 'failed' || clientResolveStatus.remoteState === 'failed'
           ? 'Reload multi-audio (retry)'
           : (clientResolveStatus.remoteState === 'resolving' || clientResolveStatus.remoteState === 'dispatching')
@@ -5807,26 +5808,59 @@
 
       var multiAudioNoticeShown = false;
 
-      if (!config.clientResolve || !config.clientResolve.enabled) {
+      var remote = remoteResolverConfig();
+      var hasClientDirect = Boolean(config.clientResolve && config.clientResolve.enabled && config.clientResolve.bootUrl);
+      var canUpgradeMultiAudio = Boolean(hasClientDirect || remote);
+
+      if (!canUpgradeMultiAudio) {
         startInitialPlayback(streamUrl);
       } else if (!streamUrl) {
-        // Nothing playable server-side: wait for the browser-assisted path.
+        // Nothing playable server-side: wait for the browser-assisted path or remote path.
         spinner.style.display = 'block';
-        resolveClientStream().then(function (clientStream) {
-          startInitialPlayback(clientStream && clientStream.url ? clientStream.url : '');
-        });
+        if (hasClientDirect) {
+          resolveClientStream().then(function (clientStream) {
+            if (clientStream && clientStream.url) {
+              startInitialPlayback(clientStream.url);
+            } else if (remote) {
+              return resolveRemoteMultiAudio(false).then(function (remoteStream) {
+                startInitialPlayback(remoteStream && remoteStream.url ? remoteStream.url : '');
+              });
+            } else {
+              startInitialPlayback('');
+            }
+          });
+        } else if (remote) {
+          resolveRemoteMultiAudio(false).then(function (remoteStream) {
+            startInitialPlayback(remoteStream && remoteStream.url ? remoteStream.url : '');
+          });
+        }
       } else {
         // Start instantly with the server stream, then upgrade to a multi-audio
         // rendition in the background when one is available.
         startInitialPlayback(streamUrl);
         setClientResolveStatus({ enabled: true });
-        if (config.provider !== 'bigbang' && (!config.audioTracks || config.audioTracks.length <= 1)) {
-          resolveClientStream().then(function (clientStream) {
-            var applied = applyClientUpgrade(clientStream);
-            if (applied) return;
-            // Browser blocked the provider or returned a single-audio master:
-            // ask the external resolver while the server stream keeps playing.
-            return resolveRemoteMultiAudio(false).then(function (remoteStream) {
+        if (!config.audioTracks || config.audioTracks.length <= 1) {
+          if (hasClientDirect) {
+            resolveClientStream().then(function (clientStream) {
+              var applied = applyClientUpgrade(clientStream);
+              if (applied) return;
+              if (remote) {
+                return resolveRemoteMultiAudio(false).then(function (remoteStream) {
+                  var remoteApplied = applyClientUpgrade(remoteStream);
+                  if (!remoteApplied && !multiAudioNoticeShown) {
+                    multiAudioNoticeShown = true;
+                    showPlayerToast(
+                      'Extra audio tracks did not load. Use Audio → Reload multi-audio to retry.',
+                      'Retry',
+                      function () { retryMultiAudio(true); },
+                      9000
+                    );
+                  }
+                });
+              }
+            });
+          } else if (remote) {
+            resolveRemoteMultiAudio(false).then(function (remoteStream) {
               var remoteApplied = applyClientUpgrade(remoteStream);
               if (!remoteApplied && !multiAudioNoticeShown) {
                 multiAudioNoticeShown = true;
@@ -5838,7 +5872,7 @@
                 );
               }
             });
-          });
+          }
         }
       }
 
