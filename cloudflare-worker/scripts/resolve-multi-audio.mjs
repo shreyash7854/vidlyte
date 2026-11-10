@@ -19,7 +19,6 @@
 
 import { createHmac } from "node:crypto";
 
-const VIDRIFT_BASE = "https://embed.vidrift.net";
 const PUBLISH_URL = (process.env.MULTI_AUDIO_PUBLISH_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
 const PUBLISH_KEY = process.env.MULTI_AUDIO_PUBLISH_KEY || "";
 const TIMEOUT_MS = Math.max(4000, Number(process.env.MULTI_AUDIO_TIMEOUT_MS) || 12000);
@@ -32,6 +31,35 @@ const BROWSER_HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
   "Accept-Language": "en-US,en;q=0.9",
 };
+
+// vidrift sits behind a Cloudflare edge rule that challenges some networks and
+// HTTP clients. Try several header profiles and edge hosts so one blocked path
+// does not fail the whole resolution.
+const HEADER_PROFILES = {
+  browser: {
+    Accept: "application/json",
+    Origin: "https://vid.lyte.workers.dev",
+    Referer: "https://vid.lyte.workers.dev/",
+    "User-Agent": BROWSER_HEADERS["User-Agent"],
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Not:A-Brand";v="99", "Chromium";v="157"',
+    "Sec-Fetch-Site": "cross-site",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+  },
+  minimal: {
+    Accept: "application/json",
+    "User-Agent": BROWSER_HEADERS["User-Agent"],
+  },
+  vidrift: {
+    Accept: "application/json, text/plain, */*",
+    Origin: "https://vidrift.net",
+    Referer: "https://vidrift.net/",
+    "User-Agent": BROWSER_HEADERS["User-Agent"],
+  },
+};
+
+const BOOT_HOSTS = ["https://embed.vidrift.net", "https://vidrift.net", "https://mb.vidrift.net"];
 
 function log(message, extra = {}) {
   // Only non-secret facts: asset, counts, status, timings.
@@ -76,45 +104,69 @@ async function fetchWithTimeout(url, options = {}) {
 
 async function resolveAsset(target) {
   const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
-  const bootUrl = `${VIDRIFT_BASE}/api/boot/${target.type}/${target.id}${suffix}`;
-  const bootStarted = Date.now();
-  const bootRes = await fetchWithTimeout(bootUrl, { headers: BROWSER_HEADERS });
-  if (!bootRes.ok) {
-    return { ok: false, error: `boot_http_${bootRes.status}`, latency_ms: Date.now() - bootStarted };
-  }
-  const boot = await bootRes.json().catch(() => null);
-  const token = boot && boot.meta && boot.meta.playbackToken;
-  if (!token) {
-    return { ok: false, error: "boot_no_token", latency_ms: Date.now() - bootStarted };
+  const started = Date.now();
+  const failures = [];
+  let boot = null;
+  let base = "";
+  let headers = null;
+
+  for (const candidateBase of BOOT_HOSTS) {
+    for (const [profileName, profileHeaders] of Object.entries(HEADER_PROFILES)) {
+      const bootUrl = `${candidateBase}/api/boot/${target.type}/${target.id}${suffix}`;
+      try {
+        const res = await fetchWithTimeout(bootUrl, { headers: profileHeaders });
+        if (!res.ok) {
+          failures.push(`${new URL(candidateBase).hostname}/${profileName}:${res.status}`);
+          continue;
+        }
+        const parsed = await res.json().catch(() => null);
+        if (!parsed || !parsed.meta || !parsed.meta.playbackToken) {
+          failures.push(`${new URL(candidateBase).hostname}/${profileName}:no_token`);
+          continue;
+        }
+        boot = parsed;
+        base = candidateBase;
+        headers = profileHeaders;
+        break;
+      } catch (error) {
+        failures.push(`${new URL(candidateBase).hostname}/${profileName}:${String((error && error.name) || "error")}`);
+      }
+    }
+    if (boot) break;
   }
 
+  if (!boot) {
+    return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 6).join(","), latency_ms: Date.now() - started };
+  }
+
+  const token = boot.meta.playbackToken;
   const sourceUrl =
-    `${VIDRIFT_BASE}/api/source/${target.type}/${target.id}${suffix}` +
+    `${base}/api/source/${target.type}/${target.id}${suffix}` +
     `?token=${encodeURIComponent(token)}&parent=vidrift.net&provider=bigbang`;
-  const sourceRes = await fetchWithTimeout(sourceUrl, { headers: BROWSER_HEADERS });
+  const sourceRes = await fetchWithTimeout(sourceUrl, { headers });
   if (!sourceRes.ok) {
-    return { ok: false, error: `source_http_${sourceRes.status}`, latency_ms: Date.now() - bootStarted };
+    return { ok: false, error: `source_http_${sourceRes.status}`, latency_ms: Date.now() - started };
   }
   const source = await sourceRes.json().catch(() => null);
   const streams = (source && Array.isArray(source.streams) && source.streams) || [];
   const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || ""))) || streams[0];
   if (!stream || !stream.url) {
-    return { ok: false, error: "no_stream", latency_ms: Date.now() - bootStarted };
+    return { ok: false, error: "no_stream", latency_ms: Date.now() - started };
   }
 
   const masterRes = await fetchWithTimeout(stream.url, {
     headers: { Accept: "*/*", "User-Agent": BROWSER_HEADERS["User-Agent"] },
   });
   if (!masterRes.ok) {
-    return { ok: false, error: `master_http_${masterRes.status}`, latency_ms: Date.now() - bootStarted };
+    return { ok: false, error: `master_http_${masterRes.status}`, latency_ms: Date.now() - started };
   }
   const master = await masterRes.text();
   if (!/^#EXTM3U/.test(master.trimStart())) {
-    return { ok: false, error: "master_not_m3u8", latency_ms: Date.now() - bootStarted };
+    return { ok: false, error: "master_not_m3u8", latency_ms: Date.now() - started };
   }
   const audio = (master.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
   if (audio < 2) {
-    return { ok: false, error: `single_audio_${audio}`, latency_ms: Date.now() - bootStarted };
+    return { ok: false, error: `single_audio_${audio}`, latency_ms: Date.now() - started };
   }
 
   let exp = 0;
@@ -123,7 +175,7 @@ async function resolveAsset(target) {
     exp = Number(parsed.searchParams.get("exp")) || 0;
   } catch (error) {}
 
-  return { ok: true, url: stream.url, audio, exp, latency_ms: Date.now() - bootStarted };
+  return { ok: true, url: stream.url, audio, exp, latency_ms: Date.now() - started };
 }
 
 async function publish(asset, result) {
@@ -173,6 +225,7 @@ for (const target of assets) {
     ok: Boolean(result.ok),
     audio: result.ok ? result.audio : 0,
     error: result.ok ? "" : result.error,
+    boot_failures: result.ok ? "" : result.boot_failures || "",
     latency_ms: result.latency_ms || 0,
     published: Boolean(published.ok),
     publish_status: published.status || 0,
