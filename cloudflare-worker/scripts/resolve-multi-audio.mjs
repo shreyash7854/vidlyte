@@ -21,7 +21,7 @@ import { createHmac } from "node:crypto";
 
 const PUBLISH_URL = (process.env.MULTI_AUDIO_PUBLISH_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
 const PUBLISH_KEY = process.env.MULTI_AUDIO_PUBLISH_KEY || "";
-const TIMEOUT_MS = Math.max(4000, Number(process.env.MULTI_AUDIO_TIMEOUT_MS) || 12000);
+const TIMEOUT_MS = Math.max(4000, Number(process.env.MULTI_AUDIO_TIMEOUT_MS) || 25000);
 
 const BROWSER_HEADERS = {
   Accept: "application/json",
@@ -102,6 +102,54 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// GitHub-hosted runner IPs are challenged by vidrift's Cloudflare edge, and
+// Cloudflare Worker egress is blocked too. Jina Reader is a free, no-card
+// public reader that fetches the URL from its own network and returns the raw
+// body when X-Return-Format is text. It is used only as a fallback, with
+// backoff for its anonymous rate limit.
+const READER_BASE = "https://r.jina.ai/";
+
+async function readerFetch(url, attempts = 3) {
+  let lastStatus = 0;
+  for (let index = 0; index < attempts; index++) {
+    const res = await fetchWithTimeout(`${READER_BASE}${url}`, {
+      headers: {
+        "X-Return-Format": "text",
+        Accept: "text/plain",
+        "User-Agent": "vidlyte-multi-audio-resolver",
+      },
+    });
+    lastStatus = res.status;
+    if (res.ok) return await res.text();
+    if (res.status !== 429 && res.status < 500) throw new Error(`reader_http_${res.status}`);
+    await sleep(1500 * (index + 1));
+  }
+  throw new Error(`reader_http_${lastStatus}`);
+}
+
+function parseLooseJson(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch (error) {
+    return null;
+  }
+}
+
+function extractM3u8(text) {
+  const raw = String(text || "");
+  const index = raw.indexOf("#EXTM3U");
+  return index >= 0 ? raw.slice(index) : "";
+}
+
 async function resolveAsset(target) {
   const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
   const started = Date.now();
@@ -109,6 +157,7 @@ async function resolveAsset(target) {
   let boot = null;
   let base = "";
   let headers = null;
+  let via = "direct";
 
   for (const candidateBase of BOOT_HOSTS) {
     for (const [profileName, profileHeaders] of Object.entries(HEADER_PROFILES)) {
@@ -136,33 +185,74 @@ async function resolveAsset(target) {
   }
 
   if (!boot) {
-    return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 6).join(","), latency_ms: Date.now() - started };
+    try {
+      const bootText = await readerFetch(`${BOOT_HOSTS[0]}/api/boot/${target.type}/${target.id}${suffix}`);
+      const parsed = parseLooseJson(bootText);
+      if (parsed && parsed.meta && parsed.meta.playbackToken) {
+        boot = parsed;
+        base = BOOT_HOSTS[0];
+        headers = HEADER_PROFILES.browser;
+        via = "reader";
+      } else {
+        failures.push("reader:no_token");
+      }
+    } catch (error) {
+      failures.push(`reader:${String((error && error.message) || error).slice(0, 40)}`);
+    }
+  }
+
+  if (!boot) {
+    return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
   const token = boot.meta.playbackToken;
   const sourceUrl =
     `${base}/api/source/${target.type}/${target.id}${suffix}` +
     `?token=${encodeURIComponent(token)}&parent=vidrift.net&provider=bigbang`;
-  const sourceRes = await fetchWithTimeout(sourceUrl, { headers });
-  if (!sourceRes.ok) {
-    return { ok: false, error: `source_http_${sourceRes.status}`, latency_ms: Date.now() - started };
+  let source = null;
+  if (via === "reader") {
+    try {
+      source = parseLooseJson(await readerFetch(sourceUrl));
+    } catch (error) {
+      failures.push(`source_reader:${String((error && error.message) || error).slice(0, 40)}`);
+    }
+  } else {
+    const sourceRes = await fetchWithTimeout(sourceUrl, { headers });
+    if (sourceRes.ok) {
+      source = await sourceRes.json().catch(() => null);
+    } else {
+      failures.push(`source:${sourceRes.status}`);
+      try {
+        source = parseLooseJson(await readerFetch(sourceUrl));
+        via = "reader";
+      } catch (error) {
+        failures.push(`source_reader:${String((error && error.message) || error).slice(0, 40)}`);
+      }
+    }
   }
-  const source = await sourceRes.json().catch(() => null);
   const streams = (source && Array.isArray(source.streams) && source.streams) || [];
   const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || ""))) || streams[0];
   if (!stream || !stream.url) {
-    return { ok: false, error: "no_stream", latency_ms: Date.now() - started };
+    return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
+  let master = "";
   const masterRes = await fetchWithTimeout(stream.url, {
     headers: { Accept: "*/*", "User-Agent": BROWSER_HEADERS["User-Agent"] },
-  });
-  if (!masterRes.ok) {
-    return { ok: false, error: `master_http_${masterRes.status}`, latency_ms: Date.now() - started };
+  }).catch(() => null);
+  if (masterRes && masterRes.ok) {
+    master = extractM3u8(await masterRes.text());
   }
-  const master = await masterRes.text();
-  if (!/^#EXTM3U/.test(master.trimStart())) {
-    return { ok: false, error: "master_not_m3u8", latency_ms: Date.now() - started };
+  if (!master.startsWith("#EXTM3U")) {
+    failures.push(`master_direct:${masterRes ? masterRes.status : "error"}`);
+    try {
+      master = extractM3u8(await readerFetch(stream.url));
+    } catch (error) {
+      failures.push(`master_reader:${String((error && error.message) || error).slice(0, 40)}`);
+    }
+  }
+  if (!master.startsWith("#EXTM3U")) {
+    return { ok: false, error: "master_not_m3u8", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
   const audio = (master.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
   if (audio < 2) {
@@ -175,7 +265,7 @@ async function resolveAsset(target) {
     exp = Number(parsed.searchParams.get("exp")) || 0;
   } catch (error) {}
 
-  return { ok: true, url: stream.url, audio, exp, latency_ms: Date.now() - started };
+  return { ok: true, url: stream.url, audio, exp, via, latency_ms: Date.now() - started };
 }
 
 async function publish(asset, result) {
@@ -226,6 +316,7 @@ for (const target of assets) {
     audio: result.ok ? result.audio : 0,
     error: result.ok ? "" : result.error,
     boot_failures: result.ok ? "" : result.boot_failures || "",
+    via: result.ok ? result.via : "",
     latency_ms: result.latency_ms || 0,
     published: Boolean(published.ok),
     publish_status: published.status || 0,

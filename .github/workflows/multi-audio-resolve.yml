@@ -38,5 +38,5 @@ jobs:
           MULTI_AUDIO_ASSETS: ${{ inputs.assets }}
           MULTI_AUDIO_PUBLISH_URL: ${{ vars.MULTI_AUDIO_PUBLISH_URL || 'https://vid.lyte.workers.dev' }}
           MULTI_AUDIO_PUBLISH_KEY: ${{ secrets.MULTI_AUDIO_PUBLISH_KEY }}
-          MULTI_AUDIO_TIMEOUT_MS: "12000"
+          MULTI_AUDIO_TIMEOUT_MS: "25000"
         run: node scripts/resolve-multi-audio.mjs
