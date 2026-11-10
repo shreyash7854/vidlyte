@@ -8,13 +8,30 @@
 import playerTemplate from "./player.html";
 import adminTemplate from "./admin.html";
 import portalTemplate from "./portal.html";
-import { gunzipSync } from "node:zlib";
-import { Buffer } from "node:buffer";
-
-function decompressGzipBase64(b64) {
+async function decompressGzipBase64(b64) {
   try {
-    const buf = Buffer.from(b64, "base64");
-    return gunzipSync(buf).toString("utf8");
+    const binary = atob(String(b64 || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const ds = new DecompressionStream("gzip");
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const c of chunks) {
+      result.set(c, offset);
+      offset += c.length;
+    }
+    return new TextDecoder().decode(result);
   } catch (e) {
     return "";
   }
@@ -723,7 +740,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           if (typeof wmVal === "string") {
             manifestText = wmVal;
           } else if (wmVal && typeof wmVal === "object" && typeof wmVal.gz === "string") {
-            manifestText = decompressGzipBase64(wmVal.gz);
+            manifestText = await decompressGzipBase64(wmVal.gz);
           }
           if (manifestText && manifestText.includes("#EXTM3U")) {
             const fullWarmUrl = `https://embed.vidrift.net${wmPath}`;
@@ -3971,7 +3988,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         const ttl = Number(record.exp) > 0 ? Math.max(300, Math.round(Number(record.exp) - Date.now() / 1000) + 600) : 86400;
         for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
           try {
-            const decompressed = decompressGzipBase64(b64);
+            const decompressed = await decompressGzipBase64(b64);
             if (decompressed && decompressed.includes("#EXTM3U")) {
               await env.CONFIG_KV.put(`orion_sub:${subKey}`, decompressed, { expirationTtl: ttl });
             }
