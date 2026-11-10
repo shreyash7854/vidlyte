@@ -576,6 +576,7 @@ await test("multi-audio routes are HMAC-gated and KV-only", () => {
     'url.pathname === "/api/multi-audio/resolve"',
     'url.pathname === "/api/multi-audio/status"',
     'url.pathname === "/api/multi-audio/publish"',
+    'remote\\.m3u8$',
     "verifyMultiAudioPublishSignature",
     "dispatchMultiAudioResolution",
     'const MULTI_AUDIO_STATUS_PREFIX = "ma_status_v1:"',
@@ -589,6 +590,13 @@ await test("multi-audio routes are HMAC-gated and KV-only", () => {
   assert.ok(publish.includes("await verifyMultiAudioPublishSignature(request, env, rawBody)"));
   assert.ok(publish.indexOf("verifyMultiAudioPublishSignature") < publish.indexOf("JSON.parse(rawBody)"));
   hasNone(publish, ["url: record.url", "url: body.url"], "publish response");
+
+  var statusRoute = indexSource.slice(
+    indexSource.indexOf('url.pathname === "/api/multi-audio/status"'),
+    indexSource.indexOf('url.pathname === "/api/multi-audio/publish"')
+  );
+  hasNone(statusRoute, ["url: record.url"], "status response");
+  hasAll(statusRoute, ['state: "ready"', "ready: true"], "status response");
 });
 
 await test("resolver signs its payload and never logs the signed URL", () => {
@@ -621,6 +629,7 @@ await test("player falls back to the remote resolver behind the gateway", () => 
     "REMOTE_POLL_MAX",
     "remoteState",
     "buildClientGatewayUrl",
+    "buildRemoteGatewayUrl",
     "verifyClientGateway",
     "window.__vidlyteRetryMultiAudio = retryMultiAudio",
   ]);
@@ -628,7 +637,7 @@ await test("player falls back to the remote resolver behind the gateway", () => 
     player.indexOf("function resolveRemoteMultiAudio"),
     player.indexOf("function applyClientUpgrade")
   );
-  hasNone(remote, ["norway-canary", "bigbang.cymru"], "remote resolver section");
+  hasNone(remote, ["norway-canary", "bigbang.cymru", "payload.url"], "remote resolver section");
 });
 
 await test("wrangler configures the resolver without secrets", () => {

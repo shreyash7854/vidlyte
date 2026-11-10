@@ -5598,7 +5598,7 @@
       // run that resolves the signed BigBang URL from outside the block. The
       // result lives in KV and is handed back here as a gateway URL.
       var REMOTE_POLL_INTERVAL_MS = 4000;
-      var REMOTE_POLL_MAX = 15;
+      var REMOTE_POLL_MAX = 24;
       var remoteResolvePending = null;
 
       function remoteResolverConfig() {
@@ -5615,6 +5615,14 @@
         });
       }
 
+      // The signed upstream URL stays in KV. The player only ever requests this
+      // opaque gateway route, so upstream hosts/signatures never reach the page.
+      function buildRemoteGatewayUrl(remote) {
+        var cr = config.clientResolve;
+        return remote.gateway + '?token=' + encodeURIComponent(cr.token) +
+          '&provider=' + encodeURIComponent(cr.provider || 'bigbang');
+      }
+
       function pollRemoteMultiAudio(remote) {
         var attempts = 0;
         return new Promise(function (resolve) {
@@ -5624,7 +5632,7 @@
               'asset=' + encodeURIComponent(remote.asset);
             fetchJson(statusUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
               .then(function (payload) {
-                if (payload && payload.state === 'ready' && payload.url) return resolve(payload);
+                if (payload && payload.state === 'ready') return resolve(payload);
                 if (payload && payload.state === 'failed') return resolve(null);
                 if (attempts >= REMOTE_POLL_MAX) return resolve(null);
                 setTimeout(poll, REMOTE_POLL_INTERVAL_MS);
@@ -5653,7 +5661,7 @@
           cache: 'no-store'
         }, 10000)
           .then(function (payload) {
-            if (payload && payload.state === 'ready' && payload.url) return payload;
+            if (payload && payload.state === 'ready') return payload;
             if (!payload || payload.ok !== true) {
               throw new Error((payload && payload.error) || 'dispatch_failed');
             }
@@ -5662,11 +5670,11 @@
           })
           .then(function (payload) {
             remoteResolvePending = null;
-            if (!payload || !payload.url) {
+            if (!payload) {
               setClientResolveStatus({ remoteState: 'failed', remoteError: 'no_result' });
               return null;
             }
-            return verifyClientGateway(buildClientGatewayUrl(payload.url)).then(function (result) {
+            return verifyClientGateway(buildRemoteGatewayUrl(remote)).then(function (result) {
               if (!result || result.audioCount <= 1) {
                 setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
                 return null;

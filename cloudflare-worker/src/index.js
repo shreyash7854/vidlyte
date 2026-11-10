@@ -3403,8 +3403,8 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         return new Response(JSON.stringify({
           ok: true,
           state: "ready",
+          ready: true,
           asset,
-          url: existing.url,
           audio: Number(existing.audio) || 0,
           exp: Number(existing.exp) || 0,
         }), {
@@ -3432,10 +3432,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         return new Response(JSON.stringify({
           ok: true,
           state: "ready",
+          ready: true,
           asset,
-          url: record.url,
           audio: Number(record.audio) || 0,
-          provider: record.provider || "bigbang",
           exp: Number(record.exp) || 0,
           checked_at: record.checked_at || "",
         }), {
@@ -4480,6 +4479,74 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     }
 
 
+    // 7d. Remote multi-audio gateway (/hls/:assetID/remote.m3u8)
+    // The external resolver stores the signed upstream URL in KV. The player
+    // requests this route instead of receiving the URL, so viewers never see an
+    // upstream host or signature in their network tab.
+    const hlsRemoteMatch = url.pathname.match(/^\/hls\/([^/]+)\/remote\.m3u8$/);
+    if (hlsRemoteMatch) {
+      const assetID = decodeURIComponent(hlsRemoteMatch[1]);
+      const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
+      const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
+      if (!token) {
+        return new Response("Unauthorized: missing playback token", { status: 401, headers: corsHeaders });
+      }
+      const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+      if (!isValid) {
+        return new Response("Unauthorized: invalid or expired playback token", { status: 403, headers: corsHeaders });
+      }
+
+      const asset = normalizeMultiAudioAsset(assetID);
+      const record = asset ? await readMultiAudioRecord(env, asset) : null;
+      if (!multiAudioRecordUsable(record)) {
+        return new Response("Multi-audio source not ready", { status: 404, headers: corsHeaders });
+      }
+
+      let targetUrl;
+      try {
+        targetUrl = assertSafeUpstreamUrl(record.url, {
+          requireAllowlist: true,
+          extraAllowlist: env.UPSTREAM_ALLOWLIST,
+        });
+      } catch (e) {
+        return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
+      }
+      if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
+        return new Response("Upstream URL expired", { status: 410, headers: corsHeaders });
+      }
+
+      const provider = normalizeProvider(url.searchParams.get("provider") || "bigbang");
+      try {
+        const raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+        if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
+          return new Response("Upstream did not return a valid playlist", { status: 502, headers: corsHeaders });
+        }
+        const rewritten = rewriteManifest(raw, {
+          baseUrl: targetUrl.toString(),
+          assetId: assetID,
+          token,
+          origin: url.origin,
+          provider,
+          codec,
+        });
+        return new Response(rewritten, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "private, max-age=5, must-revalidate",
+          },
+        });
+      } catch (err) {
+        if (err instanceof UpstreamUrlError) {
+          return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
+        }
+        return new Response("Upstream manifest unavailable", { status: 502, headers: corsHeaders });
+      }
+    }
+
+
     // 8a. Strict readiness for the external watchdog. Unlike /health this
     // fails closed (503) when secrets, KV, config or the playback canary are
     // unhealthy. `?canary=1` runs a real resolver check immediately.
@@ -5304,6 +5371,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN),
             resolve: `${url.origin}/api/multi-audio/resolve`,
             status: `${url.origin}/api/multi-audio/status`,
+            gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,
             asset: normalizeMultiAudioAsset(
               type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
             ),
