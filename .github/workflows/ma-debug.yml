@@ -1,0 +1,36 @@
+name: MA debug
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: curl probe
+        run: |
+          set -e
+          for host in embed.vidrift.net vidrift.net mb.vidrift.net; do
+            for ua in "curl" "chrome"; do
+              if [ "$ua" = "curl" ]; then
+                ua_arg="curl/8.5.0"
+              else
+                ua_arg="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+              fi
+              out=$(mktemp)
+              code=$(curl -sS -o "$out" -w "%{http_code}" --max-time 20 \
+                -H "Accept: application/json" \
+                -H "Origin: https://vid.lyte.workers.dev" \
+                -H "Referer: https://vid.lyte.workers.dev/" \
+                -H "User-Agent: $ua_arg" \
+                "https://$host/api/boot/tv/314939/1/2" || true)
+              bytes=$(wc -c < "$out")
+              head=$(head -c 60 "$out" | tr -d '\n')
+              mitigated=$(curl -sS -I --max-time 20 -H "User-Agent: $ua_arg" "https://$host/api/boot/tv/314939/1/2" 2>/dev/null | tr -d '\r' | grep -i '^cf-mitigated:' || true)
+              echo "host=$host ua=$ua status=$code bytes=$bytes $mitigated head=$head"
+            done
+          done
