@@ -255,6 +255,8 @@ await test("provider incidents require sustained consecutive failures", () => {
     "failures: priorFailures + 1",
     "awaiting_sustained_failure",
     "record.failures = record.ok ? 0 : priorCanaryFailures + 1",
+    "ALERT_EXEMPT_PROVIDERS",
+    "const alertEligible = (provider) =>",
   ]);
 });
 

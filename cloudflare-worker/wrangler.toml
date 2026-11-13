@@ -46,6 +46,10 @@ ALERT_COOLDOWN_MIN = "15"
 # misses. Recovery is sent only when every raw signal is healthy again.
 PROVIDER_ALERT_MIN_FAILURES = "2"
 CANARY_ALERT_MIN_FAILURES = "2"
+# Providers the Worker cannot reach from Cloudflare's edge by design. Their
+# status stays visible in ops/readiness but never pages the owner; the external
+# watchdog exercises real playback instead.
+ALERT_EXEMPT_PROVIDERS = "orion"
 
 # Self-healing canary. Scheduled maintenance resolves this asset through a
 # Worker-reachable provider and validates the manifest. Readiness fails when a

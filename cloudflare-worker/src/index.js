@@ -2786,6 +2786,18 @@ async function sendTelegramAlert(env, options = {}) {
 async function maybeSendAlert(env, summary) {
   const webhook = env && env.ALERT_WEBHOOK_URL ? String(env.ALERT_WEBHOOK_URL).trim() : "";
   const providerMinFailures = envInt(env && env.PROVIDER_ALERT_MIN_FAILURES, 2, 1, 10);
+  // Cloudflare egress to vidrift is blocked by design (see AGENTS.md), so an
+  // `orion` probe failure from the edge says nothing about viewer playback.
+  // Keep its status in ops/readiness but never page the owner for it; the
+  // external watchdog exercises the real playback chain instead.
+  const alertExemptProviders = new Set(
+    String((env && env.ALERT_EXEMPT_PROVIDERS) || "orion")
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map((value) => normalizeProvider(value))
+  );
+  const alertEligible = (provider) =>
+    provider && !alertExemptProviders.has(normalizeProvider(provider.id));
   const badSwarm = (summary.swarm || []).filter(
     (worker) => worker && worker.status && worker.status !== "healthy"
   );
@@ -2794,7 +2806,7 @@ async function maybeSendAlert(env, summary) {
   // network flips stop producing duplicate Telegram alerts.
   const badProviders = (summary.providers || []).filter(
     (provider) =>
-      provider &&
+      alertEligible(provider) &&
       provider.status &&
       provider.status !== "healthy" &&
       provider.status !== "unknown" &&
@@ -2804,7 +2816,7 @@ async function maybeSendAlert(env, summary) {
   const canaryMinFailures = envInt(env && env.CANARY_ALERT_MIN_FAILURES, 2, 1, 10);
   const unhealthyProviders = (summary.providers || []).filter(
     (provider) =>
-      provider &&
+      alertEligible(provider) &&
       provider.status &&
       provider.status !== "healthy" &&
       provider.status !== "unknown"

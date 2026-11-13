@@ -145,6 +145,7 @@ Once deployed, your Worker will be live globally at:
 | `ALERT_COOLDOWN_MIN` | Integer | `15` | Duplicate-incident suppression window in minutes. |
 | `PROVIDER_ALERT_MIN_FAILURES` | Integer | `2` | Consecutive failed provider probes required before an incident alert. |
 | `CANARY_ALERT_MIN_FAILURES` | Integer | `2` | Consecutive full-chain canary misses required before an incident alert. |
+| `ALERT_EXEMPT_PROVIDERS` | String | `"orion"` | Providers whose edge probe never pages (Cloudflare egress is blocked by design); status still shows in ops. |
 | `WATCHDOG_CANARY_ENABLED` | String | `"true"` | Runs the playback canary during scheduled maintenance. |
 | `WATCHDOG_CANARY_ASSET` | String | `"tv/66732/1/1"` | Asset used for the canary (`tv/<id>/<season>/<episode>` or `movie/<id>`). |
 | `WATCHDOG_CANARY_PROVIDER` | String | `"framextv"` | Worker-reachable provider used by the canary. |
