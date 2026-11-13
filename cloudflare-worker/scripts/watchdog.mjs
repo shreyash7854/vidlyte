@@ -39,6 +39,10 @@ const ASSETS = String(env.WATCHDOG_ASSETS || "tv/66732/1/1,movie/550")
 const FORCE_CANARY = isTrue(env.WATCHDOG_FORCE_CANARY, true);
 const TIMEOUT_MS = positiveInt(env.WATCHDOG_TIMEOUT_MS, 25000);
 const COOLDOWN_MS = positiveInt(env.WATCHDOG_COOLDOWN_MIN, 15) * 60 * 1000;
+// A single failed 5-minute probe is often an upstream flake (the worker canary
+// already retries assets/providers). Page only after this many consecutive
+// failures, and only send recovery if an incident was actually notified.
+const ALERT_MIN_FAILURES = Math.max(1, positiveInt(env.WATCHDOG_ALERT_MIN_FAILURES, 2));
 const STATE_DIR = env.WATCHDOG_STATE_DIR || ".watchdog-state";
 const STATE_FILE = join(STATE_DIR, "state.json");
 const DRY_RUN = isTrue(env.WATCHDOG_DRY_RUN, false);
@@ -428,7 +432,9 @@ async function main() {
 
     const cooledDown = now - Number(state.last_notified_at || 0) >= COOLDOWN_MS;
     const isNewSignature = state.notified_signature !== state.signature;
-    const shouldNotify = state.status_before !== "failing" || cooledDown || isNewSignature;
+    const shouldNotify =
+      state.consecutive_failures >= ALERT_MIN_FAILURES &&
+      (state.status_before !== "failing" || cooledDown || isNewSignature);
     if (shouldNotify) {
       summary.alert = await sendTelegram(failureText(result.failure, state));
       if (summary.alert.sent) {
@@ -443,13 +449,16 @@ async function main() {
     console.error(`watchdog: FAILED at ${result.failure.step}: ${result.failure.detail}`);
   } else {
     const wasFailing = state.status === "failing" || Number(state.consecutive_failures || 0) > 0;
+    const wasNotified = Boolean(state.notified_signature) || Number(state.last_notified_at || 0) > 0;
     state.status = "healthy";
     state.consecutive_failures = 0;
     state.last_checked_at = startedAt;
     state.last_success_at = startedAt;
     state.last_recovery_at = wasFailing ? startedAt : state.last_recovery_at || "";
-    if (wasFailing) {
+    if (wasNotified) {
       summary.alert = await sendTelegram(recoveryText(state, result.checks));
+    }
+    if (wasFailing) {
       state.first_failure_at = "";
       state.signature = "";
       state.notified_signature = "";

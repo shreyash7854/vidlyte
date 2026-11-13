@@ -110,11 +110,16 @@ The JSON report is printed to stdout and appended to the GitHub step summary.
 
 ## 5. Alert behaviour
 
-- **Open**: sent on the first failure, when the failure signature changes, or
-  after `WATCHDOG_COOLDOWN_MIN` (default 15) while still failing.
-- **Recovery**: sent only if a previous open alert was recorded.
+- **Open**: sent only after `WATCHDOG_ALERT_MIN_FAILURES` (default 2) consecutive
+  failed 5-minute checks, when the failure signature changes, or after
+  `WATCHDOG_COOLDOWN_MIN` (default 15) while still failing.
+- **Recovery**: sent only if a previous open alert was recorded; a one-run blip
+  that never paged has no recovery message.
 - **Worker**: scheduled-maintenance alerts use the same open/recovery semantics
-  and are deduplicated in KV (`telegram_alert_state_v1`).
+  and are deduplicated in KV (`telegram_alert_state_v1`). Provider incidents
+  require `PROVIDER_ALERT_MIN_FAILURES` (default 2) and skip
+  `ALERT_EXEMPT_PROVIDERS` (default `orion`, unreachable from the edge by
+  design). Canary incidents require `CANARY_ALERT_MIN_FAILURES` (default 2).
 - **Severity**: `critical` when a provider/swarm node is offline;
   `warning` for degraded states; `info` for recovery unless configured higher.
 - Failed Telegram delivery never breaks playback, cron or the watchdog exit code.
