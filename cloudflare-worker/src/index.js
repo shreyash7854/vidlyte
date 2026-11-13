@@ -2465,6 +2465,7 @@ function snapshotProviderHealth() {
       checked_at: health ? health.checkedAt : "",
       latency_ms: health ? health.latency_ms : breaker ? breaker.last_latency_ms : 0,
       error: health ? health.error : breaker ? breaker.last_error : "",
+      failures: health ? Number(health.failures) || 0 : 0,
       breaker: breaker || null,
     };
   });
@@ -2483,6 +2484,7 @@ async function loadPersistedProviderHealth(env) {
           status: String(value.status || "unknown"),
           latency_ms: Number(value.latency_ms) || 0,
           error: String(value.error || ""),
+          failures: Math.max(0, Number(value.failures) || 0),
         });
       }
     }
@@ -2499,6 +2501,7 @@ async function persistProviderHealth(env) {
         checked_at: value.checkedAt,
         latency_ms: value.latency_ms,
         error: value.error,
+        failures: Number(value.failures) || 0,
       };
     }
     await env.CONFIG_KV.put(PROVIDER_HEALTH_KV_KEY, JSON.stringify(snapshot));
@@ -2525,6 +2528,8 @@ async function probeProviderReachability(providerId) {
   }
 
   const started = Date.now();
+  const previous = providerHealth.get(id) || null;
+  const priorFailures = Math.max(0, Number(previous && previous.failures) || 0);
   try {
     const response = await fetch(endpoint, {
       method: "GET",
@@ -2547,6 +2552,7 @@ async function probeProviderReachability(providerId) {
       status: healthy ? "healthy" : "degraded",
       latency_ms: latency,
       error: healthy ? "" : `http_${response.status}`,
+      failures: healthy ? 0 : priorFailures + 1,
     };
     providerHealth.set(id, record);
     if (healthy) providerBreakers.recordSuccess(`provider:${id}`, latency);
@@ -2559,6 +2565,7 @@ async function probeProviderReachability(providerId) {
       status: "offline",
       latency_ms: latency,
       error: String((error && error.message) || error).slice(0, 160),
+      failures: priorFailures + 1,
     };
     providerHealth.set(id, record);
     providerBreakers.recordFailure(`provider:${id}`, error);
@@ -2778,16 +2785,51 @@ async function sendTelegramAlert(env, options = {}) {
  */
 async function maybeSendAlert(env, summary) {
   const webhook = env && env.ALERT_WEBHOOK_URL ? String(env.ALERT_WEBHOOK_URL).trim() : "";
+  const providerMinFailures = envInt(env && env.PROVIDER_ALERT_MIN_FAILURES, 2, 1, 10);
   const badSwarm = (summary.swarm || []).filter(
     (worker) => worker && worker.status && worker.status !== "healthy"
   );
+  // A single 5s probe timeout is not an incident. Only page the owner once a
+  // provider has failed several consecutive scheduled probes, so transient
+  // network flips stop producing duplicate Telegram alerts.
   const badProviders = (summary.providers || []).filter(
     (provider) =>
-      provider && provider.status && provider.status !== "healthy" && provider.status !== "unknown"
+      provider &&
+      provider.status &&
+      provider.status !== "healthy" &&
+      provider.status !== "unknown" &&
+      (Number(provider.failures) || 0) >= providerMinFailures
   );
   const canary = summary.canary || null;
-  const canaryFailed = Boolean(canary && canary.ok !== true);
+  const canaryMinFailures = envInt(env && env.CANARY_ALERT_MIN_FAILURES, 2, 1, 10);
+  const unhealthyProviders = (summary.providers || []).filter(
+    (provider) =>
+      provider &&
+      provider.status &&
+      provider.status !== "healthy" &&
+      provider.status !== "unknown"
+  );
+  const canaryDown = Boolean(canary && canary.ok !== true);
+  // One canary miss can be a single upstream flake (the canary already retries
+  // assets/providers). Page only after consecutive full-chain failures.
+  const canaryFailed = Boolean(
+    canaryDown &&
+      (Number(canary && canary.failures) || 0) >= canaryMinFailures
+  );
   const incident = badSwarm.length > 0 || badProviders.length > 0 || canaryFailed;
+  // Only declare recovery when every raw signal is healthy. Otherwise a
+  // one-probe provider blip would send "recovered" while the provider is still
+  // down (or vice versa) and produce a second, contradictory notification.
+  const recovered =
+    !incident && badSwarm.length === 0 && unhealthyProviders.length === 0 && !canaryDown;
+  if (!incident && !recovered) {
+    summary.alert_detail = {
+      suppressed: "awaiting_sustained_failure",
+      providers: unhealthyProviders.map((provider) => `${provider.id}=${provider.status}`),
+      canary: canaryDown ? "failed_once" : "",
+    };
+    return false;
+  }
   const signature = incident
     ? JSON.stringify({
         swarm: badSwarm.map((worker) => `${worker.id}:${worker.status}`).sort(),
@@ -3004,6 +3046,12 @@ async function runPlaybackCanary(env) {
   }
 
   record.latency_ms = Date.now() - started;
+  let priorCanaryFailures = 0;
+  try {
+    const previous = await loadCanaryState(env);
+    priorCanaryFailures = Math.max(0, Number(previous && previous.failures) || 0);
+  } catch (e) {}
+  record.failures = record.ok ? 0 : priorCanaryFailures + 1;
   if (env && env.CONFIG_KV) {
     try {
       await env.CONFIG_KV.put(WATCHDOG_CANARY_KV_KEY, JSON.stringify(record));
@@ -3393,7 +3441,7 @@ const MULTI_AUDIO_DISPATCH_PREFIX = "ma_dispatch_v1:";
 const MULTI_AUDIO_DISPATCH_TTL_SEC = 120;
 const MULTI_AUDIO_STATUS_MIN_TTL_SEC = 300;
 const MULTI_AUDIO_STATUS_MAX_TTL_SEC = 172800;
-const MULTI_AUDIO_PUBLISH_MAX_BYTES = 1048576;
+const MULTI_AUDIO_PUBLISH_MAX_BYTES = 4194304;
 const GITHUB_API_VERSION = "2022-11-28";
 
 function normalizeMultiAudioAsset(value) {

@@ -73,6 +73,10 @@ Scoped rules for the deployable worker. Read the root `../AGENTS.md` first.
   `npx wrangler secret put TELEGRAM_CHAT_ID`; never put them in `[vars]`.
 - `sendTelegramAlert()` supports `open` and `recovery`, severity filtering,
   KV-backed dedupe, and `force` (admin test).
+- Provider/canary incidents require consecutive failures
+  (`PROVIDER_ALERT_MIN_FAILURES`, `CANARY_ALERT_MIN_FAILURES`, default `2`);
+  single-probe flips are suppressed and recovery is emitted only when every raw
+  signal is healthy.
 - Admin test endpoint: `POST ${ADMIN_ROUTE}/api/alerts/test` with CSRF, body
   `{ "severity": "critical", "text": "..." }`.
 

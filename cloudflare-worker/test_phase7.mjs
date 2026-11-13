@@ -239,10 +239,22 @@ await test("scheduled alerts emit recovery messages", () => {
 
 await test("a failed canary is its own critical incident", () => {
   hasAll(indexSource, [
-    "const canaryFailed = Boolean(canary && canary.ok !== true)",
+    "const canaryFailed = Boolean(",
+    "CANARY_ALERT_MIN_FAILURES",
     "badProviders.length > 0 || canaryFailed",
     'canary: canaryFailed ?',
     "canaryFailed ||",
+  ]);
+});
+
+await test("provider incidents require sustained consecutive failures", () => {
+  hasAll(indexSource, [
+    "const providerMinFailures = envInt(env && env.PROVIDER_ALERT_MIN_FAILURES, 2, 1, 10)",
+    "(Number(provider.failures) || 0) >= providerMinFailures",
+    "failures: healthy ? 0 : priorFailures + 1",
+    "failures: priorFailures + 1",
+    "awaiting_sustained_failure",
+    "record.failures = record.ok ? 0 : priorCanaryFailures + 1",
   ]);
 });
 
@@ -559,6 +571,12 @@ await test("publish script force-pushes one branch and masks the token", () => {
   ]);
 });
 
+await test("ops status branches opt out of Vercel deployments", () => {
+  hasAll(publishStatus, ["vercel.json", "deploymentEnabled: false"], "ops branch Vercel opt-out");
+  const rootVercel = read("../vercel.json");
+  hasAll(rootVercel, ['"ops-quota": false', '"ops-watchdog": false', '"ops-sweep": false'], "root Vercel opt-out");
+});
+
 await test("each monitor workflow publishes its status branch", () => {
   [
     [workflow, "watchdog"],
@@ -616,6 +634,21 @@ await test("resolver signs its payload and never logs the signed URL", () => {
     "published: Boolean(published.ok)",
   ]);
   hasNone(resolverScript, ["console.log(result.url", "console.log(stream.url", "log(\"resolved\", { url"], "resolver logs");
+});
+
+await test("resolver publishes compact sub-manifests and survives a 413", () => {
+  var publishFn = resolverScript.slice(
+    resolverScript.indexOf("function buildPublishPayload"),
+    resolverScript.indexOf("const assets = requestedAssets()")
+  );
+  hasAll(publishFn, [
+    "subManifests: includeSubs && !gz && raw ? raw : undefined",
+    "subManifestsGz: includeSubs && gz ? gz : undefined",
+    'published.status === 413',
+    'buildPublishPayload(asset, result, "minimal")',
+    "retried_after_413",
+  ]);
+  assert.ok(indexSource.includes("const MULTI_AUDIO_PUBLISH_MAX_BYTES = 4194304"), "publish cap must allow gzipped sub-manifests");
 });
 
 await test("resolver workflow is a bounded manual dispatch", () => {

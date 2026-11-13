@@ -94,6 +94,15 @@ async function main() {
   git(["init", "-q"], workdir);
   git(["symbolic-ref", "HEAD", `refs/heads/${branch}`], workdir);
   await writeFile(join(workdir, `${kind}.json`), JSON.stringify(document, null, 2), "utf8");
+  // Ops branches are single-file status documents, not deployable apps. Vercel
+  // auto-detects the repo and fails every push ("No Go entrypoint found"),
+  // emailing the owner. The flag travels with the orphan commit so the branch
+  // stays excluded even if the project-level ignore setting is missing.
+  await writeFile(
+    join(workdir, "vercel.json"),
+    JSON.stringify({ git: { deploymentEnabled: false } }, null, 2),
+    "utf8"
+  );
   git(["add", "-A"], workdir);
   git(
     [

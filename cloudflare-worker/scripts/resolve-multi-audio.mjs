@@ -573,9 +573,14 @@ async function resolveAsset(target) {
   return { ok: true, url: streamUrl, provider: chosenProvider, audio, exp, via, latency_ms: Date.now() - started };
 }
 
-async function publish(asset, result) {
-  if (!PUBLISH_KEY) return { ok: false, error: "publish_key_missing" };
-  const payload = JSON.stringify({
+function buildPublishPayload(asset, result, mode) {
+  const gz = result.ok && result.subManifestsGz ? result.subManifestsGz : undefined;
+  const raw = result.ok && result.subManifests ? result.subManifests : undefined;
+  // Raw sub-manifests for a multi-rung asset can exceed the worker publish cap
+  // (HTTP 413). The worker decompresses `subManifestsGz`, so prefer the compact
+  // form and only send raw maps when no compressed form exists.
+  const includeSubs = mode !== "minimal";
+  return JSON.stringify({
     asset,
     ok: Boolean(result.ok),
     url: result.ok ? result.url : "",
@@ -586,10 +591,13 @@ async function publish(asset, result) {
     audioTracks: result.ok && result.audioTracks ? result.audioTracks : undefined,
     variants: result.ok && result.variants ? result.variants : undefined,
     subtitles: result.ok && result.subtitles ? result.subtitles : undefined,
-    subManifests: result.ok && result.subManifests ? result.subManifests : undefined,
-    subManifestsGz: result.ok && result.subManifestsGz ? result.subManifestsGz : undefined,
+    subManifests: includeSubs && !gz && raw ? raw : undefined,
+    subManifestsGz: includeSubs && gz ? gz : undefined,
     error: result.ok ? "" : String(result.error || "resolver_failed").slice(0, 80),
   });
+}
+
+async function postPublish(payload) {
   const signature = createHmac("sha256", PUBLISH_KEY).update(payload).digest("hex");
   const res = await fetchWithTimeout(`${PUBLISH_URL}/api/multi-audio/publish`, {
     method: "POST",
@@ -601,6 +609,20 @@ async function publish(asset, result) {
     body: payload,
   });
   return { ok: res.ok, status: res.status };
+}
+
+async function publish(asset, result) {
+  if (!PUBLISH_KEY) return { ok: false, error: "publish_key_missing" };
+  const payload = buildPublishPayload(asset, result, "full");
+  let published = await postPublish(payload);
+  if (published.status === 413) {
+    // Never lose the resolution because embedded manifests are too large: the
+    // record alone still lets the player use the signed stream + audio tracks.
+    const minimal = buildPublishPayload(asset, result, "minimal");
+    const retried = await postPublish(minimal);
+    published = { ...retried, retried_after_413: true };
+  }
+  return published;
 }
 
 const assets = requestedAssets();

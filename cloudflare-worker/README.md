@@ -56,7 +56,7 @@ repository rules live in the root `AGENTS.md`.
   The upgrade retries three times with 700/1600 ms backoff and 6/6/8 s step timeouts, prefers a `bigbang` rendition when the payload has several, and records progress on `window.__VIDLYTE_MULTI_AUDIO__` (`state`, `attempt`, `step`, `remoteState`, `audioCount`, `error`). When the browser itself is blocked (ISP block, extension, m3u8 sniffer), the player asks the external resolver below and keeps playing the single-audio stream meanwhile. If every path fails, the player stays on the single-audio stream and offers **Audio → Reload multi-audio**; a one-time toast links to the same retry. Nothing reloads the page.
 * **`POST /api/multi-audio/resolve`** (body `{ "asset": "tv/314939/1/2" }`): Asks the Worker to dispatch the GitHub Actions resolver for an asset. Returns `200 { state: "ready", url }` from KV when a fresh signed result exists, otherwise `202 { state: "resolving" }` after dispatching the workflow.
 * **`GET /api/multi-audio/status?asset=...`**: Player polling endpoint. Returns `state` (`ready` / `resolving` / `failed` / `unknown`) plus `audio` and `exp`. It never returns the upstream URL.
-* **`POST /api/multi-audio/publish`**: Internal callback for the resolver workflow. Requires `X-Multi-Audio-Signature` (HMAC-SHA256 of the raw body with `MULTI_AUDIO_PUBLISH_KEY`) and only accepts `https://*.bigbang.cymru` URLs. Results live in `CONFIG_KV` (`ma_status_v1:*`) until the signature expires.
+* **`POST /api/multi-audio/publish`**: Internal callback for the resolver workflow. Requires `X-Multi-Audio-Signature` (HMAC-SHA256 of the raw body with `MULTI_AUDIO_PUBLISH_KEY`) and only accepts `https://*.bigbang.cymru` URLs. Results live in `CONFIG_KV` (`ma_status_v1:*`) until the signature expires. Sub-manifests are sent gzipped (`subManifestsGz`) and rebuilt in the Worker so large multi-rung assets stay under the publish body cap.
 * **`GET /hls/:assetId/remote.m3u8?token=...`**: Opaque gateway for the external resolver. It reads the signed URL from KV, validates the token/allowlist, and rewrites the master through `/hls/.../res/` exactly like `client.m3u8`. The viewer never sees an upstream host or signature.
 * **`GET /stream/chunk/:opaqueId`**
   AES-256-GCM encrypted media chunk proxy. Decodes target upstream CDN URL and streams video/audio segments (`.m4s`, `.mp4`, `.ts`, `.aac`) directly to the client with edge caching (`Cache-Control: public, max-age=31536000, immutable`).
@@ -143,6 +143,8 @@ Once deployed, your Worker will be live globally at:
 | `TELEGRAM_ALERTS_ENABLED` | String | `"true"` | Enables Telegram delivery when the token and chat id are present. |
 | `ALERT_MIN_SEVERITY` | String | `"warning"` | Minimum severity to notify: `info`, `warning` or `critical`. |
 | `ALERT_COOLDOWN_MIN` | Integer | `15` | Duplicate-incident suppression window in minutes. |
+| `PROVIDER_ALERT_MIN_FAILURES` | Integer | `2` | Consecutive failed provider probes required before an incident alert. |
+| `CANARY_ALERT_MIN_FAILURES` | Integer | `2` | Consecutive full-chain canary misses required before an incident alert. |
 | `WATCHDOG_CANARY_ENABLED` | String | `"true"` | Runs the playback canary during scheduled maintenance. |
 | `WATCHDOG_CANARY_ASSET` | String | `"tv/66732/1/1"` | Asset used for the canary (`tv/<id>/<season>/<episode>` or `movie/<id>`). |
 | `WATCHDOG_CANARY_PROVIDER` | String | `"framextv"` | Worker-reachable provider used by the canary. |

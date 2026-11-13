@@ -41,6 +41,11 @@ ALERT_WEBHOOK_URL = ""
 TELEGRAM_ALERTS_ENABLED = "true"
 ALERT_MIN_SEVERITY = "warning"
 ALERT_COOLDOWN_MIN = "15"
+# A transient probe miss must not page the owner. Providers alert only after
+# this many consecutive scheduled failures; the canary after this many full-chain
+# misses. Recovery is sent only when every raw signal is healthy again.
+PROVIDER_ALERT_MIN_FAILURES = "2"
+CANARY_ALERT_MIN_FAILURES = "2"
 
 # Self-healing canary. Scheduled maintenance resolves this asset through a
 # Worker-reachable provider and validates the manifest. Readiness fails when a
