@@ -1,0 +1,66 @@
+{
+  "kind": "watchdog",
+  "ok": true,
+  "checked_at": "2026-11-14T15:55:29.307Z",
+  "base_url": "https://vid.lyte.workers.dev",
+  "assets": [
+    "tv/66732/1/1",
+    "movie/550"
+  ],
+  "checks": [
+    {
+      "step": "readiness",
+      "latencyMs": 1673,
+      "canary": {
+        "ok": true,
+        "checked_at": "2026-11-14T15:55:29.451Z",
+        "latency_ms": 976,
+        "asset": "tv/66732/1/1",
+        "provider": "framextv",
+        "audio_tracks": 1,
+        "error": "",
+        "attempts": [
+          {
+            "provider": "framextv",
+            "asset": "tv/66732/1/1",
+            "ok": true,
+            "latency_ms": 976,
+            "error": ""
+          }
+        ]
+      },
+      "version": 1
+    },
+    {
+      "step": "asset tv/66732/1/1",
+      "latencyMs": 1892,
+      "audioTracks": 1,
+      "subtitles": 44,
+      "provider": "framextv"
+    },
+    {
+      "step": "asset movie/550",
+      "latencyMs": 3316,
+      "audioTracks": 1,
+      "subtitles": 22,
+      "provider": "framextv"
+    }
+  ],
+  "failure": null,
+  "alert": {
+    "sent": false,
+    "skipped": ""
+  },
+  "consecutive_failures": 0,
+  "last_success_at": "2026-11-14T15:55:29.307Z",
+  "last_failure_at": "",
+  "_meta": {
+    "kind": "watchdog",
+    "published_at": "2026-11-14T15:55:36.191Z",
+    "workflow": "Uptime watchdog",
+    "run_id": "43612757286",
+    "run_url": "https://github.com/shreyash7854/vidlyte/actions/runs/43612757286",
+    "ref": "main",
+    "event": "schedule"
+  }
+}
