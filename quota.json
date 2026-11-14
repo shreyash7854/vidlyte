@@ -1,0 +1,31 @@
+{
+  "kind": "quota",
+  "ok": true,
+  "checked_at": "2026-11-14T11:24:50.341Z",
+  "window_start": "2026-11-14T00:00:00.000Z",
+  "daily_limit": 100000,
+  "requests": 90,
+  "percent": 0.1,
+  "level": "ok",
+  "warn_pct": 70,
+  "critical_pct": 90,
+  "top_scripts": [
+    {
+      "script": "vid",
+      "requests": 90
+    }
+  ],
+  "alert": {
+    "sent": false,
+    "skipped": "not_needed"
+  },
+  "_meta": {
+    "kind": "quota",
+    "published_at": "2026-11-14T11:24:50.878Z",
+    "workflow": "Workers quota guard",
+    "run_id": "43589891252",
+    "run_url": "https://github.com/shreyash7854/vidlyte/actions/runs/43589891252",
+    "ref": "main",
+    "event": "schedule"
+  }
+}
