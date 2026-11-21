@@ -29,8 +29,8 @@
       {
         "id": "314939",
         "type": "tv",
-        "title": "Stranger Things",
-        "year": "2016",
+        "title": "A Love Other Than Yours",
+        "year": "2024",
         "season": 1,
         "episode": 1
       },
@@ -105,9 +105,10 @@
     "show_server_names": false,
     "default_server": "orion",
     "server_aliases": {
-      "orion": "Server 1 (Ultra Fast)",
-      "framex": "Server 2 (Backup)",
-      "asianflix": "Server 3 (Anime / Asian)"
+      "orion": "Server 1",
+      "framex": "Server 2",
+      "asianflix": "Server 3",
+      "evion": "Server 4"
     }
   },
   "last_updated": "2026-10-25T02:45:00.0000000Z"

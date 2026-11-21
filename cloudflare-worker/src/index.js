@@ -68,6 +68,7 @@ import {
   providerPriority,
   providerLabel,
   resolveAsianFlix,
+  resolveKissKH,
 } from "./providers.js";
 import {
   MetricsRegistry,
@@ -265,8 +266,8 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1) {
   const isTv = type === "tv" || type === "series";
   const apiKey = TMDB_API_KEY;
   const url = isTv
-    ? `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
-    : `https://api.tmdb.org/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
+    ? `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
+    : `https://api.tmdb.org/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
 
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
@@ -304,7 +305,8 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1) {
                     logos[0];
     const logoUrl = logoObj && logoObj.file_path ? `/tmdb-image/w500${logoObj.file_path}` : "";
 
-    return { title, seriesTitle: isTv ? data.name || "" : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl };
+    const imdbId = (data.external_ids && data.external_ids.imdb_id) || (data.imdb_id || "");
+    return { title, seriesTitle: isTv ? data.name || "" : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl, originalLanguage: data.original_language || "", imdbId };
   } catch (e) {
     return null;
   }
@@ -959,25 +961,78 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           } catch (e) {}
         }
 
-        // Multi-dub streams are labelled "<quality> · <language>".
+        // Multi-dub streams are named (e.g. Titan "Hindi", "Multi-audio") or labelled "<quality> · <language>".
         if (audioTracks.length === 0) {
-          playable.forEach((s) => {
-            const label = String(s.label || "");
-            if (!label.includes(" · ")) return;
-            const dub = label.split(" · ").pop().trim();
-            if (!dub) return;
-            audioTracks.push({
-              id: audioTracks.length,
-              name: dub,
-              label: dub,
-              language: languageCodeForLabel(dub),
-              default: audioTracks.length === 0,
-              uri: s.absUrl,
-              proxied_uri: s.absUrl,
-              proxiedUri: s.absUrl,
-              provider: "orion",
+          const hasMultipleNamedDubs = playable.length > 1 && playable.some((s) => s.name || (s.label && s.label.includes(" · ")));
+          if (hasMultipleNamedDubs) {
+            const origLang = (meta && meta.lang) || "ko";
+            playable.forEach((s) => {
+              const rawName = s.name || (s.label && s.label.includes(" · ") ? s.label.split(" · ").pop().trim() : s.label) || `Track ${audioTracks.length + 1}`;
+              let cleanName = rawName;
+              let lang = "eng";
+              if (/hindi/i.test(rawName)) {
+                cleanName = "Hindi";
+                lang = "hin";
+              } else if (/multi[- ]?audio/i.test(rawName) || /original/i.test(rawName)) {
+                if (origLang === "ko") {
+                  cleanName = "Original (Korean)";
+                  lang = "kor";
+                } else if (origLang === "ja") {
+                  cleanName = "Original (Japanese)";
+                  lang = "jpn";
+                } else if (origLang === "zh") {
+                  cleanName = "Original (Chinese)";
+                  lang = "zho";
+                } else {
+                  cleanName = "Original";
+                  lang = origLang.slice(0, 3).toLowerCase();
+                }
+              } else {
+                cleanName = rawName;
+                lang = languageCodeForLabel(rawName);
+              }
+
+              const isOrig = /original/i.test(cleanName) || /multi[- ]?audio/i.test(rawName);
+              audioTracks.push({
+                id: audioTracks.length,
+                name: cleanName,
+                label: cleanName,
+                language: lang,
+                default: isOrig || audioTracks.length === 0,
+                uri: s.absUrl,
+                proxied_uri: s.absUrl,
+                proxiedUri: s.absUrl,
+                provider: provider || "orion",
+              });
             });
-          });
+
+            // If an Original track was found, ensure only one track is default and set as initial masterUrl
+            const origIdx = audioTracks.findIndex((t) => /original/i.test(t.name));
+            if (origIdx >= 0) {
+              audioTracks.forEach((t, i) => {
+                t.default = (i === origIdx);
+              });
+              masterUrl = audioTracks[origIdx].uri;
+            }
+          } else {
+            playable.forEach((s) => {
+              const label = String(s.label || "");
+              if (!label.includes(" · ")) return;
+              const dub = label.split(" · ").pop().trim();
+              if (!dub) return;
+              audioTracks.push({
+                id: audioTracks.length,
+                name: dub,
+                label: dub,
+                language: languageCodeForLabel(dub),
+                default: audioTracks.length === 0,
+                uri: s.absUrl,
+                proxied_uri: s.absUrl,
+                proxiedUri: s.absUrl,
+                provider: "orion",
+              });
+            });
+          }
         }
       }
     }
@@ -1066,19 +1121,35 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     }
   }
 
-    // Quality variants fallback if not already populated. New-style Vidrift
-    // streams carry their own per-dub playlists, so don't invent three
-    // identical quality rungs for them.
-    if (variants.length === 0 && !usedApiStreams) {
-      variants.push(
-        { resolution: "1080p", bandwidth: 2500000, playlistUri: masterUrl, provider: provider },
-        { resolution: "720p", bandwidth: 1200000, playlistUri: masterUrl, provider: provider },
-        { resolution: "480p", bandwidth: 650000, playlistUri: masterUrl, provider: provider }
-      );
+    // Quality variants fallback if not already populated.
+    if (variants.length === 0) {
+      if (audioTracks.length > 1) {
+        audioTracks.forEach((t) => {
+          variants.push({
+            resolution: "Auto",
+            bandwidth: 1500000,
+            playlistUri: t.uri,
+            provider: provider,
+          });
+        });
+      } else if (!usedApiStreams) {
+        variants.push(
+          { resolution: "1080p", bandwidth: 2500000, playlistUri: masterUrl, provider: provider },
+          { resolution: "720p", bandwidth: 1200000, playlistUri: masterUrl, provider: provider },
+          { resolution: "480p", bandwidth: 650000, playlistUri: masterUrl, provider: provider }
+        );
+      } else {
+        variants.push({
+          resolution: "Auto",
+          bandwidth: 1500000,
+          playlistUri: masterUrl,
+          provider: provider,
+        });
+      }
     }
 
     const hasMultipleTracksInManifest = masterManifest && (masterManifest.match(/TYPE=AUDIO/g) || []).length > 1;
-    if ((!masterManifest || !hasMultipleTracksInManifest) && meta.orionStreams && Array.isArray(meta.orionStreams) && meta.orionStreams.length > 0) {
+    if ((!masterManifest || !hasMultipleTracksInManifest) && audioTracks.length > 1) {
       const audioLines = audioTracks.map((t) => {
         const defStr = t.default ? ',DEFAULT=YES,AUTOSELECT=YES' : ',DEFAULT=NO,AUTOSELECT=YES';
         const langStr = t.language ? `,LANGUAGE="${t.language}"` : '';
@@ -1088,10 +1159,10 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         return `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${s.label}",LANGUAGE="${s.language}",DEFAULT=NO,AUTOSELECT=YES,URI="${s.uri || s.url}"`;
       }).join("\n");
       const variantLines = variants.map((v) => {
-        const resStr = v.resolution ? `,RESOLUTION=${v.resolution === "1080p" ? "1920x1080" : v.resolution === "720p" ? "1280x720" : "854x480"}` : "";
+        const resStr = v.resolution && v.resolution !== "Auto" ? `,RESOLUTION=${v.resolution === "1080p" ? "1920x1080" : v.resolution === "720p" ? "1280x720" : "854x480"}` : "";
         const audioGroup = audioLines ? ',AUDIO="audio"' : '';
         const subGroup = subLines ? ',SUBTITLES="subs"' : '';
-        return `#EXT-X-STREAM-INF:BANDWIDTH=${v.bandwidth || 2500000}${resStr}${audioGroup}${subGroup}\n${v.playlistUri}`;
+        return `#EXT-X-STREAM-INF:BANDWIDTH=${v.bandwidth || 1500000}${resStr}${audioGroup}${subGroup}\n${v.playlistUri}`;
       }).join("\n");
       masterManifest = `#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n${audioLines ? audioLines + "\n" : ""}${subLines ? subLines + "\n" : ""}${variantLines}\n`;
     }
@@ -1470,6 +1541,16 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
     });
   }
 
+  if (id === "kisskh") {
+    return resolveKissKH({
+      assetInfo,
+      title: (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || "",
+      year: (tmdbMeta && tmdbMeta.year) || "",
+      originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
+      timeoutMs: 8000,
+    });
+  }
+
   if (id === "2vcdn") {
     return resolve2EmbedSource(assetInfo);
   }
@@ -1685,6 +1766,70 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
 
     if (chosen && chosen.result) {
       applyResolvedProvider(result, chosen.result);
+      const isAsian = tmdbMeta && ["ko", "ja", "zh", "th"].includes(tmdbMeta.originalLanguage);
+      const hasOriginal = (result.audioTracks || []).some((t) => /original|korean/i.test(t.name || t.label || ""));
+      const needsAudio = (!result.audioTracks || result.audioTracks.length <= 1) || (isAsian && !hasOriginal);
+      const hasEnglishSub = (result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
+      const needsSubs = !result.subtitles || result.subtitles.length === 0 || !hasEnglishSub;
+
+      if (needsSubs || needsAudio) {
+        try {
+          const kissRes = await resolveKissKH({
+            assetInfo,
+            title: (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || result.title || "",
+            year: (tmdbMeta && tmdbMeta.year) || result.year || "",
+            originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
+            timeoutMs: 4000,
+          });
+          if (kissRes) {
+            if (needsSubs && Array.isArray(kissRes.subtitles) && kissRes.subtitles.length > 0) {
+              const currentSubs = result.subtitles || [];
+              const kissSubs = kissRes.subtitles.filter(
+                (ks) => !currentSubs.some((cs) => cs && (cs.language === ks.language || cs.label === ks.label))
+              );
+              result.subtitles = [...currentSubs, ...kissSubs];
+            }
+            if (needsAudio && Array.isArray(kissRes.audioTracks) && kissRes.audioTracks.length > 0) {
+              const kissTrack = kissRes.audioTracks[0];
+              if (!result.audioTracks || result.audioTracks.length === 0) {
+                result.audioTracks = kissRes.audioTracks;
+              } else if (!hasOriginal) {
+                result.audioTracks = [kissTrack, ...result.audioTracks];
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      // If still missing English subtitles, check Stremio OpenSubtitles v3 using IMDB ID
+      const stillNeedsEnglishSub = !(result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
+      if (stillNeedsEnglishSub && tmdbMeta && tmdbMeta.imdbId) {
+        try {
+          const stremioType = (assetInfo.type === "tv" || assetInfo.type === "series") ? "series" : "movie";
+          const stremioId = stremioType === "series"
+            ? `${tmdbMeta.imdbId}:${assetInfo.season || 1}:${assetInfo.episode || 1}`
+            : tmdbMeta.imdbId;
+          const stremioRes = await fetch(`https://opensubtitles-v3.strem.io/subtitles/${stremioType}/${stremioId}.json`, {
+            signal: AbortSignal.timeout(3500)
+          });
+          if (stremioRes.ok) {
+            const stremioData = await stremioRes.json().catch(() => null);
+            if (stremioData && Array.isArray(stremioData.subtitles) && stremioData.subtitles.length > 0) {
+              const enSub = stremioData.subtitles.find((s) => s && s.lang === "eng" && s.url);
+              if (enSub) {
+                if (!result.subtitles) result.subtitles = [];
+                result.subtitles.unshift({
+                  label: "English Subtitles",
+                  language: "en",
+                  url: enSub.url,
+                  default: true,
+                  provider: "opensubtitles"
+                });
+              }
+            }
+          }
+        } catch (e) {}
+      }
       if (result.streamUrl && isStreamUrlUsable(result.streamUrl)) {
         sourceStaleCache.set(cacheKey, cloneValue(result), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
         cacheResolvedResult(cacheKey, baseCacheKey, result);
@@ -1772,6 +1917,21 @@ function getUpstreamHeaders(provider, targetUrl, incomingHeaders) {
   ) {
     origin = "https://embed.vidrift.net";
     referer = "https://embed.vidrift.net/";
+  } else if (
+    hostname.includes("kisskh") ||
+    hostname.includes("videocdndelivery") ||
+    hostname.includes("cdnvideo") ||
+    provider === "kisskh"
+  ) {
+    origin = "https://kisskh.is";
+    referer = "https://kisskh.is/";
+  } else if (
+    hostname.includes("strem.io") ||
+    hostname.includes("opensubtitles") ||
+    provider === "opensubtitles"
+  ) {
+    origin = "https://opensubtitles-v3.strem.io";
+    referer = "https://opensubtitles-v3.strem.io/";
   } else if (
     hostname.includes("asianflix") ||
     hostname.includes("rumble") ||
@@ -1885,7 +2045,8 @@ const runtimeConfig = {
     { id: "orion", name: "Server 2 (Orion)", endpoint: "https://embed.vidrift.net", enabled: true, priority: 1, timeout_ms: 8000 },
     { id: "evion", name: "Server 4 (Evion)", endpoint: "https://img.animecurx.tech", enabled: true, priority: 2, timeout_ms: 8000 },
     { id: "framextv", name: "Server 1 (FrameX)", endpoint: "https://api.framextv.xyz", enabled: true, priority: 3, timeout_ms: 8000 },
-    { id: "asianflix", name: "Server 3 (AsianFlix)", endpoint: "https://asianflix.one", enabled: true, priority: 4, timeout_ms: 8000 },
+    { id: "kisskh", name: "Server 5 (KissKH)", endpoint: "https://kisskh.is", enabled: true, priority: 4, timeout_ms: 8000 },
+    { id: "asianflix", name: "Server 3 (AsianFlix)", endpoint: "https://asianflix.one", enabled: true, priority: 5, timeout_ms: 8000 },
   ],
   proxy_swarm: {
     enabled: true,
@@ -1901,6 +2062,7 @@ const runtimeConfig = {
       orion: "Server 2",
       asianflix: "Server 3",
       evion: "Server 4",
+      kisskh: "Server 5",
     },
   },
   monetization: {
@@ -3964,19 +4126,35 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         });
       }
       const record = await readMultiAudioRecord(env, asset);
-      if (multiAudioRecordUsable(record)) {
-        return new Response(JSON.stringify({
-          ok: true,
-          state: "ready",
-          ready: true,
-          asset,
-          audio: Number(record.audio) || 0,
-          exp: Number(record.exp) || 0,
-          checked_at: record.checked_at || "",
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
+      if (record) {
+        if (multiAudioRecordUsable(record)) {
+          return new Response(JSON.stringify({
+            ok: true,
+            state: "ready",
+            ready: true,
+            asset,
+            audio: Number(record.audio) || 0,
+            exp: Number(record.exp) || 0,
+            checked_at: record.checked_at || "",
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+          });
+        }
+        if (record.ok === false || Number(record.audio) <= 1 || record.error === "single_audio") {
+          return new Response(JSON.stringify({
+            ok: true,
+            state: record.ok === false ? "failed" : "single",
+            ready: true,
+            asset,
+            audio: Number(record.audio) || 1,
+            error: record.error || "single_audio",
+            checked_at: record.checked_at || "",
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+          });
+        }
       }
       let pending = false;
       if (env && env.CONFIG_KV) {
@@ -4062,6 +4240,11 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         }
       }
       const persisted = await writeMultiAudioRecord(env, asset, record);
+      if (env && env.CONFIG_KV) {
+        try {
+          await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
+        } catch (e) {}
+      }
       return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
         status: persisted ? 200 : 503,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
@@ -5792,8 +5975,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       // are origin-gated. In that case we still render the player and let the
       // browser resolve the signed upstream URL (see clientResolve below).
       let resolved = null;
+      const requestedProvider = url.searchParams.get("server") || url.searchParams.get("provider") || undefined;
       try {
-        resolved = await resolveUpstreamSource(assetInfo, undefined, {
+        resolved = await resolveUpstreamSource(assetInfo, requestedProvider, {
           env,
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
         });
@@ -5877,6 +6061,16 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           });
         }
       });
+
+      // Strict English Subtitle Policy: English subtitles must be default when available
+      const engSubIdx = sanitizedSubs.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
+      if (engSubIdx > 0) {
+        const engSub = sanitizedSubs.splice(engSubIdx, 1)[0];
+        engSub.default = true;
+        sanitizedSubs.unshift(engSub);
+      } else if (engSubIdx === 0) {
+        sanitizedSubs[0].default = true;
+      }
 
       // Sanitize quality variants
       const sanitizedVariants = ((resolved && resolved.variants) || [])

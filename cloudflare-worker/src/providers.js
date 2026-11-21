@@ -16,8 +16,9 @@ export const PROVIDER_DEFINITIONS = [
   { id: "orion", label: "Orion", priority: 1, hosts: ["embed.vidrift.net", "vidrift.net"] },
   { id: "evion", label: "Evion", priority: 2, hosts: ["img.animecurx.tech", "rousav.tech", "rousav.com", "bigbang.observer"] },
   { id: "framextv", label: "FrameX", priority: 3, hosts: ["api.framextv.xyz", "api.framextv.cc", "api.framextv.tech"] },
-  { id: "asianflix", label: "AsianFlix", priority: 4, hosts: ["asianflix.one", "rumble.com", "rumble.cloud"] },
-  { id: "2vcdn", label: "2Embed", priority: 5, hosts: ["2embed.cc", "2vcdn.skin"] },
+  { id: "kisskh", label: "KissKH", priority: 4, hosts: ["kisskh.is", "kisskh.co", "videocdndelivery05.site", "cdnvideo11.shop", "dwish.pro"] },
+  { id: "asianflix", label: "AsianFlix", priority: 5, hosts: ["asianflix.one", "rumble.com", "rumble.cloud"] },
+  { id: "2vcdn", label: "2Embed", priority: 6, hosts: ["2embed.cc", "2vcdn.skin"] },
 ];
 
 const PROVIDER_ALIASES = {
@@ -36,6 +37,10 @@ const PROVIDER_ALIASES = {
   server4: "evion",
   s4: "evion",
   evion: "evion",
+  server5: "kisskh",
+  s5: "kisskh",
+  kisskh: "kisskh",
+  kiss: "kisskh",
   "2embed": "2vcdn",
   "2vcdn": "2vcdn",
 };
@@ -117,8 +122,15 @@ export function normalizeTitleForMatch(title) {
     .toLowerCase()
     .replace(/\((?:19|20)\d{2}\)/g, " ")
     .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/\b(?:i['’]?m)\b/g, "i am")
+    .replace(/\b(?:it['’]?s)\b/g, "it is")
+    .replace(/\b(?:don['’]?t)\b/g, "do not")
+    .replace(/\b(?:doesn['’]?t)\b/g, "does not")
+    .replace(/\b(?:can['’]?t)\b/g, "cannot")
+    .replace(/\b(?:won['’]?t)\b/g, "will not")
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:i\s+m)\b/g, "i am")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -127,12 +139,29 @@ export function titleMatches(candidate, target, year) {
   const a = normalizeTitleForMatch(candidate);
   const b = normalizeTitleForMatch(target);
   if (!a || !b) return false;
-  const titleOk = a === b || a.includes(b) || b.includes(a);
+  let titleOk = a === b || a.includes(b) || b.includes(a);
+  if (!titleOk) {
+    const aParts = String(candidate).split(/[-:]+/).map(normalizeTitleForMatch).filter(Boolean);
+    const bParts = String(target).split(/[-:]+/).map(normalizeTitleForMatch).filter(Boolean);
+    for (const ap of aParts) {
+      for (const bp of bParts) {
+        if (ap === bp || (ap.length > 3 && bp.includes(ap)) || (bp.length > 3 && ap.includes(bp))) {
+          titleOk = true;
+          break;
+        }
+      }
+      if (titleOk) break;
+    }
+  }
   if (!titleOk) return false;
   if (!year) return true;
   const yearText = String(year);
   if (!/^\d{4}$/.test(yearText)) return true;
-  return String(candidate || "").includes(yearText) || a.includes(yearText);
+  const candidateYearMatch = String(candidate || "").match(/\b(?:19|20)\d{2}\b/);
+  if (candidateYearMatch) {
+    return candidateYearMatch[0] === yearText;
+  }
+  return true;
 }
 
 /**
@@ -470,4 +499,269 @@ export async function resolveAsianFlix({
   }
 
   return null;
+}
+
+/**
+ * KissKH Deterministic Crypto Engine
+ * Encrypts episode request tokens without external dependencies.
+ */
+function createKissKHCipher() {
+  function _0x1b25b9(_0x3378d3) {
+    const _0x186fc8 = _0x3378d3.length;
+    const _0x5ac8cf = [];
+    for (let _0x2ccc5f = 0; _0x2ccc5f < _0x186fc8; _0x2ccc5f++) {
+      _0x5ac8cf[_0x2ccc5f >>> 2] |= (0xff & _0x3378d3.charCodeAt(_0x2ccc5f)) << (0x18 - (_0x2ccc5f % 4) * 8);
+    }
+    return [_0x5ac8cf, _0x186fc8];
+  }
+
+  function _0x1c779c(_0x3ff981, _0x459037) {
+    const _0x220b47 = [];
+    for (let _0x44ccb3 = 0; _0x44ccb3 < _0x459037; _0x44ccb3++) {
+      _0x220b47.push(((_0x3ff981[_0x44ccb3 >>> 2] >>> (0x18 - (_0x44ccb3 % 4) * 8)) & 0xff).toString(16).padStart(2, '0'));
+    }
+    return _0x220b47.join('');
+  }
+
+  function _0x12af79(_0x4dcec4) {
+    return (_0x4dcec4 || '').substr(0, 0x30);
+  }
+
+  function _0x70dbf4(_0x524c4a) {
+    let _0x109c6f = 0;
+    const _0x5ebb16 = _0x524c4a.length;
+    for (let _0x419dc5 = 0; _0x419dc5 < _0x5ebb16; _0x419dc5++) {
+      _0x109c6f = (_0x109c6f << 5) - _0x109c6f + _0x524c4a.charCodeAt(_0x419dc5);
+    }
+    return _0x109c6f;
+  }
+
+  function _0x29e11d(_0x4440b3) {
+    const _0x384f5f = 0x10 - (_0x4440b3.length % 0x10);
+    for (let _0x120ea8 = 0; _0x120ea8 < _0x384f5f; ++_0x120ea8) {
+      _0x4440b3 += String.fromCharCode(_0x384f5f);
+    }
+    return _0x4440b3;
+  }
+
+  function _0xaf4f42(_0x1493a6) {
+    const _0x5c4ece = _0x1493a6.length;
+    for (let _0x3835b2 = 0; _0x3835b2 < _0x5c4ece; _0x3835b2 += 4) {
+      _0x3505d7(_0x1493a6, _0x3835b2);
+    }
+  }
+
+  const _0x6b7b62 = [[0x4f6bdaa3,-0x61d07350,0x7f5e722d,-0x61210cec,0x536620a8,-0x32b653e8,-0x4de821cb,0x2cc92d21,-0x73412227,0x41f771c1,-0xc1f500c,-0x20d67d2b,0x2dadde47,0x6c5aaf86,-0x6045ff8e,0x409382a7,-0x6417db2,-0x6a1bd238,0xa5e2dba,0x4acdaf1d,0x54c72698,-0x3edcf4b0,-0x3482d916,-0x7e4f7609,-0x6c9fb16c,0x524345c4,-0x66c19cd2,0x188eead9,-0x351884c7,-0x675bc103,0x19a5dd3,0x1914b70a,-0x4fb1e313,0x28ea2210,0x29707fc3,0x3064c8c9,-0x17593e17,-0x3fb31c07,-0x16c363c6,-0x26a7ab0d,-0x4b793324,0x74ca2f25,-0x62094ce1,0x44aee7ec]];
+
+  (function() {
+    var _0x43be17 = [], _0x42a74d = [], _0xb4bd43 = [], _0x25f5e6 = [], _0x5d5f77 = [], _0x2de806 = [];
+    for (let _0x21abca = 0; _0x21abca < 0x100; _0x21abca++) {
+      _0x2de806[_0x21abca] = _0x21abca < 0x80 ? _0x21abca << 1 : (_0x21abca << 1) ^ 0x11b;
+    }
+    var _0x2119ec = 0, _0x1a0508 = 0;
+    for (let _0x11eabb = 0; _0x11eabb < 0x100; _0x11eabb++) {
+      var _0x5034cc = _0x1a0508 ^ (_0x1a0508 << 1) ^ (_0x1a0508 << 2) ^ (_0x1a0508 << 3) ^ (_0x1a0508 << 4);
+      _0x5034cc = (_0x5034cc >>> 8) ^ (0xff & _0x5034cc) ^ 0x63;
+      _0x43be17[_0x2119ec] = _0x5034cc;
+      var _0x580af8 = _0x2de806[_0x2119ec];
+      var _0x354320 = _0x2de806[_0x2de806[_0x580af8]];
+      var _0x410b1f = 0x101 * _0x2de806[_0x5034cc] ^ (0x1010100 * _0x5034cc);
+      _0x42a74d[_0x2119ec] = (_0x410b1f << 24) | (_0x410b1f >>> 8);
+      _0xb4bd43[_0x2119ec] = (_0x410b1f << 16) | (_0x410b1f >>> 16);
+      _0x25f5e6[_0x2119ec] = (_0x410b1f << 8) | (_0x410b1f >>> 24);
+      _0x5d5f77[_0x2119ec] = _0x410b1f;
+      _0x2119ec ? (_0x2119ec = _0x580af8 ^ _0x2de806[_0x2de806[_0x2de806[_0x354320 ^ _0x580af8]]], _0x1a0508 ^= _0x2de806[_0x2de806[_0x1a0508]]) : (_0x2119ec = _0x1a0508 = 1);
+    }
+    _0x6b7b62.push(_0x42a74d);
+    _0x6b7b62.push(_0xb4bd43);
+    _0x6b7b62.push(_0x25f5e6);
+    _0x6b7b62.push(_0x5d5f77);
+    _0x6b7b62.push(_0x43be17);
+  }());
+
+  function _0x3505d7(_0x13a508, _0x5baaa1) {
+    const [_0x458390, _0x32aa26, _0x53dadc, _0x4810d1, _0x3c0f1b, _0x128bff] = _0x6b7b62;
+    let _0x21ba3f;
+    _0x5baaa1 === 0 ? _0x21ba3f = [0x1504af3, 0x56e619cf, 0x2e42bba6, -0x73c08f07] : _0x21ba3f = _0x13a508.slice(_0x5baaa1 - 4, _0x5baaa1);
+    for (let _0x5b9637 = 0; _0x5b9637 < 4; _0x5b9637++) {
+      _0x13a508[_0x5baaa1 + _0x5b9637] ^= _0x21ba3f[_0x5b9637];
+    }
+    for (var _0x116405 = 10,
+         _0x4d3231 = _0x13a508[_0x5baaa1] ^ _0x458390[0],
+         _0x1f3a4f = _0x13a508[_0x5baaa1 + 1] ^ _0x458390[1],
+         _0x598b52 = _0x13a508[_0x5baaa1 + 2] ^ _0x458390[2],
+         _0x2265d4 = _0x13a508[_0x5baaa1 + 3] ^ _0x458390[3],
+         _0xcb5ec5 = 4,
+         _0x5e2dc7 = 1; _0x5e2dc7 < _0x116405; _0x5e2dc7++) {
+      var _0x34de78 = _0x32aa26[_0x4d3231 >>> 24] ^ _0x53dadc[(_0x1f3a4f >>> 16) & 0xff] ^ _0x4810d1[(_0x598b52 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x2265d4] ^ _0x458390[_0xcb5ec5++];
+      var _0x42d7a0 = _0x32aa26[_0x1f3a4f >>> 24] ^ _0x53dadc[(_0x598b52 >>> 16) & 0xff] ^ _0x4810d1[(_0x2265d4 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x4d3231] ^ _0x458390[_0xcb5ec5++];
+      var _0x4a8c71 = _0x32aa26[_0x598b52 >>> 24] ^ _0x53dadc[(_0x2265d4 >>> 16) & 0xff] ^ _0x4810d1[(_0x4d3231 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x1f3a4f] ^ _0x458390[_0xcb5ec5++];
+      _0x2265d4 = _0x32aa26[_0x2265d4 >>> 24] ^ _0x53dadc[(_0x4d3231 >>> 16) & 0xff] ^ _0x4810d1[(_0x1f3a4f >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x598b52] ^ _0x458390[_0xcb5ec5++];
+      _0x4d3231 = _0x34de78; _0x1f3a4f = _0x42d7a0; _0x598b52 = _0x4a8c71;
+    }
+    _0x34de78 = ((_0x128bff[_0x4d3231 >>> 24] << 24) | (_0x128bff[(_0x1f3a4f >>> 16) & 0xff] << 16) | (_0x128bff[(_0x598b52 >>> 8) & 0xff] << 8) | _0x128bff[0xff & _0x2265d4]) ^ _0x458390[_0xcb5ec5++];
+    _0x42d7a0 = ((_0x128bff[_0x1f3a4f >>> 24] << 24) | (_0x128bff[(_0x598b52 >>> 16) & 0xff] << 16) | (_0x128bff[(_0x2265d4 >>> 8) & 0xff] << 8) | _0x128bff[0xff & _0x4d3231]) ^ _0x458390[_0xcb5ec5++];
+    _0x4a8c71 = ((_0x128bff[_0x598b52 >>> 24] << 24) | (_0x128bff[(_0x2265d4 >>> 16) & 0xff] << 16) | (_0x128bff[(_0x4d3231 >>> 8) & 0xff] << 8) | _0x128bff[0xff & _0x1f3a4f]) ^ _0x458390[_0xcb5ec5++];
+    _0x2265d4 = ((_0x128bff[_0x2265d4 >>> 24] << 24) | (_0x128bff[(_0x4d3231 >>> 16) & 0xff] << 16) | (_0x128bff[(_0x1f3a4f >>> 8) & 0xff] << 8) | _0x128bff[0xff & _0x598b52]) ^ _0x458390[_0xcb5ec5++];
+    _0x13a508[_0x5baaa1] = _0x34de78; _0x13a508[_0x5baaa1 + 1] = _0x42d7a0; _0x13a508[_0x5baaa1 + 2] = _0x4a8c71; _0x13a508[_0x5baaa1 + 3] = _0x2265d4;
+  }
+
+  return function(_0x3be93d, _0x3e48ea, _0xbf2c16, _0x576527, _0x454b79, _0x361753, _0x3cdffa, _0x2fa7de, _0xdaf7bd, _0x59e242, _0x5674ce) {
+    const _0x5989e7 = ['', _0x3be93d, _0x3e48ea, 'mg3c3b04ba', _0xbf2c16, _0x576527, _0x454b79, _0x12af79(_0x361753), _0x12af79((_0x3cdffa || '').toLowerCase()), _0x12af79(_0x2fa7de), _0xdaf7bd, _0x59e242, _0x5674ce, '00', ''];
+    _0x5989e7.splice(1, 0, _0x70dbf4(_0x5989e7.join('|')));
+    const _0x278f64 = _0x29e11d(_0x5989e7.join('|'));
+    const [_0x3db385, _0x2f9d88] = _0x1b25b9(_0x278f64);
+    _0xaf4f42(_0x3db385);
+    return _0x1c779c(_0x3db385, _0x2f9d88).toUpperCase();
+  };
+}
+
+const kisskhCipher = createKissKHCipher();
+
+export function generateKissKHKey(episodeId, isSub = false) {
+  const appVer = "2.8.10";
+  const guid = isSub ? "VgV52sWhwvBSf8BsM3BRY9weWiiCbtGp" : "62f176f3bb1b5b8e70e39932ad34a0c7";
+  const platformVer = 4830201;
+  const appName = "kisskh";
+  return kisskhCipher(episodeId, null, appVer, guid, platformVer, appName, appName, appName, appName, appName, appName);
+}
+
+/**
+ * KissKH Provider Resolver
+ * Resolves Asian drama & movie streams and subtitles.
+ * Korean titles are automatically tagged with original Korean soundtrack.
+ */
+export async function resolveKissKH({
+  assetInfo = {},
+  title = "",
+  year = "",
+  originalLanguage = "",
+  fetchImpl = fetch,
+  timeoutMs = 8000,
+} = {}) {
+  const cleanTitle = String(title || "")
+    .replace(/\s*:\s*.*$/, "")
+    .replace(/\s*\((?:19|20)\d{2}\)\s*$/, "")
+    .trim();
+  if (!cleanTitle) return null;
+
+  const searchUrl = `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=10`;
+  const searchRes = await fetchImpl(searchUrl, {
+    headers: buildHeaders({ Accept: "application/json" }),
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch(() => null);
+  if (!searchRes || !searchRes.ok) return null;
+
+  const searchData = await searchRes.json().catch(() => null);
+  if (!Array.isArray(searchData) || searchData.length === 0) return null;
+
+  const matchedDrama = searchData.find((item) => item && titleMatches(item.title, cleanTitle, year));
+  if (!matchedDrama || !matchedDrama.id) return null;
+
+  const dramaUrl = `https://kisskh.is/api/DramaList/Drama/${matchedDrama.id}`;
+  const dramaRes = await fetchImpl(dramaUrl, {
+    headers: buildHeaders({ Accept: "application/json" }),
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch(() => null);
+  if (!dramaRes || !dramaRes.ok) return null;
+
+  const drama = await dramaRes.json().catch(() => null);
+  if (!drama || !Array.isArray(drama.episodes) || drama.episodes.length === 0) return null;
+
+  const isTv = assetInfo.type === "tv" || assetInfo.type === "series";
+  const reqEpNum = isTv ? (Number(assetInfo.episode) || 1) : 1;
+  const episode = drama.episodes.find((e) => Number(e.number) === reqEpNum) || (reqEpNum === 1 ? drama.episodes[0] : null);
+  if (!episode || !episode.id) return null;
+
+  const videoKey = generateKissKHKey(episode.id, false);
+  const epStreamUrl = `https://kisskh.is/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
+  const epStreamRes = await fetchImpl(epStreamUrl, {
+    headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch(() => null);
+  if (!epStreamRes || !epStreamRes.ok) return null;
+
+  const epStreamData = await epStreamRes.json().catch(() => null);
+  if (!epStreamData) return null;
+
+  const rawStream = epStreamData.Video || epStreamData.Video_tmp || "";
+  if (!rawStream) return null;
+
+  const isMP4 = epStreamData.Type === 0 || /\.mp4(\?|$)/i.test(rawStream);
+
+  // Subtitles
+  const subKey = generateKissKHKey(episode.id, true);
+  const subApiUrl = `https://kisskh.is/api/Sub/${episode.id}?kkey=${subKey}`;
+  const subRes = await fetchImpl(subApiUrl, {
+    headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch(() => null);
+  const subData = (subRes && subRes.ok) ? await subRes.json().catch(() => []) : [];
+
+  const subtitles = [];
+  if (Array.isArray(subData)) {
+    subData.forEach((s) => {
+      if (!s || !s.src) return;
+      const label = s.label || s.land || "Subtitles";
+      const isEn = String(label).toLowerCase().includes("english") || s.land === "en";
+      subtitles.push({
+        label: `${label} Subtitles`,
+        language: s.land || (isEn ? "en" : "und"),
+        url: s.src,
+        default: isEn || Boolean(s.default),
+        provider: "kisskh",
+      });
+    });
+  }
+
+  // Audio track labeling
+  const country = String(drama.country || "").toLowerCase();
+  const origLangInput = String(originalLanguage || (assetInfo && assetInfo.original_language) || "").toLowerCase();
+  let origLabel = "Original";
+  let origLang = "kor";
+  if (origLangInput === "ko" || origLangInput === "kor" || country.includes("korea") || country.includes("korean")) {
+    origLabel = "Original (Korean)";
+    origLang = "kor";
+  } else if (origLangInput === "ja" || origLangInput === "jpn" || country.includes("japan")) {
+    origLabel = "Original (Japanese)";
+    origLang = "jpn";
+  } else if (origLangInput === "zh" || origLangInput === "zho" || country.includes("china")) {
+    origLabel = "Original (Chinese)";
+    origLang = "zho";
+  } else if (origLangInput === "th" || origLangInput === "tha" || country.includes("thai")) {
+    origLabel = "Original (Thai)";
+    origLang = "tha";
+  } else if (origLangInput === "hi" || origLangInput === "hin" || country.includes("india")) {
+    origLabel = "Original (Hindi)";
+    origLang = "hin";
+  } else {
+    origLabel = "Original (Korean)";
+    origLang = "kor";
+  }
+
+  const audioTracks = [
+    {
+      id: 0,
+      name: origLabel,
+      label: origLabel,
+      language: origLang,
+      default: true,
+      uri: rawStream,
+      provider: "kisskh",
+    },
+  ];
+
+  return {
+    streamUrl: rawStream,
+    backupStreamUrl: rawStream,
+    provider: "kisskh",
+    isMP4,
+    audioTracks,
+    subtitles,
+    variants: [],
+    pageUrl: `https://kisskh.is/Drama/${encodeURIComponent(cleanTitle)}/Episode-${reqEpNum}`,
+    title: drama.title || cleanTitle,
+    posterUrl: drama.thumbnail || "",
+    logoUrl: "",
+  };
 }

@@ -207,9 +207,10 @@ func DefaultDynamicConfig() DynamicConfig {
 			ShowServerNames: false,
 			DefaultServer:   "orion",
 			ServerAliases: map[string]string{
-				"orion":     "Server 1 (Ultra Fast)",
-				"framex":    "Server 2 (Backup)",
-				"asianflix": "Server 3 (Anime / Asian)",
+				"orion":     "Server 1",
+				"framex":    "Server 2",
+				"asianflix": "Server 3",
+				"evion":     "Server 4",
 			},
 		},
 		LastUpdated: time.Now().UTC(),

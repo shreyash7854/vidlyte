@@ -866,6 +866,8 @@
       cursor: pointer;
       position: relative;
       margin-bottom: calc(2px * var(--ui));
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     .progress-track {
@@ -877,7 +879,8 @@
       transition: height 0.14s ease;
     }
 
-    .progress-bar-container:hover .progress-track {
+    .progress-bar-container:hover .progress-track,
+    .progress-bar-container.is-scrubbing .progress-track {
       height: calc(5px * var(--ui));
     }
 
@@ -890,6 +893,24 @@
       border-radius: 2px;
       width: 0%;
       pointer-events: none;
+    }
+
+    .progress-hover {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      background: rgba(255, 255, 255, 0.32);
+      border-radius: 2px;
+      width: 0%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+
+    .progress-bar-container:hover .progress-hover,
+    .progress-bar-container.is-scrubbing .progress-hover {
+      opacity: 1;
     }
 
     .progress-fill {
@@ -917,8 +938,34 @@
       transition: transform 0.16s var(--spring);
     }
 
-    .progress-bar-container:hover .progress-scrub-dot {
+    .progress-bar-container:hover .progress-scrub-dot,
+    .progress-bar-container.is-scrubbing .progress-scrub-dot {
       transform: translate(-50%, -50%) scale(1);
+    }
+
+    .timeline-tooltip {
+      position: absolute;
+      bottom: calc(18px * var(--ui));
+      left: 0;
+      transform: translateX(-50%);
+      background: rgba(18, 18, 22, 0.94);
+      color: #ffffff;
+      font-family: var(--font-mono, monospace);
+      font-size: calc(11px * var(--ui));
+      font-weight: 600;
+      padding: calc(3px * var(--ui)) calc(7px * var(--ui));
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      pointer-events: none;
+      white-space: nowrap;
+      display: none;
+      z-index: 40;
+    }
+
+    .progress-bar-container:hover .timeline-tooltip,
+    .progress-bar-container.is-scrubbing .timeline-tooltip {
+      display: block;
     }
 
     /* Controls Row */
@@ -2170,6 +2217,17 @@
       pointer-events: auto;
     }
 
+    .player-toast.toast-bottom-right {
+      left: auto;
+      right: calc(24px * var(--ui));
+      bottom: calc(75px * var(--ui));
+      transform: translateY(10px);
+    }
+
+    .player-toast.toast-bottom-right.show {
+      transform: translateY(0);
+    }
+
     .player-toast button {
       flex: 0 0 auto;
       background: #f4f4f5;
@@ -2806,8 +2864,10 @@
       <div class="progress-bar-container" id="progressWrap">
         <div class="progress-track">
           <div class="progress-buffer" id="progressBuffer"></div>
+          <div class="progress-hover" id="progressHover"></div>
           <div class="progress-fill" id="progressFill"></div>
           <div class="progress-scrub-dot" id="progressDot"></div>
+          <div class="timeline-tooltip" id="timelineTooltip">0:00</div>
         </div>
       </div>
 
@@ -3379,7 +3439,9 @@
       var progressWrap = document.getElementById('progressWrap');
       var progressFill = document.getElementById('progressFill');
       var progressBuffer = document.getElementById('progressBuffer');
+      var progressHover = document.getElementById('progressHover');
       var progressDot = document.getElementById('progressDot');
+      var timelineTooltip = document.getElementById('timelineTooltip');
       var lockBtn = document.getElementById('lockBtn');
       var lockOpenIcon = document.getElementById('lockOpenIcon');
       var lockClosedIcon = document.getElementById('lockClosedIcon');
@@ -3583,9 +3645,14 @@
       }
 
       var toastTimer = null;
-      function showPlayerToast(message, actionLabel, actionFn, durationMs) {
+      function showPlayerToast(message, actionLabel, actionFn, durationMs, position) {
         if (!playerToast || !playerToastText) return;
         playerToastText.textContent = message;
+        if (position === 'bottom-right') {
+          playerToast.classList.add('toast-bottom-right');
+        } else {
+          playerToast.classList.remove('toast-bottom-right');
+        }
         if (playerToastAction) {
           if (actionLabel && typeof actionFn === 'function') {
             playerToastAction.style.display = 'inline-block';
@@ -3608,6 +3675,7 @@
       function hidePlayerToast() {
         if (!playerToast) return;
         playerToast.classList.remove('show');
+        playerToast.classList.remove('toast-bottom-right');
         if (toastTimer) {
           clearTimeout(toastTimer);
           toastTimer = null;
@@ -3934,15 +4002,16 @@
         return m + ':' + secStr;
       }
 
-      function updateTimeDisplay() {
-        var cur = formatTime(video.currentTime);
+      function updateTimeDisplay(optTime) {
+        var t = (typeof optTime === 'number' && !isNaN(optTime)) ? optTime : video.currentTime;
+        var cur = formatTime(t);
         var dur = formatTime(video.duration);
-        curTime.textContent = cur;
-        durTime.textContent = dur;
+        if (curTime) curTime.textContent = cur;
+        if (durTime) durTime.textContent = dur;
 
         // Calculate dynamic "Ends at HH:MM AM/PM"
-        if (video.duration && !isNaN(video.duration)) {
-          var remaining = Math.max(0, video.duration - video.currentTime);
+        if (video.duration && !isNaN(video.duration) && endsAtTime) {
+          var remaining = Math.max(0, video.duration - t);
           var finishDate = new Date(Date.now() + remaining * 1000);
           var hours = finishDate.getHours();
           var minutes = finishDate.getMinutes();
@@ -3951,7 +4020,7 @@
           hours = hours ? hours : 12;
           var minsStr = minutes < 10 ? '0' + minutes : minutes;
           endsAtTime.textContent = hours + ':' + minsStr + ' ' + ampm;
-        } else {
+        } else if (endsAtTime) {
           endsAtTime.textContent = '--:--';
         }
       }
@@ -4458,6 +4527,17 @@
       }
 
       // 5. Popover 2: Audio & Subtitles Navigation
+      function openAudioPopover() {
+        closePopovers();
+        if (audioPopover && audioPillBtn) {
+          audioPopover.style.display = 'flex';
+          audioPillBtn.classList.add('active');
+          if (audioMainView) audioMainView.style.display = 'block';
+          if (audioCustomizeView) audioCustomizeView.style.display = 'none';
+          if (audioSyncView) audioSyncView.style.display = 'none';
+        }
+      }
+
       if (audioPillBtn && audioPopover) {
         audioPillBtn.addEventListener('click', function (e) {
           e.stopPropagation();
@@ -5166,6 +5246,14 @@
           }
         }
 
+        // 1b. If an upgraded multi-audio master was deferred in the background, switch to it now
+        if (pendingUpgradedStream && pendingUpgradedStream.url && currentStreamUrl !== pendingUpgradedStream.url) {
+          window.__PENDING_AUDIO_TRACK_IDX__ = idx;
+          loadNewStream(pendingUpgradedStream.url);
+          updateAudioTrackUI(idx);
+          return;
+        }
+
         // 2. Separate stream URL / Multi-Audio Master URL fallback
         if (config.audioTracks && config.audioTracks[idx]) {
           var targetTrack = config.audioTracks[idx];
@@ -5225,6 +5313,11 @@
               video.play().catch(function () { });
             }
             updateQualityPillText();
+            if (typeof window.__PENDING_AUDIO_TRACK_IDX__ === 'number' && hls.audioTracks && hls.audioTracks.length > window.__PENDING_AUDIO_TRACK_IDX__) {
+              hls.audioTrack = window.__PENDING_AUDIO_TRACK_IDX__;
+              updateAudioTrackUI(window.__PENDING_AUDIO_TRACK_IDX__);
+              window.__PENDING_AUDIO_TRACK_IDX__ = null;
+            }
           };
           hls.on(Hls.Events.MANIFEST_PARSED, onParsed);
         }
@@ -5496,7 +5589,37 @@
               throw new Error('gateway_not_master');
             }
             var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
-            return { url: gatewayUrl, audioCount: audioCount };
+            if (audioCount <= 1) {
+              var namedVariants = (text.match(/#EXT-X-STREAM-INF:[^\n]*NAME=/gi) || []).length;
+              if (namedVariants > 1) {
+                audioCount = namedVariants;
+              }
+            }
+            var parsedTracks = [];
+            var lines = text.split('\n');
+            lines.forEach(function (line) {
+              if (line.indexOf('#EXT-X-MEDIA:TYPE=AUDIO') >= 0) {
+                var nameMatch = line.match(/NAME="([^"]+)"/i);
+                var langMatch = line.match(/LANGUAGE="([^"]+)"/i);
+                var defMatch = line.match(/DEFAULT=(YES|NO)/i);
+                var uriMatch = line.match(/URI="([^"]+)"/i);
+                var trackName = nameMatch ? nameMatch[1] : '';
+                var trackLang = langMatch ? langMatch[1] : '';
+                if (trackName || trackLang) {
+                  parsedTracks.push({
+                    name: trackName,
+                    language: trackLang,
+                    default: defMatch ? (defMatch[1].toUpperCase() === 'YES') : false,
+                    uri: uriMatch ? uriMatch[1] : ''
+                  });
+                }
+              }
+            });
+            return {
+              url: gatewayUrl,
+              audioCount: audioCount,
+              audioTracks: parsedTracks.length > 0 ? parsedTracks : null
+            };
           });
       }
 
@@ -5633,7 +5756,7 @@
             fetchJson(statusUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
               .then(function (payload) {
                 if (payload && payload.state === 'ready') return resolve(payload);
-                if (payload && payload.state === 'failed') return resolve(null);
+                if (payload && (payload.state === 'failed' || payload.state === 'single')) return resolve(payload);
                 if (attempts >= REMOTE_POLL_MAX) return resolve(null);
                 setTimeout(poll, REMOTE_POLL_INTERVAL_MS);
               })
@@ -5670,8 +5793,12 @@
           })
           .then(function (payload) {
             remoteResolvePending = null;
-            if (!payload) {
-              setClientResolveStatus({ remoteState: 'failed', remoteError: 'no_result' });
+            if (!payload || payload.state === 'single') {
+              setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
+              return null;
+            }
+            if (payload.state === 'failed') {
+              setClientResolveStatus({ remoteState: 'failed', remoteError: payload.error || 'no_result' });
               return null;
             }
             return verifyClientGateway(buildRemoteGatewayUrl(remote)).then(function (result) {
@@ -5702,10 +5829,42 @@
 
       // Swap to the multi-audio master once it is verified. Returns true only
       // when the player actually moved to a stream with more than one track.
-      function applyClientUpgrade(clientStream) {
+      function applyClientUpgrade(clientStream, manual) {
         if (!clientStream || !clientStream.url) return false;
         if (clientStream.audioCount <= 1) return false;
         if (currentStreamUrl === clientStream.url) return true;
+
+        var isActivelyPlaying = (!video.paused && video.currentTime > 0.5) || (video.currentTime > 2);
+
+        // Seamlessly attach upgraded subtitles if the initial stream lacked them
+        if (clientStream.subtitles && clientStream.subtitles.length > 0 && (!config.subtitles || config.subtitles.length === 0)) {
+          config.subtitles = clientStream.subtitles;
+          var enIdx = findEnglishSubtitleIndex(config.subtitles);
+          var defTrack = config.subtitles[enIdx >= 0 ? enIdx : 0];
+          if (defTrack) {
+            currentSub = cleanSubtitleLabel(defTrack.label || defTrack.language || 'English');
+            loadSubtitle(defTrack, true);
+            buildSubtitlesList();
+          }
+        }
+
+        // If video is actively playing and this is an automatic background upgrade,
+        // NEVER tear down HLS or break active playback! Keep video playing smoothly.
+        if (!manual && isActivelyPlaying) {
+          pendingUpgradedStream = clientStream;
+          config.upgradedMasterUrl = clientStream.url;
+          if (clientStream.audioTracks && clientStream.audioTracks.length > 0) {
+            config.audioTracks = clientStream.audioTracks;
+          }
+          setupAudioTracks();
+
+          var count = clientStream.audioCount || (clientStream.audioTracks ? clientStream.audioTracks.length : 2);
+          showPlayerToast('Audio dubs available (' + count + ' tracks)', 'Audio tracks', function () {
+            openAudioPopover();
+          }, 8000, 'bottom-right');
+          return true;
+        }
+
         loadNewStream(clientStream.url);
         setupAudioTracks();
         if (autoplay && video.paused) {
@@ -5726,10 +5885,10 @@
 
         return resolveClientStream({ force: true })
           .then(function (clientStream) {
-            var applied = applyClientUpgrade(clientStream);
+            var applied = applyClientUpgrade(clientStream, manual);
             if (applied) return applied;
             return resolveRemoteMultiAudio(manual).then(function (remoteStream) {
-              return applyClientUpgrade(remoteStream);
+              return applyClientUpgrade(remoteStream, manual);
             });
           })
           .then(function (applied) {
@@ -5843,11 +6002,11 @@
         if (!config.audioTracks || config.audioTracks.length <= 1) {
           if (hasClientDirect) {
             resolveClientStream().then(function (clientStream) {
-              var applied = applyClientUpgrade(clientStream);
+              var applied = applyClientUpgrade(clientStream, false);
               if (applied) return;
               if (remote) {
                 return resolveRemoteMultiAudio(false).then(function (remoteStream) {
-                  var remoteApplied = applyClientUpgrade(remoteStream);
+                  var remoteApplied = applyClientUpgrade(remoteStream, false);
                   if (!remoteApplied && !multiAudioNoticeShown) {
                     multiAudioNoticeShown = true;
                     showPlayerToast(
@@ -5862,7 +6021,7 @@
             });
           } else if (remote) {
             resolveRemoteMultiAudio(false).then(function (remoteStream) {
-              var remoteApplied = applyClientUpgrade(remoteStream);
+              var remoteApplied = applyClientUpgrade(remoteStream, false);
               if (!remoteApplied && !multiAudioNoticeShown) {
                 multiAudioNoticeShown = true;
                 showPlayerToast(
@@ -6085,17 +6244,72 @@
       if (rewindBtn) rewindBtn.addEventListener('click', function () { triggerSeek(-skipIntervalSeconds, tapLeft); });
       if (forwardBtn) forwardBtn.addEventListener('click', function () { triggerSeek(skipIntervalSeconds, tapRight); });
 
+      var isScrubbing = false;
+      var isSeekingOptimistic = false;
+      var optimisticSeekTimer = null;
+
+      function updateScrubPos(clientX, commit) {
+        if (!progressWrap || isLocked || !video.duration) return;
+        var rect = progressWrap.getBoundingClientRect();
+        var pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        var targetPct = (pos * 100);
+        var targetTime = pos * video.duration;
+
+        // Instant optimistic UI response!
+        if (progressFill) progressFill.style.width = targetPct + '%';
+        if (progressDot) progressDot.style.left = targetPct + '%';
+        updateTimeDisplay(targetTime);
+
+        if (timelineTooltip) {
+          timelineTooltip.textContent = formatTime(targetTime);
+          var tooltipLeft = Math.max(20, Math.min(rect.width - 20, clientX - rect.left));
+          timelineTooltip.style.left = tooltipLeft + 'px';
+        }
+
+        if (commit) {
+          isSeekingOptimistic = true;
+          if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer);
+          optimisticSeekTimer = setTimeout(function () {
+            isSeekingOptimistic = false;
+          }, 2500);
+          try {
+            video.currentTime = targetTime;
+          } catch (e) { }
+        }
+      }
+
       video.addEventListener('timeupdate', function () {
+        if (!isScrubbing && !isSeekingOptimistic) {
+          updateTimeDisplay();
+          if (video.duration) {
+            var pct = (video.currentTime / video.duration * 100);
+            if (progressFill) progressFill.style.width = pct + '%';
+            if (progressDot) progressDot.style.left = pct + '%';
+          }
+        }
+        if (video.buffered.length > 0 && video.duration) {
+          var bufferedEnd = video.buffered.end(video.buffered.length - 1);
+          if (progressBuffer) progressBuffer.style.width = (bufferedEnd / video.duration * 100) + '%';
+        }
+        if (currentSub !== 'off') {
+          updateCaptions();
+          if (!captionLoopOn && !video.paused) startCaptionLoop();
+        }
+      });
+
+      video.addEventListener('seeked', function () {
+        isSeekingOptimistic = false;
+        if (optimisticSeekTimer) {
+          clearTimeout(optimisticSeekTimer);
+          optimisticSeekTimer = null;
+        }
         updateTimeDisplay();
         if (video.duration) {
           var pct = (video.currentTime / video.duration * 100);
           if (progressFill) progressFill.style.width = pct + '%';
           if (progressDot) progressDot.style.left = pct + '%';
         }
-        if (video.buffered.length > 0 && video.duration) {
-          var bufferedEnd = video.buffered.end(video.buffered.length - 1);
-          if (progressBuffer) progressBuffer.style.width = (bufferedEnd / video.duration * 100) + '%';
-        }
+        if (currentSub !== 'off') updateCaptions();
       });
 
       video.addEventListener('loadedmetadata', function () {
@@ -6104,16 +6318,75 @@
       });
 
       video.addEventListener('waiting', function () { if (spinner) spinner.style.display = 'block'; });
-      video.addEventListener('playing', function () { if (spinner) spinner.style.display = 'none'; updatePlayState(); });
+      video.addEventListener('playing', function () {
+        if (spinner) spinner.style.display = 'none';
+        updatePlayState();
+        if (currentSub !== 'off') {
+          updateCaptions();
+          startCaptionLoop();
+        }
+      });
 
-      // Scrubber Interaction
+      // Scrubber Interaction & Hover
       if (progressWrap) {
-        progressWrap.addEventListener('click', function (e) {
+        progressWrap.addEventListener('mousemove', function (e) {
           if (isLocked) return;
           var rect = progressWrap.getBoundingClientRect();
-          var pos = (e.clientX - rect.left) / rect.width;
-          if (video.duration) {
-            video.currentTime = pos * video.duration;
+          var pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          if (progressHover) progressHover.style.width = (pos * 100) + '%';
+          if (timelineTooltip && video.duration) {
+            timelineTooltip.textContent = formatTime(pos * video.duration);
+            var tooltipLeft = Math.max(20, Math.min(rect.width - 20, e.clientX - rect.left));
+            timelineTooltip.style.left = tooltipLeft + 'px';
+            timelineTooltip.style.display = 'block';
+          }
+        });
+
+        progressWrap.addEventListener('mouseleave', function () {
+          if (progressHover) progressHover.style.width = '0%';
+          if (timelineTooltip && !isScrubbing) timelineTooltip.style.display = 'none';
+        });
+
+        progressWrap.addEventListener('mousedown', function (e) {
+          if (isLocked || e.button !== 0) return;
+          e.preventDefault();
+          isScrubbing = true;
+          progressWrap.classList.add('is-scrubbing');
+          updateScrubPos(e.clientX, true);
+        });
+
+        window.addEventListener('mousemove', function (e) {
+          if (!isScrubbing) return;
+          updateScrubPos(e.clientX, false);
+        });
+
+        window.addEventListener('mouseup', function (e) {
+          if (!isScrubbing) return;
+          isScrubbing = false;
+          progressWrap.classList.remove('is-scrubbing');
+          if (timelineTooltip) timelineTooltip.style.display = 'none';
+          updateScrubPos(e.clientX, true);
+        });
+
+        // Touch scrubbing for mobile
+        progressWrap.addEventListener('touchstart', function (e) {
+          if (isLocked || !e.touches || !e.touches[0]) return;
+          isScrubbing = true;
+          progressWrap.classList.add('is-scrubbing');
+          updateScrubPos(e.touches[0].clientX, true);
+        }, { passive: true });
+
+        progressWrap.addEventListener('touchmove', function (e) {
+          if (!isScrubbing || !e.touches || !e.touches[0]) return;
+          updateScrubPos(e.touches[0].clientX, false);
+        }, { passive: true });
+
+        progressWrap.addEventListener('touchend', function (e) {
+          if (!isScrubbing) return;
+          isScrubbing = false;
+          progressWrap.classList.remove('is-scrubbing');
+          if (e.changedTouches && e.changedTouches[0]) {
+            updateScrubPos(e.changedTouches[0].clientX, true);
           }
         });
       }

@@ -119,7 +119,7 @@ func (s *ResolverService) queryFrameX(ctx context.Context, req models.MediaReque
 
 	mediaType := req.Type
 	if mediaType == "tv" || mediaType == "series" {
-		mediaType = "series"
+		mediaType = "tv"
 	} else {
 		mediaType = "movie"
 	}
@@ -417,6 +417,10 @@ func (s *ResolverService) queryVidrift(ctx context.Context, req models.MediaRequ
 	httpReq.Header.Set("User-Agent", parser.BrowserUserAgent)
 	httpReq.Header.Set("Referer", base+"/")
 	httpReq.Header.Set("Origin", base)
+	httpReq.Header.Set("Sec-Fetch-Dest", "iframe")
+	httpReq.Header.Set("Sec-Fetch-Mode", "navigate")
+	httpReq.Header.Set("Sec-Fetch-Site", "same-origin")
+	httpReq.Header.Set("Accept", "*/*")
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
@@ -749,7 +753,7 @@ func (s *ResolverService) Resolve(ctx context.Context, req models.MediaRequest) 
 	}
 
 	// 2. Primary: ALWAYS attempt live Vidrift extraction first (except for known offline dev fixtures)
-	if req.ID != "1399" && req.ID != "314939" && req.ID != "360817" && req.ID != "1058424" {
+	if req.ID != "1399" && req.ID != "550" && req.ID != "314939" && req.ID != "360817" && req.ID != "1058424" {
 		vidriftCtx, cancelVidrift := context.WithTimeout(ctx, 8*time.Second)
 		vidriftResp, err := s.queryVidrift(vidriftCtx, req)
 		cancelVidrift()
@@ -816,36 +820,69 @@ func (s *ResolverService) Resolve(ctx context.Context, req models.MediaRequest) 
 	var subtitles []models.SubtitleTrack
 
 	switch req.ID {
-	case "1399":
-		// Game of Thrones (1399) - Evion Multi-Audio + Orion Dubs
-		primaryManifest = "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/index.m3u8"
-
-		evionAudio := []models.AudioTrack{
-			{Language: "hin", Name: "Hindi", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_hindi.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_hindi.m3u8", "evion"), Headers: evionHeaders},
-			{Language: "tel", Name: "Telugu", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_telugu.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_telugu.m3u8", "evion"), Headers: evionHeaders},
-			{Language: "eng", Name: "English", Default: true, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_english.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_english.m3u8", "evion"), Headers: evionHeaders},
-			{Language: "tam", Name: "Tamil", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_tamil.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_tamil.m3u8", "evion"), Headers: evionHeaders},
-			{Language: "kan", Name: "Kannada", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_kannada.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_kannada.m3u8", "evion"), Headers: evionHeaders},
+	case "550":
+		// Movie 550 - Fight Club (1999) via Dragonballzfans HLS Master
+		primaryManifest = "https://fuckme.dragonballzfans.xyz/ef8aed01153a426df207af2d12d27274/b50f96a3095da8a68bd9495dab157d4b.m3u8"
+		unifiedAudioTracks = []models.AudioTrack{
+			{Language: "eng", Name: "Original (English 5.1)", Default: true, Provider: "framextv", Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "framextv"), Headers: framexHeaders},
+			{Language: "hin", Name: "Hindi (Dubbed)", Default: false, Provider: "framextv", Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "framextv"), Headers: framexHeaders},
+			{Language: "spa", Name: "Spanish (Latino)", Default: false, Provider: "framextv", Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "framextv"), Headers: framexHeaders},
+			{Language: "fra", Name: "French (VFF)", Default: false, Provider: "framextv", Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "framextv"), Headers: framexHeaders},
 		}
-
-		orionAudio := []models.AudioTrack{
-			{Language: "eng", Name: "Orion · Original", Default: true, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/08bcffbf68f6cdb3fb930132a58581b3/master.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/08bcffbf68f6cdb3fb930132a58581b3/master.m3u8", "orion"), Headers: orionHeaders},
-			{Language: "hin", Name: "Orion · Hindi", Default: false, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/2012a95c0245b08c6fa1bb43b37ea360/master.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/2012a95c0245b08c6fa1bb43b37ea360/master.m3u8", "orion"), Headers: orionHeaders},
-			{Language: "spa", Name: "Orion · Spanish", Default: false, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/9ce738222ebefecff6dfeb78c85ae661/master.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/9ce738222ebefecff6dfeb78c85ae661/master.m3u8", "orion"), Headers: orionHeaders},
-			{Language: "por", Name: "Orion · Portuguese", Default: false, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/775d71ea95147be8a9cbffea38e55e34/master.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/775d71ea95147be8a9cbffea38e55e34/master.m3u8", "orion"), Headers: orionHeaders},
-		}
-
 		variants = []models.StreamVariant{
-			{Resolution: "1920x1080", Bandwidth: 1000000, Codecs: "avc1.640028,mp4a.40.2", PlaylistURI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles.m3u8", "evion"), Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders},
-			{Resolution: "1280x720", Bandwidth: 600000, Codecs: "avc1.64001f,mp4a.40.2", PlaylistURI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles_720p.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles_720p.m3u8", "evion"), Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders},
+			{Resolution: "1920x1080", Bandwidth: 3200000, Codecs: "avc1.640028,mp4a.40.2", PlaylistURI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "framextv"), Provider: "framextv", Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, Headers: framexHeaders},
+		}
+		providers = []models.ProviderStreams{
+			{Provider: "framextv", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "framextv"), Domain: "fuckme.dragonballzfans.xyz", RequiresProxy: false, Headers: framexHeaders, Variants: variants, AudioTracks: unifiedAudioTracks},
 		}
 
-		unifiedAudioTracks = append(unifiedAudioTracks, evionAudio...)
-		unifiedAudioTracks = append(unifiedAudioTracks, orionAudio...)
+	case "1399":
+		// Game of Thrones (1399) - S1E1 & S1E2 Multi-Audio Masters
+		if req.Season == 1 && req.Episode == 2 {
+			primaryManifest = "https://norway-canary.bigbang.cymru/origin_tv/tv/tmdb-1399/S01E02/index.m3u8.png?exp=1793745000&sig=56284937e6c91c54cea19a730c237827075b37af9f310667bb0c8f977d1711ea"
+			got2Audio := []models.AudioTrack{
+				{Language: "eng", Name: "Original (English 5.1)", Default: true, Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Headers: orionHeaders},
+				{Language: "hin", Name: "Hindi (हिन्दी)", Default: false, Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Headers: orionHeaders},
+				{Language: "spa", Name: "Spanish (Español)", Default: false, Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Headers: orionHeaders},
+				{Language: "por", Name: "Portuguese (Português)", Default: false, Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Headers: orionHeaders},
+				{Language: "ara", Name: "Arabic (العربية)", Default: false, Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, URI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Headers: orionHeaders},
+			}
+			variants = []models.StreamVariant{
+				{Resolution: "1920x1080", Bandwidth: 2500000, Codecs: "avc1.640028,mp4a.40.2", PlaylistURI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders},
+				{Resolution: "1280x720", Bandwidth: 1200000, Codecs: "avc1.64001f,mp4a.40.2", PlaylistURI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders},
+			}
+			unifiedAudioTracks = got2Audio
+			providers = []models.ProviderStreams{
+				{Provider: "orion", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "orion"), Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders, Variants: variants, AudioTracks: unifiedAudioTracks},
+			}
+		} else {
+			primaryManifest = "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/index.m3u8"
 
-		providers = []models.ProviderStreams{
-			{Provider: "evion", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "evion"), Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders, Variants: variants, AudioTracks: evionAudio},
-			{Provider: "orion", MasterURI: orionAudio[0].URI, ProxiedMaster: orionAudio[0].ProxiedURI, Domain: "embed.vidrift.net", RequiresProxy: true, Headers: orionHeaders, AudioTracks: orionAudio},
+			evionAudio := []models.AudioTrack{
+				{Language: "eng", Name: "English (Original 5.1)", Default: true, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_english.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_english.m3u8", "evion"), Headers: evionHeaders},
+				{Language: "hin", Name: "Hindi (Dubbed)", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_hindi.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_hindi.m3u8", "evion"), Headers: evionHeaders},
+				{Language: "tel", Name: "Telugu (Dubbed)", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_telugu.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_telugu.m3u8", "evion"), Headers: evionHeaders},
+				{Language: "tam", Name: "Tamil (Dubbed)", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_tamil.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_tamil.m3u8", "evion"), Headers: evionHeaders},
+				{Language: "kan", Name: "Kannada (Dubbed)", Default: false, Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, URI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_kannada.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/track_kannada.m3u8", "evion"), Headers: evionHeaders},
+			}
+
+			orionAudio := []models.AudioTrack{
+				{Language: "spa", Name: "Spanish (Dubbed)", Default: false, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/7f1f8c56e363d2f3634d07d84a6425d1/a1.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/7f1f8c56e363d2f3634d07d84a6425d1/a1.m3u8", "orion"), Headers: orionHeaders},
+				{Language: "por", Name: "Portuguese (Dubbed)", Default: false, Provider: "orion", Domain: "embed.vidrift.net", RequiresProxy: true, URI: "https://embed.vidrift.net/api/orion/5858c0fda0ac71f3241d4a743fc44f80/a3.m3u8", ProxiedURI: s.buildProxy("https://embed.vidrift.net/api/orion/5858c0fda0ac71f3241d4a743fc44f80/a3.m3u8", "orion"), Headers: orionHeaders},
+			}
+
+			variants = []models.StreamVariant{
+				{Resolution: "1920x1080", Bandwidth: 1383586, Codecs: "avc1.640028,mp4a.40.2", PlaylistURI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles.m3u8", "evion"), Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders},
+				{Resolution: "1280x720", Bandwidth: 806176, Codecs: "avc1.64001f,mp4a.40.2", PlaylistURI: "https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles_720p.m3u8", ProxiedURI: s.buildProxy("https://img.animecurx.tech/tvshows/ee3c2a52662960708707/tiles_720p.m3u8", "evion"), Provider: "evion", Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders},
+			}
+
+			unifiedAudioTracks = append(unifiedAudioTracks, evionAudio...)
+			unifiedAudioTracks = append(unifiedAudioTracks, orionAudio...)
+
+			providers = []models.ProviderStreams{
+				{Provider: "evion", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "evion"), Domain: "img.animecurx.tech", RequiresProxy: false, Headers: evionHeaders, Variants: variants, AudioTracks: evionAudio},
+				{Provider: "orion", MasterURI: orionAudio[0].URI, ProxiedMaster: orionAudio[0].ProxiedURI, Domain: "embed.vidrift.net", RequiresProxy: true, Headers: orionHeaders, AudioTracks: orionAudio},
+			}
 		}
 
 	case "314939":
@@ -956,6 +993,46 @@ func (s *ResolverService) Resolve(ctx context.Context, req models.MediaRequest) 
 
 		providers = []models.ProviderStreams{
 			{Provider: "framextv", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "framextv"), Domain: "api.framextv.xyz", RequiresProxy: false, Headers: framexHeaders, Variants: variants, AudioTracks: unifiedAudioTracks},
+		}
+
+	case "250670":
+		// Maxton Hall - The World Between Us (250670) - 10 Multi-Dub Streams & Subtitles via Norway Canary BigBang
+		primaryManifest = "https://norway-canary.bigbang.cymru/origin_tv/tv/tmdb-250670/S01E01/index.m3u8.png?exp=1793658600&sig=f7681ca67c3a43dc96856aafa0792593c2842474601108cfc9520b7165364406"
+
+		maxtonDubs := []struct{ name, lang string }{
+			{"German (Deutsch)", "deu"},
+			{"English", "eng"},
+			{"Hindi (हिन्दी)", "hin"},
+			{"Spanish (Español)", "spa"},
+			{"Portuguese (Português)", "por"},
+			{"French (Français)", "fra"},
+			{"Tamil (தமிழ்)", "tam"},
+			{"Telugu (తెలుగు)", "tel"},
+			{"Kannada (ಕನ್ನಡ)", "kan"},
+			{"Malayalam (മലയാളം)", "mal"},
+		}
+
+		for idx, dub := range maxtonDubs {
+			unifiedAudioTracks = append(unifiedAudioTracks, models.AudioTrack{
+				Language:      dub.lang,
+				Name:          dub.name,
+				Default:       idx == 0,
+				URI:           primaryManifest,
+				ProxiedURI:    s.buildProxy(primaryManifest, "orion"),
+				Provider:      "orion",
+				Domain:        "norway-canary.bigbang.cymru",
+				RequiresProxy: true,
+				Headers:       orionHeaders,
+			})
+		}
+
+		variants = []models.StreamVariant{
+			{Resolution: "1920x1080", Bandwidth: 2500000, Codecs: "hvc1.1.6.L120.90,mp4a.40.2", PlaylistURI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders},
+			{Resolution: "1280x720", Bandwidth: 1200000, Codecs: "hvc1.1.6.L93.90,mp4a.40.2", PlaylistURI: primaryManifest, ProxiedURI: s.buildProxy(primaryManifest, "orion"), Provider: "orion", Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders},
+		}
+
+		providers = []models.ProviderStreams{
+			{Provider: "orion", MasterURI: primaryManifest, ProxiedMaster: s.buildProxy(primaryManifest, "orion"), Domain: "norway-canary.bigbang.cymru", RequiresProxy: true, Headers: orionHeaders, Variants: variants, AudioTracks: unifiedAudioTracks},
 		}
 
 	default:
@@ -1099,11 +1176,89 @@ func (s *ResolverService) Resolve(ctx context.Context, req models.MediaRequest) 
 		metaRating = "7.0"
 		metaGenres = []string{"Romance", "Thriller"}
 		metaOverview = "Marfil, daughter of a powerful Spanish businessman, sees her life in New York turned upside down when she is kidnapped and released without explanation. Her father hires Sebastian Moore as bodyguard and, forced to spend every minute together, an inevitable attraction ignites in a world where nothing is as it seems."
-		metaLogo = "https://image.tmdb.org/t/p/w500/AbFVWXxZ76enpA1GHCq13CN8xGu.png"
+		metaLogo = "/tmdb-image/w500/AbFVWXxZ76enpA1GHCq13CN8xGu.png"
+	} else if req.ID == "1399" {
+		if metaTitle == "" {
+			metaTitle = "Game of Thrones"
+		}
+		if metaYear == "" {
+			metaYear = "2011"
+		}
+		if metaRating == "" {
+			metaRating = "9.2"
+		}
+		if len(metaGenres) == 0 {
+			metaGenres = []string{"Sci-Fi & Fantasy", "Drama", "Action & Adventure"}
+		}
+		if metaOverview == "" {
+			metaOverview = "Nine noble families fight for control over the lands of Westeros, while an ancient enemy returns after being dormant for millennia."
+		}
+		if metaLogo == "" {
+			metaLogo = "/tmdb-image/w500/6pObznbCoxVpY1lPQwJxETd7Phe.png"
+		}
+		metaKicker = fmt.Sprintf("S%d · E%d", req.Season, req.Episode)
+	} else if req.ID == "250670" {
+		if metaTitle == "" {
+			metaTitle = "Maxton Hall – The World Between Us: Under the Radar"
+		}
+		if metaYear == "" {
+			metaYear = "2024"
+		}
+		if metaRating == "" {
+			metaRating = "8.3"
+		}
+		if len(metaGenres) == 0 {
+			metaGenres = []string{"Drama"}
+		}
+		if metaOverview == "" {
+			metaOverview = "When reserved scholarship student Ruby Bell witnesses an explosive secret, she finds herself in the crosshairs of privileged and arrogant millionaire heir James Beaufort."
+		}
+		metaLogo = "/tmdb-image/w500/wG2KCdoQV6GohNdq99f7dASSTJH.png"
+		metaKicker = fmt.Sprintf("S%d · E%d", req.Season, req.Episode)
+	} else if req.ID == "550" {
+		if metaTitle == "" {
+			metaTitle = "Fight Club"
+		}
+		if metaYear == "" {
+			metaYear = "1999"
+		}
+		if metaRating == "" {
+			metaRating = "8.8"
+		}
+		if len(metaGenres) == 0 {
+			metaGenres = []string{"Drama"}
+		}
+		if metaOverview == "" {
+			metaOverview = "An insomniac office worker and a devil-may-care soap maker form an underground fight club that evolves into much more."
+		}
+		metaLogo = "/tmdb-image/w500/lyFSC5i078jk12aNH4wUCNbCV8e.png"
+		metaKicker = "Movie"
+	} else if req.ID == "95396" {
+		if metaTitle == "" {
+			metaTitle = "Severance"
+		}
+		if metaYear == "" {
+			metaYear = "2022"
+		}
+		if metaRating == "" {
+			metaRating = "8.4"
+		}
+		if len(metaGenres) == 0 {
+			metaGenres = []string{"Sci-Fi & Fantasy", "Drama", "Mystery"}
+		}
+		if metaOverview == "" {
+			metaOverview = "Mark leads a team of office workers whose memories have been surgically divided between their work and personal lives."
+		}
+		metaLogo = "/tmdb-image/w500/yyS1tALk7t3YdTNMOvR5gsnXINA.png"
+		metaKicker = fmt.Sprintf("S%d · E%d", req.Season, req.Episode)
 	} else if req.Type == "tv" {
 		metaKicker = fmt.Sprintf("S%d · E%d", req.Season, req.Episode)
 	} else {
 		metaKicker = "Movie"
+	}
+
+	if metaLogo == "" && req.ID != "" {
+		metaLogo = s.fetchTMDBLogo(ctx, req.Type, req.ID)
 	}
 
 	resp := &models.MediaResponse{
@@ -1135,6 +1290,9 @@ func (s *ResolverService) Resolve(ctx context.Context, req models.MediaRequest) 
 }
 
 func (s *ResolverService) saveToCache(cacheKey string, resp *models.MediaResponse) {
+	if resp != nil && resp.LogoURL == "" && resp.ID != "" {
+		resp.LogoURL = s.fetchTMDBLogo(context.Background(), resp.Type, resp.ID)
+	}
 	if s.cache != nil && resp != nil {
 		s.cache.Set(cacheKey, resp)
 	}
@@ -1143,6 +1301,47 @@ func (s *ResolverService) saveToCache(cacheKey string, resp *models.MediaRespons
 			s.tieredCache.Set(cacheKey, string(jsonBytes), 30*time.Minute)
 		}
 	}
+}
+
+func (s *ResolverService) fetchTMDBLogo(ctx context.Context, mediaType, id string) string {
+	tmdbType := "movie"
+	if mediaType == "tv" || mediaType == "series" {
+		tmdbType = "tv"
+	}
+	u := fmt.Sprintf("https://api.tmdb.org/3/%s/%s?api_key=844dba0bfd8f3a4f3799f6130ef9e335&append_to_response=images&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi", tmdbType, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		Images struct {
+			Logos []struct {
+				FilePath string `json:"file_path"`
+				ISO6391  string `json:"iso_639_1"`
+			} `json:"logos"`
+		} `json:"images"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return ""
+	}
+	for _, l := range payload.Images.Logos {
+		if (l.ISO6391 == "en" || l.ISO6391 == "") && l.FilePath != "" {
+			return "/tmdb-image/w500" + l.FilePath
+		}
+	}
+	if len(payload.Images.Logos) > 0 && payload.Images.Logos[0].FilePath != "" {
+		return "/tmdb-image/w500" + payload.Images.Logos[0].FilePath
+	}
+	return ""
 }
 
 // Invalidate removes a media item from in-memory cache on upstream errors.

@@ -20,6 +20,7 @@
 import { createHmac } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { Buffer } from "node:buffer";
+import { resolveKissKH } from "../src/providers.js";
 
 function mapOrionPlaylist(text) {
   const firstChunkMatch = text.match(/https:\/\/[^\r\n]+\.m4s[^\r\n]*/);
@@ -35,7 +36,7 @@ function mapOrionPlaylist(text) {
 
 const PUBLISH_URL = (process.env.MULTI_AUDIO_PUBLISH_URL || "https://vid.lyte.workers.dev").replace(/\/+$/, "");
 const PUBLISH_KEY = process.env.MULTI_AUDIO_PUBLISH_KEY || "";
-const TIMEOUT_MS = Math.max(4000, Number(process.env.MULTI_AUDIO_TIMEOUT_MS) || 25000);
+const TIMEOUT_MS = Math.max(3000, Number(process.env.MULTI_AUDIO_TIMEOUT_MS) || 6000);
 
 const BROWSER_HEADERS = {
   Accept: "application/json",
@@ -107,13 +108,8 @@ function requestedAssets() {
 }
 
 async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal, redirect: "follow" });
-  } finally {
-    clearTimeout(timer);
-  }
+  const signal = options.signal || AbortSignal.timeout(TIMEOUT_MS);
+  return await fetch(url, { ...options, signal, redirect: "follow" });
 }
 
 function sleep(ms) {
@@ -164,7 +160,122 @@ function extractM3u8(text) {
   return index >= 0 ? raw.slice(index) : "";
 }
 
-async function resolveAsset(target) {
+async function enrichWithKissKH(candidate, target, started) {
+  if (!candidate || !candidate.ok) return candidate;
+  try {
+    let title = "";
+    let year = "";
+    let origLang = "";
+    const tmdbRes = await fetchWithTimeout(
+      `https://api.tmdb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
+      { signal: AbortSignal.timeout(4000) }
+    ).catch(() => null);
+    if (tmdbRes && tmdbRes.ok) {
+      const tmdbData = await tmdbRes.json().catch(() => null);
+      if (tmdbData) {
+        title = tmdbData.name || tmdbData.title || "";
+        year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
+        origLang = tmdbData.original_language || "";
+      }
+    }
+    if (!title) return candidate;
+
+    const isAsian = ["ko", "ja", "zh", "th"].includes(origLang);
+    const hasOriginal = (candidate.audioTracks || []).some((t) =>
+      /original|korean|japanese|chinese/i.test(t.name || t.label || "")
+    );
+    const needsAudio =
+      !candidate.audioTracks || candidate.audioTracks.length <= 1 || (isAsian && !hasOriginal);
+    const needsSubs = !candidate.subtitles || candidate.subtitles.length === 0;
+
+    if (needsSubs || needsAudio) {
+      const kiss = await resolveKissKH({
+        assetInfo: target,
+        title,
+        year,
+        originalLanguage: origLang,
+        timeoutMs: 8000,
+      }).catch(() => null);
+      if (kiss) {
+        if (needsSubs && Array.isArray(kiss.subtitles) && kiss.subtitles.length > 0) {
+          candidate.subtitles = kiss.subtitles;
+        }
+        if (needsAudio && Array.isArray(kiss.audioTracks) && kiss.audioTracks.length > 0) {
+          const kissTrack = {
+            id: candidate.audioTracks.length,
+            name: kiss.audioTracks[0].name,
+            label: kiss.audioTracks[0].label,
+            language: kiss.audioTracks[0].language,
+            default: true,
+            uri: kiss.streamUrl,
+            proxiedUri: kiss.streamUrl,
+            proxied_uri: kiss.streamUrl,
+            provider: "kisskh",
+            isMP4: kiss.isMP4,
+          };
+          (candidate.audioTracks || []).forEach((t) => (t.default = false));
+          candidate.audioTracks = [kissTrack, ...(candidate.audioTracks || [])];
+          candidate.audio = candidate.audioTracks.length;
+          if (candidate.masterManifest) {
+            const defStr = ",DEFAULT=YES,AUTOSELECT=YES";
+            const langStr = kissTrack.language ? `,LANGUAGE="${kissTrack.language}"` : "";
+            const kissLine = `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${kissTrack.name}"${defStr}${langStr},URI="${kissTrack.uri}"`;
+            candidate.masterManifest = candidate.masterManifest.replace(/#EXTM3U\n/, `#EXTM3U\n${kissLine}\n`);
+          }
+        }
+      }
+    }
+  } catch (err) {}
+  if (started) candidate.latency_ms = Date.now() - started;
+  return candidate;
+}
+
+async function fallbackToKissKH(target, started, failures = []) {
+  try {
+    let title = "";
+    let year = "";
+    let origLang = "";
+    const tmdbRes = await fetchWithTimeout(
+      `https://api.tmdb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
+      { signal: AbortSignal.timeout(4000) }
+    ).catch(() => null);
+    if (tmdbRes && tmdbRes.ok) {
+      const tmdbData = await tmdbRes.json().catch(() => null);
+      if (tmdbData) {
+        title = tmdbData.name || tmdbData.title || "";
+        year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
+        origLang = tmdbData.original_language || "";
+      }
+    }
+    if (title) {
+      const kiss = await resolveKissKH({
+        assetInfo: target,
+        title,
+        year,
+        originalLanguage: origLang,
+        timeoutMs: 8000,
+      }).catch(() => null);
+      if (kiss && kiss.streamUrl) {
+        return {
+          ok: true,
+          url: kiss.streamUrl,
+          provider: "kisskh",
+          audio: (kiss.audioTracks && kiss.audioTracks.length) || 1,
+          exp: Math.floor(Date.now() / 1000) + 86400 * 2,
+          via: "kisskh",
+          masterManifest: kiss.masterManifest || "",
+          audioTracks: kiss.audioTracks || [],
+          variants: kiss.variants || [],
+          subtitles: kiss.subtitles || [],
+          latency_ms: Date.now() - started,
+        };
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+export async function resolveAsset(target) {
   const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
   const started = Date.now();
   const failures = [];
@@ -216,6 +327,8 @@ async function resolveAsset(target) {
   }
 
   if (!boot) {
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback) return kissFallback;
     return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
@@ -434,33 +547,26 @@ async function resolveAsset(target) {
       "Origin": "https://embed.vidrift.net",
     };
 
-    for (const v of variants) {
-      try {
-        const m = v.playlistUri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
-        if (m) {
-          const vRes = await fetchWithTimeout(v.playlistUri, { headers: fetchHeaders });
-          if (vRes && vRes.ok) {
-            const mapped = mapOrionPlaylist(await vRes.text());
-            subManifests[`${m[1]}:${m[2]}`] = mapped;
-            subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
-          }
-        }
-      } catch (e) {}
-    }
+    const warmItems = [
+      ...variants.map((v) => ({ uri: v.playlistUri, m: v.playlistUri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) })),
+      ...audioTracks.map((a) => ({ uri: a.uri, m: a.uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) })),
+    ].filter((item) => item.m);
 
-    for (const a of audioTracks) {
-      try {
-        const m = a.uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
-        if (m) {
-          const aRes = await fetchWithTimeout(a.uri, { headers: fetchHeaders });
-          if (aRes && aRes.ok) {
-            const mapped = mapOrionPlaylist(await aRes.text());
-            subManifests[`${m[1]}:${m[2]}`] = mapped;
-            subManifestsGz[`${m[1]}:${m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
+    await Promise.allSettled(
+      warmItems.map(async (item) => {
+        try {
+          const res = await fetchWithTimeout(item.uri, {
+            headers: fetchHeaders,
+            signal: AbortSignal.timeout(1800),
+          });
+          if (res && res.ok) {
+            const mapped = mapOrionPlaylist(await res.text());
+            subManifests[`${item.m[1]}:${item.m[2]}`] = mapped;
+            subManifestsGz[`${item.m[1]}:${item.m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
           }
-        }
-      } catch (e) {}
-    }
+        } catch (e) {}
+      })
+    );
 
     orionCandidate = {
       ok: true,
@@ -485,7 +591,7 @@ async function resolveAsset(target) {
 
   if (directCandidates.length > 0) {
     directCandidates.sort((a, b) => b.audio - a.audio);
-    return directCandidates[0];
+    return await enrichWithKissKH(directCandidates[0], target, started);
   }
 
   const token = boot.meta.playbackToken;
@@ -517,15 +623,17 @@ async function resolveAsset(target) {
           }
         } else {
           failures.push(`source_${prov}:${sourceRes.status}`);
-          try {
-            source = parseLooseJson(await readerFetch(sourceUrl));
-            if (source && Array.isArray(source.streams) && source.streams.length > 0) {
-              chosenProvider = prov;
-              via = "reader";
-              break;
+          if (via === "reader" || sourceRes.status >= 500) {
+            try {
+              source = parseLooseJson(await readerFetch(sourceUrl));
+              if (source && Array.isArray(source.streams) && source.streams.length > 0) {
+                chosenProvider = prov;
+                via = "reader";
+                break;
+              }
+            } catch (error) {
+              failures.push(`source_reader_${prov}:${String((error && error.message) || error).slice(0, 40)}`);
             }
-          } catch (error) {
-            failures.push(`source_reader_${prov}:${String((error && error.message) || error).slice(0, 40)}`);
           }
         }
       } catch (error) {
@@ -535,9 +643,116 @@ async function resolveAsset(target) {
   }
 
   const streams = (source && Array.isArray(source.streams) && source.streams) || [];
+  if (streams.length === 0) {
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback) return kissFallback;
+    return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
+  }
+
+  // Check if provider returned multiple streams representing different audio dubs (e.g. Titan, FrameX multi-stream)
+  const hasMultipleNamedStreams = streams.length >= 2 && streams.some((s) => s && (s.name || (s.label && s.label.includes(" · "))));
+  if (hasMultipleNamedStreams) {
+    const origLang = (boot && boot.meta && boot.meta.lang) || "ko";
+    const audioTracks = [];
+    const variants = [];
+    streams.forEach((s, idx) => {
+      const rawName = s.name || (s.label && s.label.includes(" · ") ? s.label.split(" · ").pop().trim() : s.label) || `Track ${idx + 1}`;
+      let name = rawName;
+      let lang = "eng";
+      if (/hindi/i.test(rawName)) {
+        name = "Hindi";
+        lang = "hin";
+      } else if (/multi[- ]?audio/i.test(rawName) || /original/i.test(rawName)) {
+        if (origLang === "ko") {
+          name = "Original (Korean)";
+          lang = "kor";
+        } else if (origLang === "ja") {
+          name = "Original (Japanese)";
+          lang = "jpn";
+        } else if (origLang === "zh") {
+          name = "Original (Chinese)";
+          lang = "zho";
+        } else {
+          name = "Original";
+          lang = origLang.slice(0, 3).toLowerCase();
+        }
+      } else {
+        name = rawName;
+        lang = rawName.slice(0, 3).toLowerCase();
+      }
+
+      const sUrl = s.url || s.proxyUrl || "";
+      if (!sUrl) return;
+
+      const isOrig = /original/i.test(name) || /multi[- ]?audio/i.test(rawName);
+      audioTracks.push({
+        id: audioTracks.length,
+        name,
+        label: name,
+        language: lang,
+        default: isOrig || audioTracks.length === 0,
+        uri: sUrl,
+        provider: chosenProvider || "titan",
+      });
+      variants.push({
+        resolution: s.resolution || "720p",
+        bandwidth: 1500000,
+        playlistUri: sUrl,
+        provider: chosenProvider || "titan",
+      });
+    });
+
+    if (audioTracks.length >= 2) {
+      const origIdx = audioTracks.findIndex((t) => /original/i.test(t.name));
+      if (origIdx >= 0) {
+        audioTracks.forEach((t, i) => { t.default = (i === origIdx); });
+      }
+      const defaultTrack = audioTracks.find((t) => t.default) || audioTracks[0];
+
+      const masterManifest = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-INDEPENDENT-SEGMENTS\n` +
+        audioTracks.map((t) => `#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=1280x720,NAME="${t.name}"\n${t.uri}`).join("\n") + "\n";
+
+      let exp = 0;
+      try {
+        const parsed = new URL(defaultTrack.uri);
+        exp = Number(parsed.searchParams.get("Expires") || parsed.searchParams.get("exp")) || 0;
+      } catch (error) {}
+
+      let subs = [];
+      try {
+        const tmdbRes = await fetchWithTimeout(`https://api.themoviedb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`).catch(() => null);
+        const tmdbData = (tmdbRes && tmdbRes.ok) ? await tmdbRes.json().catch(() => null) : null;
+        const title = (tmdbData && (tmdbData.name || tmdbData.title)) || "";
+        const year = (tmdbData && (tmdbData.first_air_date || tmdbData.release_date || "")).slice(0, 4);
+        if (title) {
+          const kiss = await resolveKissKH({ assetInfo: target, title, year, timeoutMs: 5000 }).catch(() => null);
+          if (kiss && Array.isArray(kiss.subtitles) && kiss.subtitles.length > 0) {
+            subs = kiss.subtitles;
+          }
+        }
+      } catch (error) {}
+
+      return await enrichWithKissKH({
+        ok: true,
+        url: defaultTrack.uri,
+        provider: chosenProvider || "titan",
+        audio: audioTracks.length,
+        exp,
+        via,
+        masterManifest,
+        audioTracks,
+        variants,
+        subtitles: subs,
+        latency_ms: Date.now() - started,
+      }, target, started);
+    }
+  }
+
   const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || item.proxyUrl || ""))) || streams[0];
   const streamUrl = (stream && (stream.url || stream.proxyUrl)) || "";
   if (!stream || !streamUrl) {
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback) return kissFallback;
     return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
 
@@ -557,10 +772,14 @@ async function resolveAsset(target) {
     }
   }
   if (!master.startsWith("#EXTM3U")) {
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback) return kissFallback;
     return { ok: false, error: "master_not_m3u8", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
   const audio = (master.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
   if (audio < 2) {
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback) return kissFallback;
     return { ok: false, error: `single_audio_${audio}`, latency_ms: Date.now() - started };
   }
 
@@ -570,7 +789,7 @@ async function resolveAsset(target) {
     exp = Number(parsed.searchParams.get("exp")) || 0;
   } catch (error) {}
 
-  return { ok: true, url: streamUrl, provider: chosenProvider, audio, exp, via, latency_ms: Date.now() - started };
+  return await enrichWithKissKH({ ok: true, url: streamUrl, provider: chosenProvider, audio, exp, via, latency_ms: Date.now() - started }, target, started);
 }
 
 function buildPublishPayload(asset, result, mode) {
@@ -625,11 +844,16 @@ async function publish(asset, result) {
   return published;
 }
 
-const assets = requestedAssets();
-if (assets.length === 0) {
-  log("no_assets");
-  process.exit(0);
-}
+import { fileURLToPath } from "node:url";
+
+const isMain = process.argv[1] && (fileURLToPath(import.meta.url) === process.argv[1] || import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/")));
+
+if (isMain) {
+  const assets = requestedAssets();
+  if (assets.length === 0) {
+    log("no_assets");
+    process.exit(0);
+  }
 
 for (const target of assets) {
   let result;
@@ -686,4 +910,5 @@ for (const target of assets) {
       console.error("KV sync error:", e.message);
     }
   }
+}
 }

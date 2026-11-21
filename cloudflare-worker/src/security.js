@@ -421,9 +421,34 @@ const DEFAULT_ALLOWED_SUFFIXES = [
   "vidrock.to",
   "hybrows.workers.dev",
   "armadilloscp.workers.dev",
+  "kisskh.is",
+  "kisskh.co",
+  "videocdndelivery05.site",
+  "cdnvideo11.shop",
+  "dwish.pro",
+  "serveproxy.com",
+  "streamcool.pro",
+  "strem.io",
+  "*.strem.io",
+  "opensubtitles.org",
+  "*.opensubtitles.org",
+  "*.videocdndelivery*.site",
+  "*.cdnvideo*.shop",
 ];
 
 function hostMatchesSuffix(host, suffix) {
+  if (suffix.startsWith("*.")) {
+    const s = suffix.slice(2);
+    if (s.includes("*")) {
+      const pattern = new RegExp("(?:^|\\.)" + s.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$");
+      return pattern.test(host);
+    }
+    return host === s || host.endsWith("." + s);
+  }
+  if (suffix.includes("*")) {
+    const pattern = new RegExp("^" + suffix.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$");
+    return pattern.test(host);
+  }
   return host === suffix || host.endsWith("." + suffix);
 }
 

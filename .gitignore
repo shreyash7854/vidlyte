@@ -33,3 +33,13 @@ desktop.ini
 
 # Local Disk Cache (generated at runtime)
 scratch/hls_cache/
+
+# Dependencies & Local Runtime Cache
+node_modules/
+.wrangler/
+.watchdog-state/
+.quota-state/
+.ops-status/
+referenceui/
+
+

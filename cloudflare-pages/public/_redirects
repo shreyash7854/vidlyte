@@ -1,0 +1,6 @@
+/embed/*  https://vid.lyte.workers.dev/embed/:splat  200
+/hls/*    https://vid.lyte.workers.dev/hls/:splat    200
+/stream/* https://vid.lyte.workers.dev/stream/:splat 200
+/api/*    https://vid.lyte.workers.dev/api/:splat    200
+/tmdb-image/* https://vid.lyte.workers.dev/tmdb-image/:splat 200
+

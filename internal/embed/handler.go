@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -120,6 +121,42 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /embed/{type}/{id}/{season}/{episode}", h.HandleGenericEmbed)
 	mux.HandleFunc("GET /api/source/{type}/{id}", h.HandleSourceProxy)
 	mux.HandleFunc("GET /api/source/{type}/{id}/{season}/{episode}", h.HandleSourceProxyTV)
+	mux.HandleFunc("GET /tmdb-image/{path...}", h.HandleTMDBImageProxy)
+}
+
+func (h *Handler) HandleTMDBImageProxy(w http.ResponseWriter, r *http.Request) {
+	imgPath := r.PathValue("path")
+	if imgPath == "" {
+		http.Error(w, "Image path missing", http.StatusBadRequest)
+		return
+	}
+	targetURL := "https://image.tmdb.org/t/p/" + imgPath
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+	if err != nil {
+		http.Error(w, "Invalid target", http.StatusBadRequest)
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		http.Error(w, "Image not found", http.StatusNotFound)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		w.Header().Set("Content-Length", cl)
+	}
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, resp.Body)
 }
 
 func (h *Handler) HandleTVEmbed(w http.ResponseWriter, r *http.Request) {
@@ -293,12 +330,17 @@ func (h *Handler) serveEmbedPlayer(w http.ResponseWriter, r *http.Request, media
 	}
 
 	var sanitizedSubs []models.SubtitleTrack
+	cleanSubRegex := regexp.MustCompile(`(?i)\s*[-·]\s*(?:Orion|Vidrift|Evion|FrameX|Titan|Atlas|Vela|AsianFlix|Rumble|Server\s*\d+).*`)
 	for _, sub := range info.Subtitles {
+		cleanLabel := strings.TrimSpace(cleanSubRegex.ReplaceAllString(sub.Label, ""))
+		if cleanLabel == "" {
+			cleanLabel = sub.Label
+		}
 		resID := h.catalog.RegisterResource(assetID, sub.URI, sub.Provider)
 		opaqueURL := fmt.Sprintf("/hls/%s/resource/%s?token=%s", assetID, resID, token)
 		sanitizedSubs = append(sanitizedSubs, models.SubtitleTrack{
 			Language:   sub.Language,
-			Label:      sub.Label,
+			Label:      cleanLabel,
 			URI:        opaqueURL,
 			ProxiedURI: opaqueURL,
 			Provider:   sub.Provider,

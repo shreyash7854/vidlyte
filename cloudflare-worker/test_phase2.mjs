@@ -37,6 +37,8 @@ import {
   findAsianFlixPage,
   findBloggerPost,
   resolveAsianFlix,
+  generateKissKHKey,
+  resolveKissKH,
 } from "./src/providers.js";
 import { assertSafeUpstreamUrl } from "./src/security.js";
 
@@ -200,9 +202,11 @@ await test("provider aliases normalise to canonical ids", () => {
 });
 
 await test("provider definitions are ordered by priority", () => {
-  assert.equal(PROVIDER_DEFINITIONS.length, 5);
-  assert.deepEqual(defaultProviderOrder(), ["orion", "evion", "framextv", "asianflix", "2vcdn"]);
-  assert.equal(providerPriority("asianflix"), 4);
+  assert.equal(PROVIDER_DEFINITIONS.length, 6);
+  assert.deepEqual(defaultProviderOrder(), ["orion", "evion", "framextv", "kisskh", "asianflix", "2vcdn"]);
+  assert.equal(providerPriority("kisskh"), 4);
+  assert.equal(providerLabel("kisskh"), "KissKH");
+  assert.equal(providerPriority("asianflix"), 5);
   assert.equal(providerLabel("asianflix"), "AsianFlix");
 });
 
@@ -392,6 +396,77 @@ await test("resolveAsianFlix returns null when nothing matches", async () => {
     fetchImpl,
   });
   assert.equal(result, null);
+});
+
+console.log("\n[providers] KissKH parsing and resolution");
+await test("generateKissKHKey produces deterministic uppercase hex signatures", () => {
+  const videoKey = generateKissKHKey(2579, false);
+  const subKey = generateKissKHKey(2579, true);
+  assert.equal(typeof videoKey, "string");
+  assert.equal(typeof subKey, "string");
+  assert.equal(videoKey.length, 256);
+  assert.equal(subKey.length, 256);
+  assert.equal(/^[0-9A-F]+$/.test(videoKey), true);
+  assert.equal(/^[0-9A-F]+$/.test(subKey), true);
+  assert.notEqual(videoKey, subKey);
+  assert.equal(generateKissKHKey(2579, false), videoKey);
+});
+
+await test("resolveKissKH resolves Korean TV episode with subtitles and audio", async () => {
+  const searchJson = [
+    { id: 121, title: "I'm Not a Robot", episodesCount: 32 }
+  ];
+  const dramaJson = {
+    id: 121,
+    title: "I'm Not a Robot",
+    country: "South Korea",
+    thumbnail: "https://puui.wetvinfo.com/cover.jpg",
+    episodes: [
+      { id: 2579, number: 1, sub: 1 }
+    ]
+  };
+  const streamJson = {
+    Video: "https://hls03.videocdndelivery05.site/121/ep1.mp4",
+    Type: 0
+  };
+  const subsJson = [
+    { src: "https://sub.cdnvideo11.shop/ep1.en.srt", label: "English", land: "en", default: 1 },
+    { src: "https://sub.cdnvideo11.shop/ep1.hi.srt", label: "Hindi", land: "hi", default: 0 }
+  ];
+
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    if (target.includes("/api/DramaList/Search")) {
+      return { ok: true, status: 200, json: async () => searchJson };
+    }
+    if (target.includes("/api/DramaList/Drama/121")) {
+      return { ok: true, status: 200, json: async () => dramaJson };
+    }
+    if (target.includes("/api/DramaList/Episode/2579")) {
+      return { ok: true, status: 200, json: async () => streamJson };
+    }
+    if (target.includes("/api/Sub/2579")) {
+      return { ok: true, status: 200, json: async () => subsJson };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const resolved = await resolveKissKH({
+    assetInfo: { type: "tv", id: "74682", season: 1, episode: 1 },
+    title: "I Am Not a Robot",
+    year: "2017",
+    fetchImpl,
+  });
+
+  assert.ok(resolved);
+  assert.equal(resolved.provider, "kisskh");
+  assert.equal(resolved.isMP4, true);
+  assert.equal(resolved.streamUrl, "https://hls03.videocdndelivery05.site/121/ep1.mp4");
+  assert.equal(resolved.audioTracks.length, 1);
+  assert.equal(resolved.audioTracks[0].name, "Original (Korean)");
+  assert.equal(resolved.subtitles.length, 2);
+  assert.equal(resolved.subtitles[0].label, "English Subtitles");
+  assert.equal(resolved.subtitles[0].default, true);
 });
 
 console.log("\n[security] expanded upstream allowlist");
