@@ -1,0 +1,43 @@
+{
+  "kind": "sweep",
+  "ok": true,
+  "checked_at": "2026-11-21T11:09:54.642Z",
+  "base_url": "https://vid.lyte.workers.dev",
+  "seed": "44897770125-1",
+  "pool_source": "fallback_corpus",
+  "count": 10,
+  "passed": 7,
+  "failed": 3,
+  "success_rate": 0.7,
+  "min_success_rate": 0.6,
+  "alert": {
+    "sent": false,
+    "skipped": "not_needed"
+  },
+  "failures": [
+    {
+      "asset": "movie/76600",
+      "provider": "orion",
+      "error": "variant_http_403"
+    },
+    {
+      "asset": "movie/76341",
+      "provider": "",
+      "error": "source_http_404"
+    },
+    {
+      "asset": "tv/82856/1/1",
+      "provider": "",
+      "error": "source_http_404"
+    }
+  ],
+  "_meta": {
+    "kind": "sweep",
+    "published_at": "2026-11-21T11:10:18.453Z",
+    "workflow": "Random TMDB sweep",
+    "run_id": "44897770125",
+    "run_url": "https://github.com/shreyash7854/vidlyte/actions/runs/44897770125",
+    "ref": "main",
+    "event": "schedule"
+  }
+}
