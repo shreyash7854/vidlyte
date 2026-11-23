@@ -5295,6 +5295,7 @@
             }
             spinner.style.display = 'none';
             setupQualityLevels([{ height: 1080 }]);
+            setupAudioTracks();
             currentQualityName = '1080P';
             updateQualityPillText();
           }, { once: true });
@@ -5495,6 +5496,7 @@
           video.addEventListener('loadedmetadata', function () {
             spinner.style.display = 'none';
             setupQualityLevels([{ height: 1080 }]);
+            setupAudioTracks();
             currentQualityName = '1080P';
             updateQualityPillText();
             if (autoplay) {

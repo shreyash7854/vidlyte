@@ -1542,9 +1542,11 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
   }
 
   if (id === "kisskh") {
+    const kissTitle = (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || "";
+    console.log("[KissKH call]", assetInfo, "title:", kissTitle, "origLang:", tmdbMeta?.originalLanguage);
     return resolveKissKH({
       assetInfo,
-      title: (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || "",
+      title: kissTitle,
       year: (tmdbMeta && tmdbMeta.year) || "",
       originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
       timeoutMs: 8000,
@@ -1558,7 +1560,7 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
   return null;
 }
 
-function getProviderOrder(requestedProvider) {
+function getProviderOrder(requestedProvider, tmdbMeta = null) {
   if (requestedProvider) return [normalizeProvider(requestedProvider)];
 
   const configured = (runtimeConfig.upstreams || [])
@@ -1574,7 +1576,7 @@ function getProviderOrder(requestedProvider) {
     seen.add(provider);
     order.push(provider);
   }
-  return order.sort((a, b) => {
+  const sorted = order.sort((a, b) => {
     const aConfigured = configured.indexOf(a);
     const bConfigured = configured.indexOf(b);
     if (aConfigured >= 0 && bConfigured >= 0) return aConfigured - bConfigured;
@@ -1582,6 +1584,19 @@ function getProviderOrder(requestedProvider) {
     if (bConfigured >= 0) return 1;
     return providerPriority(a) - providerPriority(b);
   });
+
+  // For Asian content, prioritize kisskh right after vidrift (orion/evion)
+  if (tmdbMeta && ["zh", "ko", "ja", "th"].includes(tmdbMeta.originalLanguage)) {
+    const kissIdx = sorted.indexOf("kisskh");
+    if (kissIdx > 0) {
+      sorted.splice(kissIdx, 1);
+      const evionIdx = sorted.indexOf("evion");
+      const insertAt = evionIdx >= 0 ? evionIdx + 1 : (sorted.indexOf("orion") >= 0 ? sorted.indexOf("orion") + 1 : 0);
+      sorted.splice(insertAt, 0, "kisskh");
+    }
+  }
+
+  return sorted;
 }
 
 async function verifyManifestPlayable(result, provider, env) {
@@ -1601,7 +1616,42 @@ async function verifyManifestPlayable(result, provider, env) {
     );
     if (!res || !res.ok) return false;
     const body = await res.text();
-    return /^\s*#EXTM3U/.test(body);
+    if (!/^\s*#EXTM3U/.test(body)) return false;
+
+    // For media playlists with segments, probe the first segment to detect ghost/dead scrapers
+    if (body.includes("#EXTINF:")) {
+      const segMatch = body.match(/#EXTINF:[^\r\n]+[\r\n]+([^\r\n#]+)/);
+      if (segMatch && segMatch[1]) {
+        const rawSeg = segMatch[1].trim();
+        let segUrl = rawSeg;
+        if (!/^https?:\/\//i.test(segUrl)) {
+          try {
+            segUrl = new URL(rawSeg, safeUrl).toString();
+          } catch (e) {
+            segUrl = null;
+          }
+        }
+        if (segUrl) {
+          try {
+            const segTarget = new URL(segUrl);
+            const segHeaders = getUpstreamHeaders(provider, segTarget, null);
+            segHeaders.set("Range", "bytes=0-100");
+            const segRes = await fetchWithSwarmFallback(
+              segUrl,
+              { headers: segHeaders, signal: AbortSignal.timeout(2500) },
+              env
+            );
+            if (!segRes || !segRes.ok || segRes.status === 404 || segRes.status === 410 || segRes.status === 403 || segRes.status >= 500) {
+              return false;
+            }
+          } catch (e) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
   } catch (e) {
     return false;
   }
@@ -1728,25 +1778,32 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       result.logoUrl = tmdbMeta.logoUrl || "";
     }
 
-    const order = getProviderOrder(requested);
+    const order = getProviderOrder(requested, tmdbMeta);
+    console.log("[resolveUpstreamSource] asset:", assetInfo, "meta:", tmdbMeta?.title, tmdbMeta?.originalLanguage, "order:", order);
     let chosen = null;
 
-    if (!requested || requested === "orion" || requested === "evion" || requested === "bigbang") {
+    if (!requested || requested === "orion" || requested === "evion" || requested === "bigbang" || requested === "kisskh") {
       const asset = assetInfo.type === "tv" || assetInfo.type === "series"
         ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
         : `movie/${assetInfo.id}`;
       const maRecord = await readMultiAudioRecord(options.env, asset);
-      if (multiAudioRecordUsable(maRecord) && maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1) {
-        const provRes = {
-          streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
-          backupStreamUrl: maRecord.url || "",
-          masterManifest: maRecord.masterManifest,
-          provider: maRecord.provider || "evion",
-          audioTracks: maRecord.audioTracks,
-          variants: maRecord.variants || [],
-          subtitles: maRecord.subtitles || [],
-        };
-        chosen = { provider: provRes.provider, result: provRes };
+      if (multiAudioRecordUsable(maRecord)) {
+        const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4);
+        const isMultiAudio = maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
+        if (isKiss || isMultiAudio) {
+          const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
+          const provRes = {
+            streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
+            backupStreamUrl: maRecord.url || "",
+            masterManifest: maRecord.masterManifest || "",
+            provider: maRecord.provider || (isKiss ? "kisskh" : "evion"),
+            isMP4,
+            audioTracks: maRecord.audioTracks || [],
+            variants: maRecord.variants || [],
+            subtitles: maRecord.subtitles || [],
+          };
+          chosen = { provider: provRes.provider, result: provRes };
+        }
       }
     }
 
@@ -1767,12 +1824,12 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
     if (chosen && chosen.result) {
       applyResolvedProvider(result, chosen.result);
       const isAsian = tmdbMeta && ["ko", "ja", "zh", "th"].includes(tmdbMeta.originalLanguage);
-      const hasOriginal = (result.audioTracks || []).some((t) => /original|korean/i.test(t.name || t.label || ""));
+      const hasOriginal = (result.audioTracks || []).some((t) => /original|korean|chinese|japanese|thai/i.test(t.name || t.label || ""));
       const needsAudio = (!result.audioTracks || result.audioTracks.length <= 1) || (isAsian && !hasOriginal);
       const hasEnglishSub = (result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
       const needsSubs = !result.subtitles || result.subtitles.length === 0 || !hasEnglishSub;
 
-      if (needsSubs || needsAudio) {
+      if ((needsSubs || needsAudio) && chosen.provider !== "kisskh") {
         try {
           const kissRes = await resolveKissKH({
             assetInfo,
@@ -2044,8 +2101,8 @@ const runtimeConfig = {
   upstreams: [
     { id: "orion", name: "Server 2 (Orion)", endpoint: "https://embed.vidrift.net", enabled: true, priority: 1, timeout_ms: 8000 },
     { id: "evion", name: "Server 4 (Evion)", endpoint: "https://img.animecurx.tech", enabled: true, priority: 2, timeout_ms: 8000 },
-    { id: "framextv", name: "Server 1 (FrameX)", endpoint: "https://api.framextv.xyz", enabled: true, priority: 3, timeout_ms: 8000 },
-    { id: "kisskh", name: "Server 5 (KissKH)", endpoint: "https://kisskh.is", enabled: true, priority: 4, timeout_ms: 8000 },
+    { id: "kisskh", name: "Server 5 (KissKH)", endpoint: "https://kisskh.is", enabled: true, priority: 3, timeout_ms: 8000 },
+    { id: "framextv", name: "Server 1 (FrameX)", endpoint: "https://api.framextv.xyz", enabled: true, priority: 4, timeout_ms: 8000 },
     { id: "asianflix", name: "Server 3 (AsianFlix)", endpoint: "https://asianflix.one", enabled: true, priority: 5, timeout_ms: 8000 },
   ],
   proxy_swarm: {
@@ -2679,6 +2736,7 @@ async function probeProviderReachability(providerId) {
     orion: "https://embed.vidrift.net/",
     evion: "https://img.animecurx.tech/",
     framextv: "https://api.framextv.xyz/",
+    kisskh: "https://kisskh.is/",
     asianflix: "https://asianflix.one/",
     "2vcdn": "https://2vcdn.skin/",
   };
@@ -3929,6 +3987,8 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         },
       });
     }
+
+
 
 
     // TMDB Image Proxy Handler (Bypasses ISP/DNS blocking of image.tmdb.org)
@@ -5658,15 +5718,19 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
                 safeUri = "";
               }
             }
+            const isTrkMp4 = Boolean(track.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
             const gatewayUri = safeUri
-              ? `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`
-              : masterUrl;
+              ? (isTrkMp4
+                  ? `${url.origin}/stream/chunk/${codec.encode(safeUri, track.provider || resolved.provider)}`
+                  : `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`)
+              : (resolved.isMP4 ? `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}` : masterUrl);
             return {
               id: Number(track.id) || index,
               name: sanitizeSubtitleLabel(track.name || track.label || `Audio ${index + 1}`),
               label: sanitizeSubtitleLabel(track.label || track.name || `Audio ${index + 1}`),
               language: String(track.language || "eng").slice(0, 16),
               default: Boolean(track.default) || index === 0,
+              isMP4: isTrkMp4,
               uri: gatewayUri,
               proxied_uri: gatewayUri,
               proxiedUri: gatewayUri,
@@ -5705,6 +5769,17 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             provider: "vidlyte",
           });
         });
+
+        // Strict English Subtitle Policy: English subtitles must be default when available
+        const engSubIdx = out.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
+        if (engSubIdx > 0) {
+          const engSub = out.splice(engSubIdx, 1)[0];
+          engSub.default = true;
+          out.unshift(engSub);
+        } else if (engSubIdx === 0) {
+          out[0].default = true;
+        }
+
         return out;
       };
 
@@ -6007,13 +6082,19 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         .map((trk, index) => {
           if (!trk) return null;
           let trackUri = "";
+          let safeUri = "";
           if (trk.uri) {
             try {
-              const safeUri = assertSafeUpstreamUrl(trk.uri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-              trackUri = `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "bigbang")}?token=${encodeURIComponent(token)}`;
+              safeUri = assertSafeUpstreamUrl(trk.uri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
             } catch (e) {
-              trackUri = "";
+              safeUri = "";
             }
+          }
+          const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
+          if (safeUri) {
+            trackUri = isTrkMp4
+              ? `${url.origin}/stream/chunk/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "kisskh")}`
+              : `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "bigbang")}?token=${encodeURIComponent(token)}`;
           }
           if (!trackUri && resolved && resolved.isMP4 && resolved.streamUrl) {
             trackUri = `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}`;
@@ -6023,6 +6104,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             label: sanitizeSubtitleLabel(trk.label || trk.name || `Audio ${index + 1}`),
             language: String(trk.language || "eng").slice(0, 16),
             default: trk.default || false,
+            isMP4: isTrkMp4,
             uri: trackUri,
             proxiedUri: trackUri,
             proxied_uri: trackUri,
@@ -6398,7 +6480,8 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
         cf: { cacheEverything: true, cacheTtl: 86400 },
       }, env);
 
-      if (!response.ok && !reqHeaders.get("Referer")?.includes("embed.vidrift.net")) {
+      const isKiss = provider === "kisskh" || safeTarget.hostname.includes("kisskh") || safeTarget.hostname.includes("videocdndelivery") || safeTarget.hostname.includes("cdnvideo");
+      if (!isKiss && !response.ok && !reqHeaders.get("Referer")?.includes("embed.vidrift.net")) {
         const retryHeaders = new Headers(reqHeaders);
         retryHeaders.set("Origin", "https://embed.vidrift.net");
         retryHeaders.set("Referer", "https://embed.vidrift.net/");
@@ -6499,7 +6582,8 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
 
     let upstreamResp = await fetchWithSwarmFallback(targetString, fetchInit, env);
 
-    if ((upstreamResp.status === 403 || upstreamResp.status === 401) && !reqHeaders.get("Referer")?.includes("embed.vidrift.net")) {
+    const isKissMedia = provider === "kisskh" || safeTarget.hostname.includes("kisskh") || safeTarget.hostname.includes("videocdndelivery") || safeTarget.hostname.includes("cdnvideo");
+    if (!isKissMedia && (upstreamResp.status === 403 || upstreamResp.status === 401) && !reqHeaders.get("Referer")?.includes("embed.vidrift.net")) {
       const retryHeaders = new Headers(reqHeaders);
       retryHeaders.set("Origin", "https://embed.vidrift.net");
       retryHeaders.set("Referer", "https://embed.vidrift.net/");
