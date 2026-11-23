@@ -264,15 +264,28 @@ function mapTmdbSearchResult(item, fallbackType = "movie") {
  */
 async function fetchTMDBMetadata(type, id, season = 1, episode = 1) {
   const isTv = type === "tv" || type === "series";
+  const cacheKey = `tmdb_meta_${type}_${id}_${season}_${episode}`;
+  const hit = tmdbCache.get(cacheKey);
+  if (hit) return hit;
+
+  const showCacheKey = `tmdb_show_${type}_${id}`;
+  let data = tmdbCache.get(showCacheKey);
   const apiKey = TMDB_API_KEY;
-  const url = isTv
-    ? `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
-    : `https://api.tmdb.org/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
 
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return null;
-    const data = await res.json();
+    if (!data) {
+      const url = isTv
+        ? `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
+        : `https://api.tmdb.org/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
+
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return null;
+      data = await res.json();
+      if (data) {
+        tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      }
+    }
+    if (!data) return null;
 
     let epData = null;
     if (isTv && season && episode) {
@@ -306,7 +319,9 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1) {
     const logoUrl = logoObj && logoObj.file_path ? `/tmdb-image/w500${logoObj.file_path}` : "";
 
     const imdbId = (data.external_ids && data.external_ids.imdb_id) || (data.imdb_id || "");
-    return { title, seriesTitle: isTv ? data.name || "" : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl, originalLanguage: data.original_language || "", imdbId };
+    const meta = { title, seriesTitle: isTv ? data.name || "" : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl, originalLanguage: data.original_language || "", imdbId };
+    tmdbCache.set(cacheKey, meta, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+    return meta;
   } catch (e) {
     return null;
   }
