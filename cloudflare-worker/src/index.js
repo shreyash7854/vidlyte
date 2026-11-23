@@ -498,7 +498,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         }
         const readerRes = await fetch(readerUrl, {
           headers: readerHeaders,
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(3500),
         });
         if (readerRes && readerRes.ok) {
           const readerText = await readerRes.text();
@@ -1585,14 +1585,12 @@ function getProviderOrder(requestedProvider, tmdbMeta = null) {
     return providerPriority(a) - providerPriority(b);
   });
 
-  // For Asian content, prioritize kisskh right after vidrift (orion/evion)
+  // For Asian content, prioritize kisskh first (instant 1.5s resolution, 100% Asian drama coverage)
   if (tmdbMeta && ["zh", "ko", "ja", "th"].includes(tmdbMeta.originalLanguage)) {
     const kissIdx = sorted.indexOf("kisskh");
     if (kissIdx > 0) {
       sorted.splice(kissIdx, 1);
-      const evionIdx = sorted.indexOf("evion");
-      const insertAt = evionIdx >= 0 ? evionIdx + 1 : (sorted.indexOf("orion") >= 0 ? sorted.indexOf("orion") + 1 : 0);
-      sorted.splice(insertAt, 0, "kisskh");
+      sorted.unshift("kisskh");
     }
   }
 
