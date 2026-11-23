@@ -5668,7 +5668,7 @@
               }
             }
             if (directUpstream && directUpstream.indexOf('http') !== 0) {
-              directUpstream = 'https://embed.vidrift.net' + (directUpstream.charAt(0) === '/' ? '' : '/') + directUpstream;
+              directUpstream = (cr.parent ? cr.parent : '') + (directUpstream.charAt(0) === '/' ? '' : '/') + directUpstream;
             }
 
             if (directUpstream) {
@@ -5841,10 +5841,16 @@
             remoteResolvePending = null;
             if (!payload || payload.state === 'single') {
               setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
+              if (!currentStreamUrl) {
+                startInitialPlayback(buildRemoteGatewayUrl(remote));
+              }
               return null;
             }
             if (payload.state === 'failed') {
               setClientResolveStatus({ remoteState: 'failed', remoteError: payload.error || 'no_result' });
+              if (!currentStreamUrl) {
+                spinner.style.display = 'none';
+              }
               return null;
             }
             return verifyClientGateway(buildRemoteGatewayUrl(remote)).then(function (result) {
@@ -5872,6 +5878,9 @@
               remoteState: 'failed',
               remoteError: String((error && error.message) || error || 'remote_failed').slice(0, 120)
             });
+            if (!currentStreamUrl) {
+              spinner.style.display = 'none';
+            }
             return null;
           });
 

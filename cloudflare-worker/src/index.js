@@ -1601,7 +1601,27 @@ function getProviderOrder(requestedProvider, tmdbMeta = null) {
 
 async function verifyManifestPlayable(result, provider, env) {
   if (!result || !result.streamUrl) return false;
-  if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) return true;
+  if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) {
+    try {
+      const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
+        extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
+      }).toString();
+      const target = new URL(safeUrl);
+      const headers = getUpstreamHeaders(provider, target, null);
+      headers.set("Range", "bytes=0-100");
+      const res = await fetchWithSwarmFallback(
+        safeUrl,
+        { method: "GET", headers, signal: AbortSignal.timeout(3500) },
+        env
+      );
+      if (!res || !res.ok || res.status === 403 || res.status === 404 || res.status === 410 || res.status >= 500) {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
   if (result.masterManifest) return true;
   try {
     const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
@@ -1789,20 +1809,23 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       const maRecord = await readMultiAudioRecord(options.env, asset);
       if (multiAudioRecordUsable(maRecord)) {
         const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4);
-        const isMultiAudio = maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
-        if (isKiss || isMultiAudio) {
-          const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
-          const provRes = {
-            streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
-            backupStreamUrl: maRecord.url || "",
-            masterManifest: maRecord.masterManifest || "",
-            provider: maRecord.provider || (isKiss ? "kisskh" : "evion"),
-            isMP4,
-            audioTracks: maRecord.audioTracks || [],
-            variants: maRecord.variants || [],
-            subtitles: maRecord.subtitles || [],
-          };
-          chosen = { provider: provRes.provider, result: provRes };
+        const recordProvider = maRecord.provider || (isKiss ? "kisskh" : "evion");
+        if (!requested || requested === recordProvider) {
+          const isMultiAudio = maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
+          if (isKiss || isMultiAudio) {
+            const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
+            const provRes = {
+              streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
+              backupStreamUrl: maRecord.url || "",
+              masterManifest: maRecord.masterManifest || "",
+              provider: recordProvider,
+              isMP4,
+              audioTracks: maRecord.audioTracks || [],
+              variants: maRecord.variants || [],
+              subtitles: maRecord.subtitles || [],
+            };
+            chosen = { provider: provRes.provider, result: provRes };
+          }
         }
       }
     }
@@ -1886,6 +1909,12 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
             }
           }
         } catch (e) {}
+      }
+      if (Array.isArray(result.subtitles) && result.subtitles.length > 0) {
+        const enIdx = result.subtitles.findIndex((s) => /english|eng|^en/i.test(s.label || s.language));
+        if (enIdx >= 0) {
+          result.subtitles.forEach((s, idx) => { s.default = (idx === enIdx); });
+        }
       }
       if (result.streamUrl && isStreamUrlUsable(result.streamUrl)) {
         sourceStaleCache.set(cacheKey, cloneValue(result), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
@@ -5259,6 +5288,11 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       const asset = normalizeMultiAudioAsset(assetID);
       const record = asset ? await readMultiAudioRecord(env, asset) : null;
       const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
+
+      if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
+        const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
+        return Response.redirect(chunkUrl, 302);
+      }
       try {
         let raw = "";
         if (request.method === "POST") {
@@ -5349,6 +5383,11 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       }
 
       const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
+
+      if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
+        const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
+        return Response.redirect(chunkUrl, 302);
+      }
       try {
         let raw = (record && record.masterManifest) || "";
         if (!raw) {
@@ -6239,10 +6278,10 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         currentServer: (resolved && resolved.provider) || "",
         isMP4: isMP4,
         clientResolve: {
-          enabled: true,
-          bootUrl: `https://embed.vidrift.net${type === "tv" ? `/api/boot/tv/${id}/${season}/${episode}` : `/api/boot/movie/${id}`}`,
-          sourceUrl: "https://embed.vidrift.net/api/source",
-          parent: "https://vidrift.net",
+          enabled: false,
+          bootUrl: "",
+          sourceUrl: "",
+          parent: "",
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
           token: token,
           provider: (resolved && resolved.provider) || "orion",
