@@ -5416,12 +5416,18 @@
         updatePlayState();
       });
       video.addEventListener('canplay', function () {
-        if (!video.paused) {
-          spinner.style.display = 'none';
-        }
+        spinner.style.display = 'none';
+      });
+      video.addEventListener('pause', function () {
+        spinner.style.display = 'none';
+        updatePlayState();
       });
       video.addEventListener('waiting', function () {
         spinner.style.display = 'block';
+      });
+      video.addEventListener('error', function () {
+        spinner.style.display = 'none';
+        updatePlayState();
       });
 
       function startInitialPlayback(playUrl) {
@@ -5493,41 +5499,71 @@
           // Native playback for MP4 or Safari HLS
           spinner.style.display = 'block';
           video.src = playUrl;
-          video.addEventListener('loadedmetadata', function () {
+
+          function onMp4Metadata() {
             spinner.style.display = 'none';
             setupQualityLevels([{ height: 1080 }]);
             setupAudioTracks();
             currentQualityName = '1080P';
             updateQualityPillText();
-            if (autoplay) {
-              video.volume = 1;
-              video.muted = startMuted;
-              video.play().catch(function () {
-                video.muted = true;
-                updateVolumeUI();
-                video.play().catch(function () { });
-                function unmuteOnGestureNative(e) {
-                  if (e && !e.isTrusted) return;
-                  try {
-                    if (video.muted) {
-                      video.muted = false;
-                      video.volume = 1;
-                      updateVolumeUI();
-                      if (video.paused) {
-                        video.play().catch(function () { });
-                      }
-                    }
-                  } catch (err) { }
-                  ['click', 'pointerdown', 'keydown'].forEach(function (evt) {
-                    window.removeEventListener(evt, unmuteOnGestureNative, true);
-                  });
-                }
-                ['click', 'pointerdown', 'keydown'].forEach(function (evt) {
-                  window.addEventListener(evt, unmuteOnGestureNative, true);
-                });
-              });
-            }
+            updatePlayState();
+          }
+
+          if (video.readyState >= 1) {
+            onMp4Metadata();
+          } else {
+            video.addEventListener('loadedmetadata', onMp4Metadata, { once: true });
+            video.addEventListener('loadeddata', onMp4Metadata, { once: true });
+            video.addEventListener('canplay', onMp4Metadata, { once: true });
+          }
+
+          video.addEventListener('error', function () {
+            spinner.style.display = 'none';
+            updatePlayState();
           }, { once: true });
+
+          if (autoplay) {
+            video.volume = 1;
+            video.muted = startMuted;
+            video.play().then(function () {
+              spinner.style.display = 'none';
+              updatePlayState();
+              updateVolumeUI();
+            }).catch(function () {
+              video.muted = true;
+              updateVolumeUI();
+              video.play().then(function () {
+                spinner.style.display = 'none';
+                updatePlayState();
+              }).catch(function () {
+                spinner.style.display = 'none';
+                updatePlayState();
+              });
+              function unmuteOnGestureNative(e) {
+                if (e && !e.isTrusted) return;
+                try {
+                  if (video.muted) {
+                    video.muted = false;
+                    video.volume = 1;
+                    updateVolumeUI();
+                    if (video.paused) {
+                      video.play().catch(function () { });
+                    }
+                  }
+                } catch (err) { }
+                ['click', 'pointerdown', 'keydown'].forEach(function (evt) {
+                  window.removeEventListener(evt, unmuteOnGestureNative, true);
+                });
+              }
+              ['click', 'pointerdown', 'keydown'].forEach(function (evt) {
+                window.addEventListener(evt, unmuteOnGestureNative, true);
+              });
+            });
+          } else {
+            spinner.style.display = 'none';
+            updatePlayState();
+          }
+          video.load();
         }
       }
 
@@ -6035,7 +6071,7 @@
 
       var remote = remoteResolverConfig();
       var hasClientDirect = Boolean(config.clientResolve && config.clientResolve.enabled && config.clientResolve.bootUrl);
-      var canUpgradeMultiAudio = Boolean(hasClientDirect || remote);
+      var canUpgradeMultiAudio = Boolean(hasClientDirect || remote) && !config.isMP4;
 
       if (!canUpgradeMultiAudio) {
         startInitialPlayback(streamUrl);

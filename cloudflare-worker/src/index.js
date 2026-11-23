@@ -6299,9 +6299,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           token: token,
           provider: (resolved && resolved.provider) || "orion",
           // External resolver (GitHub Actions) for viewers whose browser or
-          // network blocks vidrift. Disabled when the dispatch token is absent.
+          // network blocks vidrift. Disabled when the dispatch token is absent, or for direct MP4 / KissKH streams.
           remote: {
-            enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN),
+            enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN) && !isMP4 && (resolved && resolved.provider !== "kisskh"),
             resolve: `${url.origin}/api/multi-audio/resolve`,
             status: `${url.origin}/api/multi-audio/status`,
             gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,
