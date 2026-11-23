@@ -629,6 +629,10 @@ export function generateKissKHKey(episodeId, isSub = false) {
 const kisskhDramaCache = new Map();
 const KISSKH_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 
+export const KISSKH_DRAMA_OVERRIDES = {
+  "122206": { id: 1886, title: "The Rational Life" },
+};
+
 /**
  * KissKH Provider Resolver
  * Resolves Asian drama & movie streams and subtitles.
@@ -642,18 +646,22 @@ export async function resolveKissKH({
   fetchImpl = fetch,
   timeoutMs = 8000,
 } = {}) {
-  const cleanTitle = String(title || "")
+  const override = assetInfo && assetInfo.id && KISSKH_DRAMA_OVERRIDES[String(assetInfo.id)];
+  let cleanTitle = String(title || "")
     .replace(/\s*:\s*.*$/, "")
     .replace(/\s*\((?:19|20)\d{2}\)\s*$/, "")
     .trim();
+  if (!cleanTitle && override) {
+    cleanTitle = override.title;
+  }
   if (!cleanTitle) return null;
 
   const isTv = assetInfo.type === "tv" || assetInfo.type === "series";
   const reqEpNum = isTv ? (Number(assetInfo.episode) || 1) : 1;
-  const cacheKey = cleanTitle.toLowerCase();
+  const cacheKey = override ? `override_${override.id}` : cleanTitle.toLowerCase();
 
   let drama = null;
-  let matchedDrama = null;
+  let matchedDrama = override ? { id: override.id, title: override.title } : null;
 
   const cached = kisskhDramaCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -665,48 +673,51 @@ export async function resolveKissKH({
   }
 
   if (!drama) {
-    let searchData = [];
-    const searchUrl = `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`;
-    const searchRes = await fetchImpl(searchUrl, {
-      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-      signal: AbortSignal.timeout(timeoutMs),
-    }).catch((err) => {
-      console.error("[KissKH] search fetch error:", err?.message);
-      return null;
-    });
-    if (searchRes && searchRes.ok) {
-      searchData = (await searchRes.json().catch(() => [])) || [];
-    } else {
-      console.error("[KissKH] search non-ok status:", searchRes?.status);
-    }
-
-    if ((!Array.isArray(searchData) || searchData.length === 0) && title && title !== cleanTitle) {
-      const fullRes = await fetchImpl(`https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`, {
+    if (!matchedDrama) {
+      let searchData = [];
+      const searchUrl = `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`;
+      const searchRes = await fetchImpl(searchUrl, {
         headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
         signal: AbortSignal.timeout(timeoutMs),
-      }).catch(() => null);
-      if (fullRes && fullRes.ok) {
-        searchData = (await fullRes.json().catch(() => [])) || [];
+      }).catch((err) => {
+        console.error("[KissKH] search fetch error:", err?.message);
+        return null;
+      });
+      if (searchRes && searchRes.ok) {
+        searchData = (await searchRes.json().catch(() => [])) || [];
+      } else {
+        console.error("[KissKH] search non-ok status:", searchRes?.status);
+      }
+
+      if ((!Array.isArray(searchData) || searchData.length === 0) && title && title !== cleanTitle) {
+        const fullRes = await fetchImpl(`https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`, {
+          headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+          signal: AbortSignal.timeout(timeoutMs),
+        }).catch(() => null);
+        if (fullRes && fullRes.ok) {
+          searchData = (await fullRes.json().catch(() => [])) || [];
+        }
+      }
+
+      if (!Array.isArray(searchData) || searchData.length === 0) {
+        console.error("[KissKH] searchData empty for cleanTitle:", cleanTitle, "title:", title);
+        return null;
+      }
+
+      const normClean = normalizeTitleForMatch(cleanTitle);
+      matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title) === normClean);
+      if (!matchedDrama) {
+        matchedDrama = searchData.find((item) => item && titleMatches(item.title, cleanTitle, year));
+      }
+      if (!matchedDrama && title && title !== cleanTitle) {
+        const normTitle = normalizeTitleForMatch(title);
+        matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title) === normTitle) ||
+                       searchData.find((item) => item && titleMatches(item.title, title, year));
       }
     }
 
-    if (!Array.isArray(searchData) || searchData.length === 0) {
-      console.error("[KissKH] searchData empty for cleanTitle:", cleanTitle, "title:", title);
-      return null;
-    }
-
-    const normClean = normalizeTitleForMatch(cleanTitle);
-    matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title) === normClean);
-    if (!matchedDrama) {
-      matchedDrama = searchData.find((item) => item && titleMatches(item.title, cleanTitle, year));
-    }
-    if (!matchedDrama && title && title !== cleanTitle) {
-      const normTitle = normalizeTitleForMatch(title);
-      matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title) === normTitle) ||
-                     searchData.find((item) => item && titleMatches(item.title, title, year));
-    }
     if (!matchedDrama || !matchedDrama.id) {
-      console.error("[KissKH] no matchedDrama for cleanTitle:", cleanTitle, "results count:", searchData.length);
+      console.error("[KissKH] no matchedDrama for cleanTitle:", cleanTitle);
       return null;
     }
 
@@ -737,15 +748,23 @@ export async function resolveKissKH({
     });
   }
 
-  const episode = drama.episodes.find((e) => Number(e.number) === reqEpNum) || (reqEpNum === 1 ? drama.episodes[0] : null);
+  const episode = drama.episodes.find((e) => Number(e.number) === reqEpNum) ||
+                  (reqEpNum === 1 ? (drama.episodes.find((e) => Number(e.number) === 1) || drama.episodes[drama.episodes.length - 1]) : null);
   if (!episode || !episode.id) return null;
 
   const videoKey = generateKissKHKey(episode.id, false);
   const epStreamUrl = `https://kisskh.is/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
-  const epStreamRes = await fetchImpl(epStreamUrl, {
-    headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-    signal: AbortSignal.timeout(timeoutMs),
-  }).catch(() => null);
+  let epStreamRes = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    epStreamRes = await fetchImpl(epStreamUrl, {
+      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+      signal: AbortSignal.timeout(timeoutMs),
+    }).catch(() => null);
+    if (epStreamRes && epStreamRes.ok) break;
+    if (epStreamRes && epStreamRes.status === 429) {
+      await new Promise((r) => setTimeout(r, attempt * 1500));
+    }
+  }
   if (!epStreamRes || !epStreamRes.ok) return null;
 
   const epStreamData = await epStreamRes.json().catch(() => null);
@@ -759,10 +778,17 @@ export async function resolveKissKH({
   // Subtitles
   const subKey = generateKissKHKey(episode.id, true);
   const subApiUrl = `https://kisskh.is/api/Sub/${episode.id}?kkey=${subKey}`;
-  const subRes = await fetchImpl(subApiUrl, {
-    headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-    signal: AbortSignal.timeout(timeoutMs),
-  }).catch(() => null);
+  let subRes = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    subRes = await fetchImpl(subApiUrl, {
+      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+      signal: AbortSignal.timeout(timeoutMs),
+    }).catch(() => null);
+    if (subRes && subRes.ok) break;
+    if (subRes && subRes.status === 429) {
+      await new Promise((r) => setTimeout(r, attempt * 1500));
+    }
+  }
   const subData = (subRes && subRes.ok) ? await subRes.json().catch(() => []) : [];
 
   const subtitles = [];

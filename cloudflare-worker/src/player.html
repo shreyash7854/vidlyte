@@ -5499,8 +5499,12 @@
           // Native playback for MP4 or Safari HLS
           spinner.style.display = 'block';
           video.src = playUrl;
+          try { video.load(); } catch (e) { }
 
+          var mp4Loaded = false;
           function onMp4Metadata() {
+            if (mp4Loaded) return;
+            mp4Loaded = true;
             spinner.style.display = 'none';
             setupQualityLevels([{ height: 1080 }]);
             setupAudioTracks();
@@ -5515,6 +5519,7 @@
             video.addEventListener('loadedmetadata', onMp4Metadata, { once: true });
             video.addEventListener('loadeddata', onMp4Metadata, { once: true });
             video.addEventListener('canplay', onMp4Metadata, { once: true });
+            setTimeout(onMp4Metadata, 2000);
           }
 
           video.addEventListener('error', function () {
@@ -5629,7 +5634,12 @@
             return response.text();
           })
           .then(function (text) {
-            if (text.indexOf('#EXTM3U') !== 0 || text.indexOf('#EXT-X-STREAM-INF') < 0) {
+            if (text.indexOf('#EXTM3U') !== 0) {
+              throw new Error('gateway_not_m3u8');
+            }
+            var hasStreamInf = text.indexOf('#EXT-X-STREAM-INF') >= 0;
+            var hasExtInf = text.indexOf('#EXTINF') >= 0;
+            if (!hasStreamInf && !hasExtInf) {
               throw new Error('gateway_not_master');
             }
             var audioCount = (text.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
@@ -5637,6 +5647,8 @@
               var namedVariants = (text.match(/#EXT-X-STREAM-INF:[^\n]*NAME=/gi) || []).length;
               if (namedVariants > 1) {
                 audioCount = namedVariants;
+              } else if (hasExtInf && audioCount === 0) {
+                audioCount = 1;
               }
             }
             var parsedTracks = [];
@@ -5916,6 +5928,9 @@
             });
             if (!currentStreamUrl) {
               spinner.style.display = 'none';
+              showPlayerToast('Playback could not be loaded from upstream servers. Click to retry.', 'Retry', function () {
+                window.location.reload();
+              }, 8000);
             }
             return null;
           });

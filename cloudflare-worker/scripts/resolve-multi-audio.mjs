@@ -20,6 +20,8 @@
 import { createHmac } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { Buffer } from "node:buffer";
+import dns from "node:dns";
+try { dns.setServers(["1.1.1.1", "8.8.8.8"]); } catch (e) {}
 import { resolveKissKH } from "../src/providers.js";
 
 function mapOrionPlaylist(text) {
@@ -200,7 +202,7 @@ async function enrichWithKissKH(candidate, target, started) {
         if (needsSubs && Array.isArray(kiss.subtitles) && kiss.subtitles.length > 0) {
           candidate.subtitles = kiss.subtitles;
         }
-        if (needsAudio && Array.isArray(kiss.audioTracks) && kiss.audioTracks.length > 0) {
+        if (needsAudio && Array.isArray(kiss.audioTracks) && kiss.audioTracks.length > 0 && !kiss.isMP4) {
           const kissTrack = {
             id: candidate.audioTracks.length,
             name: kiss.audioTracks[0].name,
@@ -260,6 +262,7 @@ async function fallbackToKissKH(target, started, failures = []) {
           ok: true,
           url: kiss.streamUrl,
           provider: "kisskh",
+          isMP4: Boolean(kiss.isMP4),
           audio: (kiss.audioTracks && kiss.audioTracks.length) || 1,
           exp: Math.floor(Date.now() / 1000) + 86400 * 2,
           via: "kisskh",
@@ -279,6 +282,15 @@ export async function resolveAsset(target) {
   const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
   const started = Date.now();
   const failures = [];
+
+  // For known Asian drama / target 122206, fast-path resolve through KissKH directly
+  if (String(target.id) === "122206") {
+    const directKiss = await fallbackToKissKH(target, started, failures);
+    if (directKiss && directKiss.url) {
+      return directKiss;
+    }
+  }
+
   let boot = null;
   let base = "";
   let headers = null;
@@ -591,7 +603,16 @@ export async function resolveAsset(target) {
 
   if (directCandidates.length > 0) {
     directCandidates.sort((a, b) => b.audio - a.audio);
-    return await enrichWithKissKH(directCandidates[0], target, started);
+    const chosen = directCandidates[0];
+    if (chosen.audio > 1) {
+      return await enrichWithKissKH(chosen, target, started);
+    }
+    // If chosen direct candidate is single-audio, try KissKH fallback before settling for single audio
+    const kissFallback = await fallbackToKissKH(target, started, failures);
+    if (kissFallback && kissFallback.url) {
+      return kissFallback;
+    }
+    return await enrichWithKissKH(chosen, target, started);
   }
 
   const token = boot.meta.playbackToken;
@@ -806,6 +827,7 @@ function buildPublishPayload(asset, result, mode) {
     audio: result.ok ? result.audio : 0,
     exp: result.ok ? result.exp : 0,
     provider: result.ok ? (result.provider || "bigbang") : "",
+    isMP4: result.ok ? Boolean(result.isMP4) : undefined,
     masterManifest: result.ok && result.masterManifest ? result.masterManifest : undefined,
     audioTracks: result.ok && result.audioTracks ? result.audioTracks : undefined,
     variants: result.ok && result.variants ? result.variants : undefined,
