@@ -5580,8 +5580,14 @@
       }
 
       // Fetch the master through the gateway and count alternate audio groups.
-      function verifyClientGateway(gatewayUrl) {
-        return fetchWithTimeout(gatewayUrl, { credentials: 'omit', cache: 'no-store' }, 10000)
+      function verifyClientGateway(gatewayUrl, manifestBody) {
+        var opts = { credentials: 'omit', cache: 'no-store' };
+        if (manifestBody && typeof manifestBody === 'string' && manifestBody.indexOf('#EXTM3U') === 0) {
+          opts.method = 'POST';
+          opts.headers = { 'Content-Type': 'text/plain; charset=utf-8' };
+          opts.body = manifestBody;
+        }
+        return fetchWithTimeout(gatewayUrl, opts, 10000)
           .then(function (response) {
             if (!response.ok) throw new Error('gateway_http_' + response.status);
             return response.text();
@@ -5637,23 +5643,55 @@
             return response.json();
           })
           .then(function (boot) {
-            var playbackToken = boot && boot.meta && boot.meta.playbackToken;
+            var meta = boot && boot.meta;
+            var playbackToken = meta && meta.playbackToken;
+            var directUpstream = '';
+            var directManifest = '';
+
+            if (meta && meta.warmManifests) {
+              for (var key in meta.warmManifests) {
+                var m = meta.warmManifests[key];
+                if (typeof m === 'string' && m.indexOf('#EXTM3U') === 0) {
+                  directManifest = m;
+                  directUpstream = key;
+                  break;
+                }
+              }
+            }
+            if (!directUpstream) {
+              if (meta && meta.bigbangUrl) {
+                directUpstream = meta.bigbangUrl;
+              } else if (meta && meta.orionStreams && meta.orionStreams.length > 0 && meta.orionStreams[0].url) {
+                directUpstream = meta.orionStreams[0].url;
+              } else if (meta && meta.evionUrl) {
+                directUpstream = meta.evionUrl;
+              }
+            }
+            if (directUpstream && directUpstream.indexOf('http') !== 0) {
+              directUpstream = 'https://embed.vidrift.net' + (directUpstream.charAt(0) === '/' ? '' : '/') + directUpstream;
+            }
+
+            if (directUpstream) {
+              setClientResolveStatus({ step: 'gateway' });
+              return verifyClientGateway(buildClientGatewayUrl(directUpstream), directManifest);
+            }
+
             if (!playbackToken) throw new Error('boot_no_token');
             setClientResolveStatus({ step: 'source' });
             var sourceUrl = cr.sourceUrl + '?token=' + encodeURIComponent(playbackToken) +
               '&parent=' + encodeURIComponent(cr.parent || '') +
               '&provider=' + encodeURIComponent(provider);
-            return fetchWithTimeout(sourceUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 6000);
-          })
-          .then(function (response) {
-            if (!response.ok) throw new Error('source_http_' + response.status);
-            return response.json();
-          })
-          .then(function (payload) {
-            var upstream = preferredClientStream(payload && payload.streams);
-            if (!upstream) throw new Error('source_no_stream');
-            setClientResolveStatus({ step: 'gateway' });
-            return verifyClientGateway(buildClientGatewayUrl(upstream.url));
+            return fetchWithTimeout(sourceUrl, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' }, 6000)
+              .then(function (response) {
+                if (!response.ok) throw new Error('source_http_' + response.status);
+                return response.json();
+              })
+              .then(function (payload) {
+                var upstream = preferredClientStream(payload && payload.streams);
+                if (!upstream) throw new Error('source_no_stream');
+                setClientResolveStatus({ step: 'gateway' });
+                return verifyClientGateway(buildClientGatewayUrl(upstream.url));
+              });
           });
       }
 
@@ -5689,11 +5727,17 @@
               if (!result) throw new Error('gateway_empty');
               if (result.audioCount > 1) {
                 setClientResolveStatus({ state: 'ready', step: 'done', audioCount: result.audioCount, error: '' });
+                if (!currentStreamUrl && result && result.url) {
+                  startInitialPlayback(result.url);
+                }
                 return result;
               }
               // The gateway responded but this master has no alternate audio.
               // Retrying cannot help, so stop and report the single track.
               setClientResolveStatus({ state: 'single', step: 'done', audioCount: result.audioCount, error: '' });
+              if (!currentStreamUrl && result && result.url) {
+                startInitialPlayback(result.url);
+              }
               return null;
             })
             .catch(function (error) {
@@ -5806,6 +5850,9 @@
             return verifyClientGateway(buildRemoteGatewayUrl(remote)).then(function (result) {
               if (!result || result.audioCount <= 1) {
                 setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
+                if (!currentStreamUrl && result && result.url) {
+                  startInitialPlayback(result.url);
+                }
                 return null;
               }
               setClientResolveStatus({
@@ -5813,6 +5860,9 @@
                 remoteError: '',
                 audioCount: result.audioCount
               });
+              if (!currentStreamUrl && result && result.url) {
+                startInitialPlayback(result.url);
+              }
               return result;
             });
           })
@@ -5833,6 +5883,10 @@
       // when the player actually moved to a stream with more than one track.
       function applyClientUpgrade(clientStream, manual) {
         if (!clientStream || !clientStream.url) return false;
+        if (!currentStreamUrl) {
+          startInitialPlayback(clientStream.url);
+          return true;
+        }
         if (clientStream.audioCount <= 1) return false;
         if (currentStreamUrl === clientStream.url) return true;
 

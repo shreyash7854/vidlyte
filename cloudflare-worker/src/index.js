@@ -5256,9 +5256,19 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         });
       }
 
+      const asset = normalizeMultiAudioAsset(assetID);
+      const record = asset ? await readMultiAudioRecord(env, asset) : null;
       const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
       try {
-        let raw = (record && record.masterManifest) || "";
+        let raw = "";
+        if (request.method === "POST") {
+          try {
+            raw = (await request.text()).trim();
+          } catch (e) {}
+        }
+        if (!raw && record && record.masterManifest) {
+          raw = record.masterManifest;
+        }
         if (!raw) {
           raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
         }
@@ -6229,13 +6239,13 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         currentServer: (resolved && resolved.provider) || "",
         isMP4: isMP4,
         clientResolve: {
-          enabled: false,
-          bootUrl: "",
-          sourceUrl: "",
-          parent: "",
+          enabled: true,
+          bootUrl: `https://embed.vidrift.net${type === "tv" ? `/api/boot/tv/${id}/${season}/${episode}` : `/api/boot/movie/${id}`}`,
+          sourceUrl: "https://embed.vidrift.net/api/source",
+          parent: "https://vidrift.net",
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
           token: token,
-          provider: "bigbang",
+          provider: (resolved && resolved.provider) || "orion",
           // External resolver (GitHub Actions) for viewers whose browser or
           // network blocks vidrift. Disabled when the dispatch token is absent.
           remote: {
