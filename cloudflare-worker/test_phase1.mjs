@@ -22,7 +22,16 @@ import {
   UpstreamUrlError,
 } from "./src/security.js";
 import { rewriteManifest, parseMasterManifest, isPlaylistUrl, parseAttributeList } from "./src/manifest.js";
-import { decodeSubtitleBytes, srtToVtt, assToVtt, convertSubtitleToVtt, toVttFromBytes, sniffMediaType } from "./src/subtitles.js";
+import {
+  decodeSubtitleBytes,
+  srtToVtt,
+  assToVtt,
+  convertSubtitleToVtt,
+  toVttFromBytes,
+  sniffMediaType,
+  decryptKisskhText,
+  decryptKisskhSubtitle,
+} from "./src/subtitles.js";
 
 let passed = 0;
 const failures = [];
@@ -308,6 +317,36 @@ test("sniffMediaType detects common containers", () => {
   assert.equal(sniffMediaType(new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70])), "video/mp4");
   assert.equal(sniffMediaType(new TextEncoder().encode("WEBVTT\n\n")), "text/vtt; charset=utf-8");
   assert.equal(sniffMediaType(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])), "video/webm");
+});
+
+test("KissKH AES-128 subtitle decryption and WebVTT conversion", () => {
+  const line1Cipher = "ZB1BD1inpCiSEKvwAj2wZs4uG1pKyfmAL1PCvJMldpaCWEgPo/rxoJKPBGiVMaUW0rWoTVwqh4W0EYuEBrsMAA==";
+  const line2Cipher = "pK7tmSGzwTD0jEKFxg7dLzEtsXdDxvXfocD24sjwOCdmzpVDfyD6BKJFXORa2dSO";
+
+  const dec1 = decryptKisskhText(line1Cipher);
+  assert.equal(dec1, "♪I've braved the storms, walked through the rain♪");
+  const dec2 = decryptKisskhText(line2Cipher);
+  assert.equal(dec2, "♪Seen the highs and lows along the way♪");
+
+  const rawEncryptedSrt = [
+    "1",
+    "00:00:07,020 --> 00:00:11,220",
+    line1Cipher,
+    "",
+    "2",
+    "00:00:11,260 --> 00:00:14,620",
+    line2Cipher,
+    "",
+  ].join("\n");
+
+  const converted = toVttFromBytes(new TextEncoder().encode(rawEncryptedSrt));
+  assert.ok(converted.text.startsWith("WEBVTT\n\n"));
+  assert.ok(converted.text.includes("♪I've braved the storms, walked through the rain♪"));
+  assert.ok(converted.text.includes("♪Seen the highs and lows along the way♪"));
+  assert.ok(converted.text.includes("00:00:07.020 --> 00:00:11.220"));
+  assert.ok(converted.text.includes("00:00:11.260 --> 00:00:14.620"));
+  assert.equal(converted.format, "srt");
+  assert.equal(converted.contentType, "text/vtt; charset=utf-8");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

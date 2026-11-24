@@ -7154,8 +7154,13 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
   const p = safeTarget.pathname.toLowerCase();
   const isSubtitle =
     safeTarget.hostname.includes("strem.io") ||
+    provider === "kisskh" ||
+    safeTarget.hostname.includes("kisskh") ||
+    safeTarget.hostname.includes("cdnvideo") ||
+    safeTarget.hostname.includes("videocdndelivery") ||
     p.includes("/subtitles/") ||
     p.includes("/subtitle/") ||
+    p.includes("/sub/") ||
     p.endsWith(".srt") ||
     p.endsWith(".vtt") ||
     p.endsWith(".ass") ||
@@ -7221,17 +7226,21 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
 
       const buffer = await response.arrayBuffer();
       const converted = toVttFromBytes(new Uint8Array(buffer));
+      let outText = converted.text;
+      if (converted.format !== "hls" && !outText.trimStart().startsWith("WEBVTT")) {
+        outText = `WEBVTT\n\n${outText.trim()}\n`;
+      }
 
       subtitleMemoryCache.set(memoryKey, {
-        body: converted.text,
-        contentType: converted.contentType,
+        body: outText,
+        contentType: converted.contentType || "text/vtt; charset=utf-8",
         expiresAt: Date.now() + 86400 * 1000,
       });
 
-      return new Response(converted.text, {
+      return new Response(outText, {
         status: 200,
         headers: {
-          "Content-Type": converted.contentType,
+          "Content-Type": converted.contentType || "text/vtt; charset=utf-8",
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
           "Cache-Control": "public, max-age=86400, immutable",

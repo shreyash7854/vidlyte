@@ -5,6 +5,66 @@
  * media type sniffing for the edge proxy.
  */
 
+import { createDecipheriv } from "node:crypto";
+import { Buffer } from "node:buffer";
+
+export const KISSKH_SUBTITLE_KEY = Buffer.from("AmSmZVcH93UQUezi", "utf8");
+export const KISSKH_SUBTITLE_IV_WORDS = [1382367819, 1465333859, 1902406224, 1164854838];
+
+export function getKisskhSubtitleIv() {
+  const iv = Buffer.alloc(16);
+  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[0], 0);
+  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[1], 4);
+  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[2], 8);
+  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[3], 12);
+  return iv;
+}
+
+/**
+ * Decrypts a single Base64-encoded AES-128-CBC KissKH ciphertext string.
+ * Returns the original string if decryption fails or if it's not KissKH ciphertext.
+ */
+export function decryptKisskhText(ciphertext) {
+  const trimmed = String(ciphertext || "").trim();
+  if (!trimmed || trimmed.length < 16) return ciphertext;
+  if (!/^[A-Za-z0-9+/=]+$/.test(trimmed)) return ciphertext;
+  try {
+    const decipher = createDecipheriv("aes-128-cbc", KISSKH_SUBTITLE_KEY, getKisskhSubtitleIv());
+    let dec = decipher.update(Buffer.from(trimmed, "base64"));
+    dec = Buffer.concat([dec, decipher.final()]);
+    const utf8 = dec.toString("utf8");
+    if (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8)) {
+      return utf8;
+    }
+  } catch (e) {
+    // Non-matching ciphertext or padding error -> pass through unchanged
+  }
+  return ciphertext;
+}
+
+/**
+ * Scans subtitle text line-by-line and decrypts any KissKH ciphertexts in cue lines.
+ */
+export function decryptKisskhSubtitle(text) {
+  if (!text || typeof text !== "string") return text;
+  if (!/[A-Za-z0-9+/=]{16,}/.test(text)) return text;
+
+  const lines = text.split("\n");
+  const decryptedLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || /^\d+$/.test(trimmed) || trimmed.includes("-->")) {
+      return line;
+    }
+    const dec = decryptKisskhText(trimmed);
+    if (dec !== trimmed) {
+      return line.replace(trimmed, dec);
+    }
+    return line;
+  });
+
+  return decryptedLines.join("\n");
+}
+
 const WINDOWS_1252_HIGH = {
   0x80: "\u20AC", 0x82: "\u201A", 0x83: "\u0192", 0x84: "\u201E",
   0x85: "\u2026", 0x86: "\u2020", 0x87: "\u2021", 0x88: "\u02C6",
@@ -204,16 +264,20 @@ export function convertSubtitleToVtt(input) {
   const text = String(input || "").replace(/^\uFEFF/, "");
   const trimmed = text.trimStart();
 
-  if (/^WEBVTT/i.test(trimmed)) return { text: trimmed, format: "vtt" };
   if (/^#EXTM3U/i.test(trimmed)) return { text: trimmed, format: "hls" };
-  if (/\[Script Info\]/i.test(text) || /^Dialogue\s*:/im.test(text)) {
-    return { text: assToVtt(text), format: "ass" };
-  }
-  if (/-->/.test(text)) {
-    return { text: srtToVtt(text), format: "srt" };
-  }
 
-  return { text: `WEBVTT\n\n${trimmed.trim()}\n`, format: "text" };
+  const decrypted = decryptKisskhSubtitle(text);
+  const decTrimmed = decrypted.trimStart();
+
+  if (/\[Script Info\]/i.test(decrypted) || /^Dialogue\s*:/im.test(decrypted)) {
+    return { text: assToVtt(decrypted), format: "ass" };
+  }
+  if (/-->/.test(decrypted)) {
+    return { text: srtToVtt(decrypted), format: "srt" };
+  }
+  if (/^WEBVTT/i.test(decTrimmed)) return { text: decTrimmed, format: "vtt" };
+
+  return { text: `WEBVTT\n\n${decTrimmed.trim()}\n`, format: "text" };
 }
 
 export function subtitleContentType(format) {
@@ -227,8 +291,12 @@ export function subtitleContentType(format) {
 export function toVttFromBytes(input) {
   const decoded = decodeSubtitleBytes(input);
   const converted = convertSubtitleToVtt(decoded);
+  let text = converted.text;
+  if (converted.format !== "hls" && !text.trimStart().startsWith("WEBVTT")) {
+    text = `WEBVTT\n\n${text.trim()}\n`;
+  }
   return {
-    text: converted.text,
+    text: text,
     format: converted.format,
     contentType: subtitleContentType(converted.format),
   };

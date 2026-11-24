@@ -4730,6 +4730,53 @@
       var currentSub = 'off';
       var subtitleOffset = 0;
 
+      // KissKH Subtitle AES-128 Decryption
+      var kisskhCryptoKey = null;
+      var kisskhIvBytes = null;
+      function initKisskhCrypto() {
+        if (kisskhCryptoKey) return Promise.resolve(kisskhCryptoKey);
+        if (typeof crypto === 'undefined' || !crypto.subtle) return Promise.resolve(null);
+        var keyBytes = new TextEncoder().encode('AmSmZVcH93UQUezi');
+        var ivWords = [1382367819, 1465333859, 1902406224, 1164854838];
+        var iv = new Uint8Array(16);
+        var view = new DataView(iv.buffer);
+        ivWords.forEach(function (w, i) { view.setInt32(i * 4, w, false); });
+        kisskhIvBytes = iv;
+        return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt'])
+          .then(function (k) { kisskhCryptoKey = k; return k; })
+          .catch(function () { return null; });
+      }
+
+      function decryptKisskhVttContent(text) {
+        if (!text || !/[A-Za-z0-9+/=]{24,}/.test(text) || typeof crypto === 'undefined' || !crypto.subtle) {
+          return Promise.resolve(text);
+        }
+        return initKisskhCrypto().then(function (cryptoKey) {
+          if (!cryptoKey) return text;
+          var lines = text.split('\n');
+          var promises = lines.map(function (line) {
+            var trimmed = line.trim();
+            if (!trimmed || /^\d+$/.test(trimmed) || trimmed.indexOf('-->') >= 0 || trimmed.length < 16 || !/^[A-Za-z0-9+/=]+$/.test(trimmed)) {
+              return Promise.resolve(line);
+            }
+            try {
+              var raw = Uint8Array.from(atob(trimmed), function (c) { return c.charCodeAt(0); });
+              return crypto.subtle.decrypt({ name: 'AES-CBC', iv: kisskhIvBytes }, cryptoKey, raw)
+                .then(function (dec) {
+                  var utf8 = new TextDecoder().decode(dec);
+                  return (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8)) ? line.replace(trimmed, utf8) : line;
+                })
+                .catch(function () { return line; });
+            } catch (e) {
+              return Promise.resolve(line);
+            }
+          });
+          return Promise.all(promises).then(function (decLines) {
+            return decLines.join('\n');
+          });
+        });
+      }
+
       function cueTime(value) {
         if (!value) return 0;
         var p = value.replace(',', '.').split(':').map(Number);
@@ -4826,7 +4873,10 @@
             return vttText;
           })
           .then(function (vttContent) {
-            var cues = parseCues(vttContent);
+            return decryptKisskhVttContent(vttContent);
+          })
+          .then(function (decryptedVtt) {
+            var cues = parseCues(decryptedVtt);
             subtitleElements[trackKey] = {
               cues: cues,
               item: item
