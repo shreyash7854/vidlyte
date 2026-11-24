@@ -22,7 +22,7 @@ import { gzipSync } from "node:zlib";
 import { Buffer } from "node:buffer";
 import dns from "node:dns";
 try { dns.setServers(["1.1.1.1", "8.8.8.8"]); } catch (e) {}
-import { resolveKissKH } from "../src/providers.js";
+import { resolveKissKH, KISSKH_DRAMA_OVERRIDES } from "../src/providers.js";
 
 function mapOrionPlaylist(text) {
   const firstChunkMatch = text.match(/https:\/\/[^\r\n]+\.m4s[^\r\n]*/);
@@ -283,8 +283,8 @@ export async function resolveAsset(target) {
   const started = Date.now();
   const failures = [];
 
-  // For known Asian drama / target 122206, fast-path resolve through KissKH directly
-  if (String(target.id) === "122206") {
+  // For known Asian drama / target 122206 or 93846, fast-path resolve through KissKH directly
+  if (String(target.id) === "122206" || String(target.id) === "93846" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[String(target.id)])) {
     const directKiss = await fallbackToKissKH(target, started, failures);
     if (directKiss && directKiss.url) {
       return directKiss;

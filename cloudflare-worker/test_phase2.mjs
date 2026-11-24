@@ -535,6 +535,13 @@ await test("cron trigger and admin provider UI are configured", () => {
   assert.ok(admin.includes("testProvider"));
 });
 
+await test("Asian content correctly identifies Hindi dub from FrameX and enables dual audio merging", () => {
+  assert.ok(indexSource.includes("const isAsian = isAsianContent(assetInfo, tmdbMeta);"));
+  assert.ok(indexSource.includes('const audioName = isAsian ? "Hindi" : "Original Audio";'));
+  assert.ok(indexSource.includes('name: "Hindi"'));
+  assert.ok(indexSource.includes('language: "hin"'));
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   process.exitCode = 1;

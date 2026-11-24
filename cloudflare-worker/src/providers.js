@@ -631,6 +631,7 @@ const KISSKH_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 
 export const KISSKH_DRAMA_OVERRIDES = {
   "122206": { id: 1886, title: "The Rational Life" },
+  "93846": { id: 28, title: "The King: Eternal Monarch" },
 };
 
 /**
@@ -676,13 +677,20 @@ export async function resolveKissKH({
     if (!matchedDrama) {
       let searchData = [];
       const searchUrl = `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`;
-      const searchRes = await fetchImpl(searchUrl, {
-        headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }).catch((err) => {
-        console.error("[KissKH] search fetch error:", err?.message);
-        return null;
-      });
+      let searchRes = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        searchRes = await fetchImpl(searchUrl, {
+          headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+          signal: AbortSignal.timeout(timeoutMs),
+        }).catch((err) => {
+          console.error("[KissKH] search fetch error:", err?.message);
+          return null;
+        });
+        if (searchRes && searchRes.ok) break;
+        if (searchRes && searchRes.status === 429) {
+          await new Promise((r) => setTimeout(r, attempt * 1200));
+        }
+      }
       if (searchRes && searchRes.ok) {
         searchData = (await searchRes.json().catch(() => [])) || [];
       } else {

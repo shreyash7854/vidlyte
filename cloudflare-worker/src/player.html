@@ -551,6 +551,17 @@
       scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
     }
 
+    #audioPopover {
+      width: calc(380px * var(--ui));
+      max-width: calc(100vw - 32px);
+    }
+
+    .pop-item[data-action="reload-multi-audio"] {
+      white-space: normal;
+      line-height: 1.25;
+      font-size: calc(12.5px * var(--ui));
+    }
+
     @keyframes popFade {
       from {
         opacity: 0;

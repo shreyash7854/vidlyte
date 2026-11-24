@@ -69,6 +69,7 @@ import {
   providerLabel,
   resolveAsianFlix,
   resolveKissKH,
+  KISSKH_DRAMA_OVERRIDES,
 } from "./providers.js";
 import {
   MetricsRegistry,
@@ -274,7 +275,7 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
     try {
       data = await env.CONFIG_KV.get(showCacheKey, "json");
       if (data) tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
-    } catch (e) {}
+    } catch (e) { }
   }
   const apiKey = TMDB_API_KEY;
 
@@ -293,7 +294,7 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
         if (env && env.CONFIG_KV) {
           try {
             await env.CONFIG_KV.put(showCacheKey, JSON.stringify(data), { expirationTtl: 86400 * 7 });
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     }
@@ -310,7 +311,7 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
           { signal: AbortSignal.timeout(4000) }
         );
         if (epRes.ok) epData = await epRes.json();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const showName = data.name || data.title || data.original_name || data.original_title || (isTv ? (String(id) === "122206" ? "The Rational Life" : `TV Show #${id}`) : `Movie #${id}`);
@@ -330,8 +331,8 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
     // Official transparent title logo (priority: English -> language-agnostic -> original show language -> any first logo)
     const logos = (data.images && data.images.logos) ? data.images.logos : [];
     const logoObj = logos.find((l) => l.iso_639_1 === "en" || !l.iso_639_1) ||
-                    (data.original_language ? logos.find((l) => l.iso_639_1 === data.original_language) : null) ||
-                    logos[0];
+      (data.original_language ? logos.find((l) => l.iso_639_1 === data.original_language) : null) ||
+      logos[0];
     const logoUrl = logoObj && logoObj.file_path ? `/tmdb-image/w500${logoObj.file_path}` : "";
 
     const imdbId = (data.external_ids && data.external_ids.imdb_id) || (data.imdb_id || "");
@@ -399,7 +400,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           if (env && env.CONFIG_KV && resObj.streamUrl) {
             try {
               await env.CONFIG_KV.put(kvKey, JSON.stringify(resObj), { expirationTtl: 14400 });
-            } catch (e) {}
+            } catch (e) { }
           }
           return resObj;
         }
@@ -470,12 +471,12 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
               if (env && env.CONFIG_KV) {
                 try {
                   await env.CONFIG_KV.put(kvKey, JSON.stringify(resObj), { expirationTtl: 14400 });
-                } catch (e) {}
+                } catch (e) { }
               }
               return resObj;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -485,7 +486,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         if (cached && cached.streamUrl) {
           return cached;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const bootPath = isTv
@@ -513,7 +514,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           meta = bootData.meta;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Fallback to Jina Reader if direct fetch was blocked or challenged by CF bot management
     if (!meta || (!meta.orionStreams && !meta.bigbangUrl && !meta.evionUrl)) {
@@ -542,7 +543,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Fallback to HTML scrape if boot API was unavailable
@@ -577,25 +578,25 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             },
             signal: AbortSignal.timeout(10000),
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (res && res.ok) {
         const html = await res.text();
         const match = html.match(/(?:var\s+embedMeta\s*=\s*|embedMeta\s*=\s*)({[\s\S]*?});/) ||
-                      html.match(/data-meta=["']([^"']+)["']/i) ||
-                      html.match(/window\.__VIDRIFT_DATA__\s*=\s*({[\s\S]*?});/i);
+          html.match(/data-meta=["']([^"']+)["']/i) ||
+          html.match(/window\.__VIDRIFT_DATA__\s*=\s*({[\s\S]*?});/i);
         if (match) {
           try {
             const raw = match[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'");
             meta = JSON.parse(raw);
-          } catch (e) {}
+          } catch (e) { }
         }
         const subMatch = html.match(/(?:var\s+subtitleTracks\s*=\s*|subtitleTracks\s*=\s*)(\[[\s\S]*?\]);/);
         if (subMatch) {
           try {
             parsedSubtitles = JSON.parse(subMatch[1]);
-          } catch (e) {}
+          } catch (e) { }
         }
         const logoMatch = html.match(/class=["']pause-logo["'][^>]+(?:data-src|src)=["']([^"']+)["']/i);
         if (logoMatch && logoMatch[1]) {
@@ -668,7 +669,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -760,7 +761,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             };
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     let orionCandidate = null;
@@ -910,7 +911,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // 2b. New-style Vidrift streams: the per-session /api/source response is
@@ -989,7 +990,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // Multi-dub streams are named (e.g. Titan "Hindi", "Multi-audio") or labelled "<quality> · <language>".
@@ -1075,82 +1076,82 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     // 3. Subtitles (BigBang multi-subtitles or Orion JSON subtitles)
     if (subtitles.length === 0) {
       if (meta.bigbangSubtitles && Array.isArray(meta.bigbangSubtitles) && meta.bigbangSubtitles.length > 0) {
-      meta.bigbangSubtitles.forEach((s) => {
-        if (s.url) {
-          const cleanLabel = (s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*BigBang/i, "").trim();
-          subtitles.push({
-            language: s.lang || "en",
-            label: cleanLabel || "Subtitles",
-            url: s.url,
-            uri: s.url,
-            proxiedUri: s.url,
-            proxied_uri: s.url,
+        meta.bigbangSubtitles.forEach((s) => {
+          if (s.url) {
+            const cleanLabel = (s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*BigBang/i, "").trim();
+            subtitles.push({
+              language: s.lang || "en",
+              label: cleanLabel || "Subtitles",
+              url: s.url,
+              uri: s.url,
+              proxiedUri: s.url,
+              proxied_uri: s.url,
+            });
+          }
+        });
+      } else if (parsedSubtitles && Array.isArray(parsedSubtitles) && parsedSubtitles.length > 0) {
+        parsedSubtitles.forEach((s) => {
+          if (s.url) {
+            const fullSubUrl = s.url.startsWith("http") ? s.url : `https://embed.vidrift.net${s.url}`;
+            const cleanLabel = (s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*(?:Orion|BigBang|Vidrift)/i, "").trim();
+            subtitles.push({
+              language: s.lang || s.code || "en",
+              label: cleanLabel || "Subtitles",
+              url: fullSubUrl,
+              uri: fullSubUrl,
+              proxiedUri: fullSubUrl,
+              proxied_uri: fullSubUrl,
+            });
+          }
+        });
+      } else if (meta.orionStreams && meta.orionStreams[0] && meta.orionStreams[0].subtitleListUrl) {
+        const primaryStream = meta.orionStreams[0];
+        try {
+          const subListUrl = primaryStream.subtitleListUrl.startsWith("http")
+            ? primaryStream.subtitleListUrl
+            : `https://embed.vidrift.net${primaryStream.subtitleListUrl}`;
+          const subRes = await fetch(subListUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Referer": "https://embed.vidrift.net/",
+            },
+            signal: AbortSignal.timeout(3000),
           });
-        }
-      });
-    } else if (parsedSubtitles && Array.isArray(parsedSubtitles) && parsedSubtitles.length > 0) {
-      parsedSubtitles.forEach((s) => {
-        if (s.url) {
-          const fullSubUrl = s.url.startsWith("http") ? s.url : `https://embed.vidrift.net${s.url}`;
-          const cleanLabel = (s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*(?:Orion|BigBang|Vidrift)/i, "").trim();
+          if (subRes.ok) {
+            const subData = await subRes.json();
+            if (subData.tracks && Array.isArray(subData.tracks)) {
+              subData.tracks.forEach((t) => {
+                const fullSubUrl = t.url.startsWith("http") ? t.url : `https://embed.vidrift.net${t.url}`;
+                const cleanLabel = (t.label || t.lang || "Subtitles").replace(/\s*[·•-]\s*Orion/i, "").trim();
+                subtitles.push({
+                  language: t.lang || "en",
+                  label: cleanLabel,
+                  url: fullSubUrl,
+                  uri: fullSubUrl,
+                  proxiedUri: fullSubUrl,
+                  proxied_uri: fullSubUrl,
+                });
+              });
+            }
+          }
+        } catch (e) { }
+      } else if (apiSubtitles && apiSubtitles.length > 0) {
+        apiSubtitles.forEach((s) => {
+          const raw = s && (s.url || s.file);
+          if (!raw) return;
+          const fullSubUrl = String(raw).startsWith("http") ? String(raw) : `https://embed.vidrift.net${raw}`;
+          const cleanLabel = String(s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*(?:Orion|BigBang|Vidrift|Vela)/i, "").trim();
           subtitles.push({
-            language: s.lang || s.code || "en",
+            language: s.lang || s.language || s.code || "en",
             label: cleanLabel || "Subtitles",
             url: fullSubUrl,
             uri: fullSubUrl,
             proxiedUri: fullSubUrl,
             proxied_uri: fullSubUrl,
           });
-        }
-      });
-    } else if (meta.orionStreams && meta.orionStreams[0] && meta.orionStreams[0].subtitleListUrl) {
-      const primaryStream = meta.orionStreams[0];
-      try {
-        const subListUrl = primaryStream.subtitleListUrl.startsWith("http")
-          ? primaryStream.subtitleListUrl
-          : `https://embed.vidrift.net${primaryStream.subtitleListUrl}`;
-        const subRes = await fetch(subListUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://embed.vidrift.net/",
-          },
-          signal: AbortSignal.timeout(3000),
         });
-        if (subRes.ok) {
-          const subData = await subRes.json();
-          if (subData.tracks && Array.isArray(subData.tracks)) {
-            subData.tracks.forEach((t) => {
-              const fullSubUrl = t.url.startsWith("http") ? t.url : `https://embed.vidrift.net${t.url}`;
-              const cleanLabel = (t.label || t.lang || "Subtitles").replace(/\s*[·•-]\s*Orion/i, "").trim();
-              subtitles.push({
-                language: t.lang || "en",
-                label: cleanLabel,
-                url: fullSubUrl,
-                uri: fullSubUrl,
-                proxiedUri: fullSubUrl,
-                proxied_uri: fullSubUrl,
-              });
-            });
-          }
-        }
-      } catch (e) {}
-    } else if (apiSubtitles && apiSubtitles.length > 0) {
-      apiSubtitles.forEach((s) => {
-        const raw = s && (s.url || s.file);
-        if (!raw) return;
-        const fullSubUrl = String(raw).startsWith("http") ? String(raw) : `https://embed.vidrift.net${raw}`;
-        const cleanLabel = String(s.label || s.lang || "Subtitles").replace(/\s*[·•-]\s*(?:Orion|BigBang|Vidrift|Vela)/i, "").trim();
-        subtitles.push({
-          language: s.lang || s.language || s.code || "en",
-          label: cleanLabel || "Subtitles",
-          url: fullSubUrl,
-          uri: fullSubUrl,
-          proxiedUri: fullSubUrl,
-          proxied_uri: fullSubUrl,
-        });
-      });
+      }
     }
-  }
 
     // Quality variants fallback if not already populated.
     if (variants.length === 0) {
@@ -1213,7 +1214,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     if (env && env.CONFIG_KV && masterUrl) {
       try {
         await env.CONFIG_KV.put(kvKey, JSON.stringify(resolvedResult), { expirationTtl: 14400 });
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return resolvedResult;
@@ -1312,7 +1313,7 @@ async function resolve2Embed(type, id, season = 1, episode = 1) {
             });
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return { masterUrl, subs, provider: "2vcdn" };
@@ -1377,7 +1378,7 @@ function applyResolvedProvider(result, providerResult) {
 /**
  * FrameX failover cluster. Each host is attempted once with a hard 2.6s cap.
  */
-async function resolveFrameX(assetInfo) {
+async function resolveFrameX(assetInfo, tmdbMeta = null) {
   const cluster = [
     "https://api.framextv.xyz",
     "https://api.framextv.cc",
@@ -1461,6 +1462,10 @@ async function resolveFrameX(assetInfo) {
         });
       });
 
+      const isAsian = isAsianContent(assetInfo, tmdbMeta);
+      const audioName = isAsian ? "Hindi" : "Original Audio";
+      const audioLang = isAsian ? "hin" : "eng";
+
       return {
         streamUrl: bestSource.url,
         provider: "framextv",
@@ -1469,10 +1474,10 @@ async function resolveFrameX(assetInfo) {
         variants,
         audioTracks: [
           {
-            name: "Original Audio",
-            label: "Original Audio",
-            language: "eng",
-            default: true,
+            name: audioName,
+            label: audioName,
+            language: audioLang,
+            default: !isAsian,
             uri: bestSource.url,
             provider: "framextv",
           },
@@ -1559,7 +1564,7 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
   }
 
   if (id === "framextv") {
-    return resolveFrameX(assetInfo);
+    return resolveFrameX(assetInfo, tmdbMeta);
   }
 
   if (id === "asianflix") {
@@ -1574,7 +1579,8 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
 
   if (id === "kisskh") {
     let kissTitle = (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || "";
-    if (!kissTitle && String(assetInfo.id) === "122206") kissTitle = "The Rational Life";
+    const override = assetInfo && assetInfo.id && KISSKH_DRAMA_OVERRIDES[String(assetInfo.id)];
+    if (!kissTitle && override) kissTitle = override.title;
     return resolveKissKH({
       assetInfo,
       title: kissTitle,
@@ -1592,7 +1598,8 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
 }
 
 function isAsianContent(assetInfo, tmdbMeta) {
-  if (assetInfo && String(assetInfo.id) === "122206") return true;
+  const idStr = String(assetInfo?.id || "");
+  if (idStr === "122206" || idStr === "93846" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[idStr])) return true;
   if (!tmdbMeta) return false;
   const lang = String(tmdbMeta.originalLanguage || "").toLowerCase();
   if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(lang)) return true;
@@ -1799,9 +1806,9 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
   const cacheKey = `${baseCacheKey}:${requested || "auto"}`;
 
   if (!options.forceRefresh) {
+    const isAsianShow = isAsianContent(assetInfo);
     const existing = sourceStaleCache.get(cacheKey);
     if (existing && existing.value) {
-      const isAsianShow = String(assetInfo.id) === "122206";
       if (isAsianShow && existing.value.provider !== "kisskh" && existing.value.provider !== "asianflix") {
         sourceStaleCache.delete(cacheKey);
       }
@@ -1811,8 +1818,8 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       cached &&
       cached.fresh &&
       cached.value &&
-      !(String(assetInfo.id) === "122206" && cached.value.provider !== "kisskh" && cached.value.provider !== "asianflix") &&
-      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv" || cached.value.provider === "kisskh")
+      !(isAsianShow && cached.value.provider !== "kisskh" && cached.value.provider !== "asianflix") &&
+      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv" || (!isAsianShow && cached.value.provider === "kisskh"))
     ) {
       return cloneValue(cached.value);
     }
@@ -1869,25 +1876,26 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         if (!isAsianTitle || isKiss) {
           const recordProvider = maRecord.provider || (isKiss ? "kisskh" : "evion");
           if (!requested || requested === recordProvider) {
-            const isMultiAudio = maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
-            if (isKiss || isMultiAudio) {
-            const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
-            const provRes = {
-              streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
-              backupStreamUrl: maRecord.url || "",
-              masterManifest: maRecord.masterManifest || "",
-              provider: recordProvider,
-              isMP4,
-              audioTracks: maRecord.audioTracks || [],
-              variants: maRecord.variants || [],
-              subtitles: maRecord.subtitles || [],
-            };
-            chosen = { provider: provRes.provider, result: provRes };
+            const hasDualOrMultiAudio = Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
+            const isMultiAudio = maRecord.masterManifest && hasDualOrMultiAudio;
+            if ((isKiss && (!isAsianTitle || hasDualOrMultiAudio)) || isMultiAudio) {
+              const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
+              const provRes = {
+                streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
+                backupStreamUrl: maRecord.url || "",
+                masterManifest: maRecord.masterManifest || "",
+                provider: recordProvider,
+                isMP4,
+                audioTracks: maRecord.audioTracks || [],
+                variants: maRecord.variants || [],
+                subtitles: maRecord.subtitles || [],
+              };
+              chosen = { provider: provRes.provider, result: provRes };
+            }
           }
         }
       }
     }
-  }
 
     if (!chosen && requested) {
       const providerResult = await attemptProvider(requested, assetInfo, tmdbMeta, options.env);
@@ -1933,8 +1941,42 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
               if (!result.audioTracks || result.audioTracks.length === 0) {
                 result.audioTracks = kissRes.audioTracks;
               } else if (!hasOriginal) {
+                kissTrack.default = true;
+                result.audioTracks.forEach((t) => { t.default = false; });
                 result.audioTracks = [kissTrack, ...result.audioTracks];
+                result.streamUrl = kissTrack.uri;
+                result.provider = "kisskh";
               }
+            }
+          }
+        } catch (e) { }
+      }
+
+      // Asian multi-audio merge: When KissKH is primary, also probe FrameX for Hindi dub & extra subtitles
+      if (isAsian && (chosen.provider === "kisskh" || result.provider === "kisskh")) {
+        try {
+          const framexRes = await attemptProvider("framextv", assetInfo, tmdbMeta, options.env);
+          if (framexRes && framexRes.streamUrl && isStreamUrlUsable(framexRes.streamUrl)) {
+            const hasHindi = (result.audioTracks || []).some((t) => /hindi|hin/i.test(t.name || t.label || t.language || ""));
+            if (!hasHindi) {
+              const hindiTrack = {
+                id: (result.audioTracks || []).length,
+                name: "Hindi",
+                label: "Hindi",
+                language: "hin",
+                default: false,
+                uri: framexRes.streamUrl,
+                isMP4: Boolean(framexRes.isMP4),
+                provider: "framextv",
+              };
+              result.audioTracks = [...(result.audioTracks || []), hindiTrack];
+            }
+            if (Array.isArray(framexRes.subtitles) && framexRes.subtitles.length > 0) {
+              const currentSubs = result.subtitles || [];
+              const framexSubs = framexRes.subtitles.filter(
+                (fs) => !currentSubs.some((cs) => cs && (cs.language === fs.language || cs.label === fs.label))
+              );
+              result.subtitles = [...currentSubs, ...framexSubs];
             }
           }
         } catch (e) {}
@@ -1967,7 +2009,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       if (Array.isArray(result.subtitles) && result.subtitles.length > 0) {
         const enIdx = result.subtitles.findIndex((s) => /english|eng|^en/i.test(s.label || s.language));
@@ -1996,7 +2038,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
           };
           const putPromise = options.env.CONFIG_KV.put(`ma_status_v1:${assetNorm}`, JSON.stringify(kvRecord), {
             expirationTtl: 86400 * 30,
-          }).catch(() => {});
+          }).catch(() => { });
           if (options.waitUntil && typeof options.waitUntil === "function") {
             options.waitUntil(putPromise);
           }
@@ -2409,8 +2451,8 @@ async function loadConfigHistory(env, options = {}) {
     const stored = await env.CONFIG_KV.get(CONFIG_HISTORY_KV_KEY, { type: "json" });
     configHistoryCache = Array.isArray(stored)
       ? stored
-          .filter((entry) => entry && typeof entry === "object" && entry.id)
-          .slice(0, CONFIG_HISTORY_LIMIT)
+        .filter((entry) => entry && typeof entry === "object" && entry.id)
+        .slice(0, CONFIG_HISTORY_LIMIT)
       : [];
   } catch (e) {
     configHistoryCache = Array.isArray(configHistoryCache) ? configHistoryCache : [];
@@ -2462,7 +2504,7 @@ async function probeSwarmNode(worker, timeoutMs = 2500) {
     const latency = Date.now() - started;
     try {
       await response.arrayBuffer();
-    } catch (e) {}
+    } catch (e) { }
     if (response.ok) {
       swarmState.set(origin, { latencyMs: latency, failures: 0, blockedUntil: 0 });
     } else {
@@ -2639,7 +2681,7 @@ function recordRequestMetric({ request, response, startedAt, requestId, route, e
   try {
     const length = response && response.headers ? response.headers.get("Content-Length") : null;
     if (length) bytes = parseInt(length, 10) || 0;
-  } catch (e) {}
+  } catch (e) { }
 
   metricsRegistry.record({
     route,
@@ -2663,7 +2705,7 @@ function recordRequestMetric({ request, response, startedAt, requestId, route, e
     let pathname = "";
     try {
       pathname = new URL(request.url).pathname;
-    } catch (e) {}
+    } catch (e) { }
     requestLog.push({
       request_id: requestId,
       method: request ? request.method : "GET",
@@ -2818,7 +2860,7 @@ async function loadPersistedProviderHealth(env) {
         });
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function persistProviderHealth(env) {
@@ -2876,7 +2918,7 @@ async function probeProviderReachability(providerId) {
     const latency = Date.now() - started;
     try {
       await response.arrayBuffer();
-    } catch (e) {}
+    } catch (e) { }
     const healthy = response.status > 0 && response.status < 500;
     const record = {
       checkedAt: new Date().toISOString(),
@@ -2985,7 +3027,7 @@ async function readTelegramState(env) {
           return state;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   for (const [key, value] of telegramStateMemory) {
     if (value && typeof value === "object") state[key] = value;
@@ -3157,7 +3199,7 @@ async function maybeSendAlert(env, summary) {
   // assets/providers). Page only after consecutive full-chain failures.
   const canaryFailed = Boolean(
     canaryDown &&
-      (Number(canary && canary.failures) || 0) >= canaryMinFailures
+    (Number(canary && canary.failures) || 0) >= canaryMinFailures
   );
   const incident = badSwarm.length > 0 || badProviders.length > 0 || canaryFailed;
   // Only declare recovery when every raw signal is healthy. Otherwise a
@@ -3175,10 +3217,10 @@ async function maybeSendAlert(env, summary) {
   }
   const signature = incident
     ? JSON.stringify({
-        swarm: badSwarm.map((worker) => `${worker.id}:${worker.status}`).sort(),
-        providers: badProviders.map((provider) => `${provider.id}:${provider.status}`).sort(),
-        canary: canaryFailed ? `${canary.provider || "canary"}:${canary.error || "failed"}` : "",
-      })
+      swarm: badSwarm.map((worker) => `${worker.id}:${worker.status}`).sort(),
+      providers: badProviders.map((provider) => `${provider.id}:${provider.status}`).sort(),
+      canary: canaryFailed ? `${canary.provider || "canary"}:${canary.error || "failed"}` : "",
+    })
     : "healthy";
   const now = Date.now();
   let webhookSent = false;
@@ -3204,29 +3246,29 @@ async function maybeSendAlert(env, summary) {
           signal: AbortSignal.timeout(5000),
         });
         webhookSent = Boolean(response && response.ok);
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
   const severity =
     canaryFailed ||
-    badSwarm.some((worker) => worker.status === "offline") ||
-    badProviders.some((provider) => provider.status === "offline")
+      badSwarm.some((worker) => worker.status === "offline") ||
+      badProviders.some((provider) => provider.status === "offline")
       ? "critical"
       : "warning";
   const lines = incident
     ? [
-        badSwarm.length
-          ? `Swarm: ${badSwarm.map((w) => `${w.id}=${w.status}`).join(", ")}`
-          : "",
-        badProviders.length
-          ? `Providers: ${badProviders.map((p) => `${p.id}=${p.status}`).join(", ")}`
-          : "",
-        canary
-          ? `Canary: ${canary.ok ? "ok" : "failed"} (${canary.error || canary.provider || "n/a"})`
-          : "",
-        `Window: ${summary.trigger || "manual"}`,
-      ]
+      badSwarm.length
+        ? `Swarm: ${badSwarm.map((w) => `${w.id}=${w.status}`).join(", ")}`
+        : "",
+      badProviders.length
+        ? `Providers: ${badProviders.map((p) => `${p.id}=${p.status}`).join(", ")}`
+        : "",
+      canary
+        ? `Canary: ${canary.ok ? "ok" : "failed"} (${canary.error || canary.provider || "n/a"})`
+        : "",
+      `Window: ${summary.trigger || "manual"}`,
+    ]
     : ["Scheduled maintenance is healthy again.", canary ? `Canary: ${canary.ok ? "ok" : "failed"}` : ""];
 
   let telegram = { sent: false, skipped: "not_attempted" };
@@ -3243,7 +3285,7 @@ async function maybeSendAlert(env, summary) {
         lines,
       }),
     });
-  } catch (e) {}
+  } catch (e) { }
 
   summary.alert_detail = { webhook: webhookSent, telegram };
   return Boolean(webhookSent || (telegram && telegram.sent));
@@ -3393,12 +3435,12 @@ async function runPlaybackCanary(env) {
   try {
     const previous = await loadCanaryState(env);
     priorCanaryFailures = Math.max(0, Number(previous && previous.failures) || 0);
-  } catch (e) {}
+  } catch (e) { }
   record.failures = record.ok ? 0 : priorCanaryFailures + 1;
   if (env && env.CONFIG_KV) {
     try {
       await env.CONFIG_KV.put(WATCHDOG_CANARY_KV_KEY, JSON.stringify(record));
-    } catch (e) {}
+    } catch (e) { }
   }
   return record;
 }
@@ -3415,7 +3457,7 @@ async function runScheduledMaintenance(env, event) {
 
   try {
     await ensureRuntimeConfig(env, { force: true });
-  } catch (e) {}
+  } catch (e) { }
 
   try {
     sourceStaleCache.prune();
@@ -3429,7 +3471,7 @@ async function runScheduledMaintenance(env, event) {
     for (const [key, entry] of lastGoodSourceCache) {
       if (!entry || now >= entry.expiresAt) lastGoodSourceCache.delete(key);
     }
-  } catch (e) {}
+  } catch (e) { }
 
   try {
     const workers = normalizeSwarmWorkers(runtimeConfig.proxy_swarm.workers || []);
@@ -3482,7 +3524,7 @@ async function runScheduledMaintenance(env, event) {
   try {
     summary.persisted = await persistRuntimeConfig(env);
     await persistProviderHealth(env);
-  } catch (e) {}
+  } catch (e) { }
 
   summary.duration_ms = Date.now() - startedAt;
   try {
@@ -3564,7 +3606,7 @@ async function buildReadinessPayload(request, env, canary = undefined) {
     try {
       await ensureRuntimeConfig(env);
       await loadPersistedProviderHealth(env);
-    } catch (e) {}
+    } catch (e) { }
   }
   add(
     "runtime_config",
@@ -3647,15 +3689,15 @@ async function buildReadinessPayload(request, env, canary = undefined) {
     reasons,
     canary: canary
       ? {
-          ok: canary.ok === true,
-          checked_at: canary.checked_at || "",
-          latency_ms: Number(canary.latency_ms) || 0,
-          asset: String(canary.asset || ""),
-          provider: String(canary.provider || ""),
-          audio_tracks: Number(canary.audio_tracks) || 0,
-          error: String(canary.error || ""),
-          attempts: Array.isArray(canary.attempts) ? canary.attempts.slice(0, 6) : [],
-        }
+        ok: canary.ok === true,
+        checked_at: canary.checked_at || "",
+        latency_ms: Number(canary.latency_ms) || 0,
+        asset: String(canary.asset || ""),
+        provider: String(canary.provider || ""),
+        audio_tracks: Number(canary.audio_tracks) || 0,
+        error: String(canary.error || ""),
+        attempts: Array.isArray(canary.attempts) ? canary.attempts.slice(0, 6) : [],
+      }
       : null,
   };
 }
@@ -3764,7 +3806,7 @@ async function loadOpsStatus(env, options = {}) {
   if (env && env.CONFIG_KV) {
     try {
       await env.CONFIG_KV.put(OPS_STATUS_KV_KEY, JSON.stringify(payload), { expirationTtl: 900 });
-    } catch (error) {}
+    } catch (error) { }
   }
   return payload;
 }
@@ -3895,7 +3937,7 @@ async function dispatchMultiAudioResolution(env, asset) {
       await env.CONFIG_KV.put(multiAudioDispatchKey(asset), "1", {
         expirationTtl: MULTI_AUDIO_DISPATCH_TTL_SEC,
       });
-    } catch (error) {}
+    } catch (error) { }
   }
   const repo = (env && env.GITHUB_REPO) || "shreyash7854/vidlyte";
   const workflow = (env && env.MULTI_AUDIO_WORKFLOW) || "multi-audio-resolve.yml";
@@ -3921,7 +3963,7 @@ async function dispatchMultiAudioResolution(env, asset) {
       if (env && env.CONFIG_KV) {
         try {
           await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
-        } catch (error) {}
+        } catch (error) { }
       }
       return { ok: false, error: `dispatch_http_${response.status}` };
     }
@@ -3936,7 +3978,7 @@ function makeRequestId() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
     }
-  } catch (e) {}
+  } catch (e) { }
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -3968,7 +4010,7 @@ export default {
       const url = new URL(request.url);
       clientIP = extractClientIP(request);
       route = classifyRoute(url.pathname, env && env.ADMIN_ROUTE);
-    } catch (e) {}
+    } catch (e) { }
 
     // Phase 3 abuse control: fixed-window per-IP limiting by route class.
     // Preflight and health probes are never limited (swarm/cron depend on them).
@@ -4080,1792 +4122,113 @@ export default {
 };
 
 async function handleRequest(request, env, ctx, cspNonce = "") {
-    const url = new URL(request.url);
-    const secretSpec = parseSecretKeys(env.HMAC_SECRET);
-    const secretKey = secretSpec.primarySecret;
-    const clientIP = extractClientIP(request);
-    const codec = createOpaqueCodec(secretKey);
-    const adminRoute = env.ADMIN_ROUTE || "/vly-ops-7x";
-    const bindClientIP = env.BIND_CLIENT_IP === "true" || env.BIND_CLIENT_IP === "1";
+  const url = new URL(request.url);
+  const secretSpec = parseSecretKeys(env.HMAC_SECRET);
+  const secretKey = secretSpec.primarySecret;
+  const clientIP = extractClientIP(request);
+  const codec = createOpaqueCodec(secretKey);
+  const adminRoute = env.ADMIN_ROUTE || "/vly-ops-7x";
+  const bindClientIP = env.BIND_CLIENT_IP === "true" || env.BIND_CLIENT_IP === "1";
 
-    // Hydrate persisted runtime configuration without blocking normal traffic.
-    if (env.CONFIG_KV && ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(ensureRuntimeConfig(env));
-    }
+  // Hydrate persisted runtime configuration without blocking normal traffic.
+  if (env.CONFIG_KV && ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(ensureRuntimeConfig(env));
+  }
 
-    // 1. CORS Preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
+  // 1. CORS Preflight
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "Range, Content-Type, Authorization, Accept, Referer, User-Agent, X-Playback-Token",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+
+
+
+
+  // TMDB Image Proxy Handler (Bypasses ISP/DNS blocking of image.tmdb.org)
+  const tmdbImgMatch = url.pathname.match(/^\/tmdb-image\/(.+)$/);
+  if (tmdbImgMatch) {
+    const imgPath = tmdbImgMatch[1];
+    const targetUrl = `https://image.tmdb.org/t/p/${imgPath}`;
+    try {
+      const imgResp = await fetch(targetUrl, {
         headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, HEAD, OPTIONS",
-          "Access-Control-Allow-Headers": "Range, Content-Type, Authorization, Accept, Referer, User-Agent, X-Playback-Token",
-          "Access-Control-Max-Age": "86400",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         },
+        cf: { cacheEverything: true, cacheTtl: 604800 },
       });
-    }
-
-
-
-
-    // TMDB Image Proxy Handler (Bypasses ISP/DNS blocking of image.tmdb.org)
-    const tmdbImgMatch = url.pathname.match(/^\/tmdb-image\/(.+)$/);
-    if (tmdbImgMatch) {
-      const imgPath = tmdbImgMatch[1];
-      const targetUrl = `https://image.tmdb.org/t/p/${imgPath}`;
-      try {
-        const imgResp = await fetch(targetUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-          },
-          cf: { cacheEverything: true, cacheTtl: 604800 },
-        });
-        if (imgResp.ok) {
-          const respHeaders = new Headers(imgResp.headers);
-          respHeaders.set("Access-Control-Allow-Origin", "*");
-          respHeaders.set("Cache-Control", "public, max-age=604800, immutable");
-          return new Response(imgResp.body, {
-            status: 200,
-            headers: respHeaders,
-          });
-        }
-      } catch (e) {}
-      return new Response("Image not found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
-    }
-
-
-    // Cache Source Endpoint for authenticated client-assisted resolution.
-    // Requires either an admin session or a valid playback token for the asset.
-    if (url.pathname === "/api/cache-source" && request.method === "POST") {
-      try {
-        const body = await request.json().catch(() => null);
-        if (!body || !body.id || !body.streamUrl) {
-          return new Response(JSON.stringify({ error: "Missing id or streamUrl" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          });
-        }
-
-        const type = String(body.type || "tv");
-        const id = String(body.id);
-        const season = Number(body.season) || 0;
-        const episode = Number(body.episode) || 0;
-        const provider = normalizeProvider(body.provider || "orion");
-        const assetID = season > 0 ? `tv-${id}-${season}-${episode}` : `movie-${id}`;
-
-        const suppliedToken =
-          body.token ||
-          url.searchParams.get("token") ||
-          request.headers.get("X-Playback-Token") ||
-          "";
-        const authorized =
-          checkAdminAuth(request, env) ||
-          (suppliedToken && (await wasmVerifyToken(assetID, clientIP, suppliedToken, secretSpec, { bindClientIP })));
-
-        if (!authorized) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          });
-        }
-
-        const safeStreamUrl = assertSafeUpstreamUrl(body.streamUrl, {
-          requireAllowlist: true,
-          extraAllowlist: env.UPSTREAM_ALLOWLIST,
-        }).toString();
-
-        const baseKey = `${type}:${id}:${season}:${episode}`;
-        const cacheKey = `${baseKey}:${provider}`;
-        const existing = metadataCache.get(cacheKey)?.data || {};
-        existing.streamUrl = safeStreamUrl;
-        existing.provider = provider;
-        existing.isMP4 = safeStreamUrl.toLowerCase().includes(".mp4");
-
-        if (Array.isArray(body.audioTracks) && body.audioTracks.length > 0 && body.audioTracks.length <= 32) {
-          existing.audioTracks = body.audioTracks
-            .map((track, index) => {
-              const rawUri = track && (track.uri || track.url || track.proxiedUri || track.proxied_uri);
-              let safeUri = "";
-              if (rawUri) {
-                try {
-                  safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-                } catch (e) {
-                  safeUri = "";
-                }
-              }
-              return {
-                id: Number(track && track.id) || index,
-                name: String((track && (track.name || track.label)) || `Audio ${index + 1}`).slice(0, 120),
-                language: String((track && track.language) || "eng").slice(0, 16),
-                default: Boolean(track && track.default),
-                uri: safeUri,
-                provider,
-              };
-            })
-            .filter((track) => track.uri);
-        }
-
-        if (Array.isArray(body.subtitles) && body.subtitles.length > 0 && body.subtitles.length <= 64) {
-          existing.subtitles = body.subtitles
-            .map((subtitle) => {
-              const rawUri = subtitle && (subtitle.url || subtitle.uri || subtitle.proxiedUri || subtitle.proxied_uri);
-              if (!rawUri) return null;
-              try {
-                const safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-                return {
-                  language: String((subtitle && subtitle.language) || "en").slice(0, 16),
-                  label: sanitizeSubtitleLabel(subtitle && (subtitle.label || subtitle.language)),
-                  url: safeUri,
-                  uri: safeUri,
-                };
-              } catch (e) {
-                return null;
-              }
-            })
-            .filter(Boolean);
-        }
-
-        if (Array.isArray(body.variants) && body.variants.length > 0 && body.variants.length <= 32) {
-          existing.variants = body.variants
-            .map((variant) => {
-              const rawUri = variant && (variant.playlistUri || variant.uri || variant.url);
-              if (!rawUri) return null;
-              try {
-                const safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-                return {
-                  resolution: String((variant && variant.resolution) || "Auto").slice(0, 24),
-                  bandwidth: Number(variant && variant.bandwidth) || 0,
-                  playlistUri: safeUri,
-                  provider,
-                };
-              } catch (e) {
-                return null;
-              }
-            })
-            .filter(Boolean);
-        }
-
-        cacheResolvedResult(cacheKey, baseKey, existing);
-        return new Response(JSON.stringify({ success: true, cacheKey }), {
+      if (imgResp.ok) {
+        const respHeaders = new Headers(imgResp.headers);
+        respHeaders.set("Access-Control-Allow-Origin", "*");
+        respHeaders.set("Cache-Control", "public, max-age=604800, immutable");
+        return new Response(imgResp.body, {
           status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      } catch (e) {
-        const status = e instanceof UpstreamUrlError ? 403 : 400;
-        return new Response(JSON.stringify({ error: status === 403 ? "Upstream URL rejected" : "Invalid request" }), {
-          status,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          headers: respHeaders,
         });
       }
-    }
+    } catch (e) { }
+    return new Response("Image not found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
 
-    // Multi-audio resolver: request a GitHub Actions resolution, read its
-    // result, and accept the signed result from the workflow. The player uses
-    // these when the browser cannot reach vidrift directly.
-    if (url.pathname === "/api/multi-audio/resolve" && request.method === "POST") {
+
+  // Cache Source Endpoint for authenticated client-assisted resolution.
+  // Requires either an admin session or a valid playback token for the asset.
+  if (url.pathname === "/api/cache-source" && request.method === "POST") {
+    try {
       const body = await request.json().catch(() => null);
-      const asset = normalizeMultiAudioAsset(body && body.asset);
-      if (!asset) {
-        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+      if (!body || !body.id || !body.streamUrl) {
+        return new Response(JSON.stringify({ error: "Missing id or streamUrl" }), {
           status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const force = Boolean(body && body.force === true);
-      const existing = await readMultiAudioRecord(env, asset);
-      if (!force && multiAudioRecordUsable(existing)) {
-        return new Response(JSON.stringify({
-          ok: true,
-          state: "ready",
-          ready: true,
-          asset,
-          audio: Number(existing.audio) || 0,
-          exp: Number(existing.exp) || 0,
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const dispatched = await dispatchMultiAudioResolution(env, asset);
-      return new Response(JSON.stringify({ ...dispatched, asset }), {
-        status: dispatched.ok ? 202 : 503,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === "/api/multi-audio/status" && request.method === "GET") {
-      const asset = normalizeMultiAudioAsset(url.searchParams.get("asset"));
-      if (!asset) {
-        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const record = await readMultiAudioRecord(env, asset);
-      if (record) {
-        if (multiAudioRecordUsable(record)) {
-          return new Response(JSON.stringify({
-            ok: true,
-            state: "ready",
-            ready: true,
-            asset,
-            audio: Number(record.audio) || 0,
-            exp: Number(record.exp) || 0,
-            checked_at: record.checked_at || "",
-          }), {
-            status: 200,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-        if (record.ok === false || Number(record.audio) <= 1 || record.error === "single_audio") {
-          return new Response(JSON.stringify({
-            ok: true,
-            state: record.ok === false ? "failed" : "single",
-            ready: true,
-            asset,
-            audio: Number(record.audio) || 1,
-            error: record.error || "single_audio",
-            checked_at: record.checked_at || "",
-          }), {
-            status: 200,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      }
-      let pending = false;
-      if (env && env.CONFIG_KV) {
-        try {
-          pending = Boolean(await env.CONFIG_KV.get(multiAudioDispatchKey(asset)));
-        } catch (error) {}
-      }
-      // A fresh dispatch must not be masked by an older failed record: the
-      // player should keep polling while the resolver is working.
-      if (pending) {
-        return new Response(JSON.stringify({ ok: true, state: "resolving", asset }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      if (record && record.ok === false && record.error) {
-        return new Response(JSON.stringify({
-          ok: true,
-          state: "failed",
-          asset,
-          error: record.error,
-          checked_at: record.checked_at || "",
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      return new Response(JSON.stringify({ ok: true, state: "unknown", asset }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === "/api/multi-audio/publish" && request.method === "POST") {
-      const rawBody = await request.text();
-      if (!rawBody || rawBody.length > MULTI_AUDIO_PUBLISH_MAX_BYTES) {
-        return new Response(JSON.stringify({ ok: false, error: "invalid_body" }), {
-          status: 413,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      if (!(await verifyMultiAudioPublishSignature(request, env, rawBody))) {
-        return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      let body = null;
-      try {
-        body = JSON.parse(rawBody);
-      } catch (error) {}
-      const asset = normalizeMultiAudioAsset(body && body.asset);
-      if (!asset) {
-        return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const ok = Boolean(body && body.ok) && (isBigBangStreamUrl(body && body.url) || body.provider === "orion" || body.provider === "evion" || body.provider === "kisskh" || Boolean(body && body.url) || Boolean(body && body.masterManifest));
-      const isMP4 = ok && Boolean(body.isMP4 || (body.url && body.url.toLowerCase().includes(".mp4")));
-      const record = {
-        ok,
-        url: ok ? String(body.url) : "",
-        isMP4,
-        audio: ok ? Math.max(0, Math.min(64, Number(body.audio) || 0)) : 0,
-        provider: body && body.provider ? body.provider : "bigbang",
-        exp: ok ? Number(body.exp) || 0 : 0,
-        checked_at: new Date().toISOString(),
-        error: ok ? "" : String((body && body.error) || "no_multi_audio").slice(0, 80),
-        masterManifest: ok && body.masterManifest ? String(body.masterManifest) : undefined,
-        audioTracks: ok && Array.isArray(body.audioTracks) ? body.audioTracks : undefined,
-        variants: ok && Array.isArray(body.variants) ? body.variants : undefined,
-        subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
-        subManifests: ok && body.subManifests && typeof body.subManifests === "object" ? body.subManifests : undefined,
-      };
-      if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && (!record.subManifests || Object.keys(record.subManifests).length === 0)) {
-        record.subManifests = {};
-        for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
-          try {
-            const decompressed = await decompressGzipBase64(b64);
-            if (decompressed && decompressed.includes("#EXTM3U")) {
-              record.subManifests[subKey] = decompressed;
-            }
-          } catch (e) {}
-        }
-      }
-      const persisted = await writeMultiAudioRecord(env, asset, record);
-      if (env && env.CONFIG_KV) {
-        try {
-          await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
-        } catch (e) {}
-      }
-      return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
-        status: persisted ? 200 : 503,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // Diagnostic probe for upstream stream resolution (admin only).
-    if (url.pathname === "/api/test-vidrift") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response("Not Found", {
-          status: 404,
-          headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
-        });
-      }
-      const type = url.searchParams.get("type") === "tv" ? "tv" : "movie";
-      const id = String(url.searchParams.get("id") || "100088").slice(0, 32);
-      const s = parseInt(url.searchParams.get("s") || "1", 10);
-      const e = parseInt(url.searchParams.get("e") || "1", 10);
-      const customUrl = url.searchParams.get("url");
-      const bootPath = type === "tv" ? `/api/boot/tv/${encodeURIComponent(id)}/${s}/${e}` : `/api/boot/movie/${encodeURIComponent(id)}`;
-      const targetUrl = customUrl || `https://embed.vidrift.net${bootPath}`;
-      
-      const tests = [
-        { name: "default", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Referer": "https://vidrift.net/", "Origin": "https://vidrift.net", "Accept": "application/json, text/plain, */*" } },
-        { name: "no-origin-referer", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" } },
-        { name: "embed-referer", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Referer": "https://embed.vidrift.net/", "Origin": "https://embed.vidrift.net", "Accept": "*/*" } },
-        { name: "mobile-ua", headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1", "Referer": "https://vidrift.net/", "Accept": "*/*" } },
-        { name: "curl-ua", headers: { "User-Agent": "curl/8.4.0", "Accept": "*/*" } }
-      ];
-
-      const results = [];
-      for (const t of tests) {
-        try {
-          const resp = await fetch(targetUrl, { headers: t.headers, signal: AbortSignal.timeout(4000) });
-          const text = await resp.text();
-          const respHeaders = {};
-          resp.headers.forEach((v, k) => { respHeaders[k] = v; });
-          results.push({ name: t.name, status: resp.status, headers: respHeaders, bodySnippet: text.slice(0, 150) });
-        } catch (err) {
-          results.push({ name: t.name, error: err.message });
-        }
-      }
-
-      return new Response(JSON.stringify({ targetUrl, results }, null, 2), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 2. Hide Legacy Admin Route (/admin-login-i)
-    if (url.pathname === "/admin-login-i" || url.pathname.startsWith("/admin-login-i/")) {
-      return new Response("Not Found", {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
-      });
-    }
-
-    // 2a. Admin Operations Vault (Configurable, default /vly-ops-7x)
-    if (url.pathname === adminRoute || url.pathname === `${adminRoute}/docs`) {
-      return new Response(renderAdminHTML(cspNonce), {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "X-Robots-Tag": "noindex, nofollow, noarchive",
-          "Cache-Control": "no-store, max-age=0",
-        },
-      });
-    }
-
-    // 3. Admin Authentication (${adminRoute}/auth)
-    if (url.pathname === `${adminRoute}/auth` && request.method === "POST") {
-      const lockState = failedLogins.get(clientIP);
-      if (lockState && lockState.lockedUntil > Date.now()) {
-        const remainingMins = Math.ceil((lockState.lockedUntil - Date.now()) / 60000);
-        recordAudit("admin.auth.locked", request, { remaining_minutes: remainingMins });
-        return new Response(JSON.stringify({
-          success: false,
-          error: `Too many failed attempts. Locked out for ${remainingMins} minutes.`,
-        }), {
-          status: 429,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      const body = await request.json().catch(() => ({}));
-      const secret = body.secret || "";
-      const validSecret = getAdminSecret(env);
-
-      if (!validSecret) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "Admin access is disabled: ADMIN_SECRET is not configured.",
-        }), {
-          status: 503,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-
-      if (!constantTimeEqual(secret, validSecret)) {
-        const attempts = (lockState ? lockState.attempts : 0) + 1;
-        const locked = attempts >= 5;
-        failedLogins.set(clientIP, {
-          attempts,
-          lockedUntil: locked ? Date.now() + 15 * 60 * 1000 : 0,
-        });
-        recordAudit("admin.auth.failed", request, { attempts, locked });
-        const msg = locked
-          ? "Invalid secret. Account locked for 15 minutes."
-          : `Invalid secret. ${5 - attempts} attempts remaining.`;
-        return new Response(JSON.stringify({ success: false, error: msg }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-
-      failedLogins.delete(clientIP);
-      pruneAdminSessions();
-      const sessionToken = signAdminSession(validSecret, clientIP);
-      if (!sessionToken) {
-        return new Response(JSON.stringify({ success: false, error: "Session issuance failed" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const sessionTtlSec = getAdminSessionTtlSec(env);
-      const csrfToken = deriveAdminCsrf(validSecret, sessionToken);
-      activeAdminSessions.set(sessionToken, Date.now() + sessionTtlSec * 1000);
-      recordAudit("admin.auth.success", request, {});
-      const secureFlag = url.protocol === "https:" ? "; Secure" : "";
-      const responseHeaders = new Headers({
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      });
-      responseHeaders.append(
-        "Set-Cookie",
-        `vidlyte_admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionTtlSec}${secureFlag}`
-      );
-      responseHeaders.append(
-        "Set-Cookie",
-        `vidlyte_admin_csrf=${csrfToken}; Path=/; SameSite=Strict; Max-Age=${sessionTtlSec}${secureFlag}`
-      );
-
-      return new Response(
-        JSON.stringify({ success: true, csrf_token: csrfToken, expires_in: sessionTtlSec }),
-        { status: 200, headers: responseHeaders }
-      );
-    }
-
-    // 3b. Central CSRF gate for every mutating admin route (auth is exempt).
-    // Each route still checks authentication, but this ensures a cookie alone
-    // can never authorise a state-changing request.
-    const isAdminMutation =
-      request.method !== "GET" &&
-      request.method !== "HEAD" &&
-      request.method !== "OPTIONS" &&
-      (url.pathname === adminRoute || url.pathname.startsWith(`${adminRoute}/`)) &&
-      url.pathname !== `${adminRoute}/auth`;
-    if (isAdminMutation) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      if (!checkAdminCsrf(request, env)) {
-        recordAudit("admin.csrf.rejected", request, { path: url.pathname });
-        return new Response(JSON.stringify({ error: "Invalid or missing CSRF token" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-    }
-
-    // 4. Admin Logout (${adminRoute}/logout)
-    if (url.pathname === `${adminRoute}/logout` && request.method === "POST") {
-      const sessionToken = getAdminSessionToken(request);
-      if (sessionToken) activeAdminSessions.delete(sessionToken);
-      recordAudit("admin.logout", request, {});
-      const logoutHeaders = new Headers({
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      });
-      logoutHeaders.append("Set-Cookie", "vidlyte_admin_session=; Path=/; HttpOnly; Max-Age=0");
-      logoutHeaders.append("Set-Cookie", "vidlyte_admin_csrf=; Path=/; Max-Age=0");
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: logoutHeaders,
-      });
-    }
-
-    // 5. Admin Dynamic Config API (${adminRoute}/api/config)
-    if (url.pathname === `${adminRoute}/api/config`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      await ensureRuntimeConfig(env);
-      if (request.method === "POST") {
-        const newCfg = await request.json().catch(() => null);
-        if (!newCfg || typeof newCfg !== "object") {
-          return new Response(JSON.stringify({ error: "Invalid JSON configuration" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const applied = applyRuntimeConfig(newCfg);
-
-        // Re-probe every swarm node after a config change so the admin UI and
-        // the runtime ordering see fresh health/latency data immediately.
-        const workers = runtimeConfig.proxy_swarm.workers || [];
-        const probeResults = await Promise.all(
-          workers.map((worker) => probeSwarmNode(worker).catch(() => null))
-        );
-        const probedById = new Map();
-        probeResults.forEach((result) => {
-          if (!result) return;
-          probedById.set(result.id, result);
-        });
-        runtimeConfig.proxy_swarm.workers = workers.map((worker) => {
-          const probed = probedById.get(worker.id);
-          if (!probed) return worker;
-          return {
-            ...worker,
-            url: probed.url || worker.url,
-            status: probed.status,
-            latency_ms: probed.latency_ms,
-          };
-        });
-        runtimeConfig.proxy_swarm.last_probe_at = new Date().toISOString();
-
-        const persisted = await persistRuntimeConfig(env);
-        const historyEntry = await recordConfigHistory(env, "update", {
-          note: `admin update from ${clientIP}`,
-        });
-        recordAudit("config.update", request, {
-          applied,
-          persisted,
-          config_version: runtimeConfig.config_version || CONFIG_VERSION,
-          history_id: historyEntry ? historyEntry.id : "",
-        });
-        return new Response(JSON.stringify({
-          success: true,
-          applied,
-          persisted,
-          persistence: env.CONFIG_KV ? (persisted ? "kv" : "kv_error") : "memory_only",
-          history_id: historyEntry ? historyEntry.id : "",
-          config: runtimeConfig,
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      return new Response(JSON.stringify(runtimeConfig), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 6. Admin Swarm Prober API (${adminRoute}/api/swarm/test)
-    if (url.pathname === `${adminRoute}/api/swarm/test` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      const workers = normalizeSwarmWorkers(runtimeConfig.proxy_swarm.workers || []);
-      const results = await Promise.all(workers.map((worker) => probeSwarmNode(worker)));
-
-      runtimeConfig.proxy_swarm.workers = workers.map((worker) => {
-        const probed = results.find((result) => result.id === worker.id);
-        return probed
-          ? { ...worker, status: probed.status, latency_ms: probed.latency_ms }
-          : worker;
-      });
-      runtimeConfig.proxy_swarm.last_probe_at = new Date().toISOString();
-      await persistRuntimeConfig(env);
-
-      return new Response(JSON.stringify({ success: true, results }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 6b. Admin Provider Health & Resolution Tester
-    if (url.pathname === `${adminRoute}/api/providers/probe` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const results = await Promise.all(
-        defaultProviderOrder().map((id) => probeProviderReachability(id).catch(() => null))
-      );
-      await persistProviderHealth(env);
-      return new Response(JSON.stringify({
-        success: true,
-        results: results.filter(Boolean),
-        providers: snapshotProviderHealth(),
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/providers/health`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      await loadPersistedProviderHealth(env);
-      return new Response(JSON.stringify({
-        success: true,
-        providers: snapshotProviderHealth(),
-        breakers: providerBreakers.snapshot(),
-        last_probe_at: runtimeConfig.proxy_swarm.last_probe_at || "",
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // Alerting status/test. Mutations are already protected by the central CSRF
-    // gate; authentication is re-checked here to keep the route self-contained.
-    if (url.pathname === `${adminRoute}/api/alerts/status`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const config = getTelegramConfig(env);
-      return new Response(JSON.stringify({
-        success: true,
-        telegram: {
-          configured: config.configured,
-          enabled: config.enabled,
-          min_severity: config.minSeverity,
-          cooldown_min: Math.round(config.cooldownMs / 60000),
-        },
-        webhook_configured: Boolean(env && env.ALERT_WEBHOOK_URL),
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/alerts/test` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const body = await request.json().catch(() => ({}));
-      const severity = normalizeAlertSeverity(body.severity, "critical");
-      const note = String(body.text || "Manual test from the VidLyte admin panel.").slice(0, 500);
-      const result = await sendTelegramAlert(env, {
-        key: "admin-test",
-        type: "open",
-        severity,
-        signature: `admin-test:${Date.now()}`,
-        force: true,
-        text: formatTelegramMessage({
-          title: "VidLyte test alert",
-          type: "open",
-          severity,
-          lines: [note],
-        }),
-      });
-      recordAudit("alerts.test", request, {
-        sent: result.sent,
-        configured: result.configured,
-        skipped: result.skipped,
-        severity,
-      });
-      const status = result.sent ? 200 : result.configured ? 502 : 503;
-      return new Response(JSON.stringify({
-        success: result.sent,
-        configured: result.configured,
-        enabled: result.enabled,
-        severity,
-        skipped: result.skipped,
-        error: result.error || "",
-      }), {
-        status,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/watchdog/canary` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const canary = await runPlaybackCanary(env);
-      recordAudit("watchdog.canary", request, {
-        ok: canary.ok,
-        provider: canary.provider,
-        latency_ms: canary.latency_ms,
-      });
-      return new Response(JSON.stringify({ success: canary.ok, canary }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/providers/test` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const body = await request.json().catch(() => ({}));
-      const provider = normalizeProvider(body.provider || "asianflix");
-      const type = body.type === "tv" || body.type === "series" ? "tv" : "movie";
-      const id = String(body.id || "550").slice(0, 32);
-      const season = Number(body.season) || 1;
-      const episode = Number(body.episode) || 1;
-      const assetInfo = { type, id, season, episode };
-      const started = Date.now();
-      let result = null;
-      let error = "";
-      try {
-        const metaOverride = body.title
-          ? { title: String(body.title).slice(0, 160), seriesTitle: String(body.title).slice(0, 160), year: String(body.year || "") }
-          : null;
-        result = await attemptProvider(provider, assetInfo, metaOverride);
-      } catch (e) {
-        error = String((e && e.message) || e).slice(0, 160);
-      }
-      const latency = Date.now() - started;
-      let host = "";
-      if (result && result.streamUrl) {
-        try {
-          host = new URL(result.streamUrl).hostname;
-        } catch (e) {}
-      }
-      return new Response(JSON.stringify({
-        success: Boolean(result && result.streamUrl),
-        provider,
-        asset: `${type}:${id}${type === "tv" ? `:${season}:${episode}` : ""}`,
-        latency_ms: latency,
-        error,
-        stream: result && result.streamUrl
-          ? {
-              host,
-              is_mp4: Boolean(result.isMP4),
-              title: result.title || "",
-              audio_tracks: Array.isArray(result.audioTracks) ? result.audioTracks.length : 0,
-              subtitles: Array.isArray(result.subtitles) ? result.subtitles.length : 0,
-              variants: Array.isArray(result.variants) ? result.variants.length : 0,
-            }
-          : null,
-        health: snapshotProviderHealth().find((item) => item.id === provider) || null,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7. System Metrics & Telemetry (Protected behind Admin Auth)
-    if (url.pathname === "/metrics" || url.pathname === `${adminRoute}/metrics`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response("Not Found", {
-          status: 404,
-          headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
-        });
-      }
-      const metricsSnapshot = metricsRegistry.snapshot();
-      return new Response(JSON.stringify({
-        total_requests: metricsData.totalRequests,
-        active_requests: metricsData.activeRequests,
-        bytes_streamed: metricsData.bytesStreamed,
-        cache_hits: metricsData.cacheHits,
-        cache_misses: metricsData.cacheMisses,
-        status_2xx: metricsData.status2xx,
-        status_4xx: metricsData.status4xx,
-        status_5xx: metricsData.status5xx,
-        rate_limit_rejections: metricsData.rateLimitRejections,
-        top_domains: Array.from(domainTelemetry.values()),
-        registry: metricsSnapshot,
-        health: gradeHealth(metricsSnapshot),
-        rate_limits: getRateLimiters(env).snapshot(),
-        engagement: engagementSnapshot(),
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7.1 Admin Diagnostics Snapshot (Phase 3)
-    if (url.pathname === `${adminRoute}/api/diagnostics`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      await loadPersistedProviderHealth(env);
-      const metricsSnapshot = metricsRegistry.snapshot();
-      const limiters = getRateLimiters(env);
-      const sampleLimit = Math.max(1, Math.min(120, parseInt(url.searchParams.get("logs") || "40", 10) || 40));
-      const payload = {
-        ok: true,
-        generated_at: new Date().toISOString(),
-        version: {
-          config_version: runtimeConfig.config_version || CONFIG_VERSION,
-          updated_at: runtimeConfig.updated_at || "",
-          bundle: "edge-native",
-        },
-        runtime: {
-          colo: request.cf ? request.cf.colo || "" : "LOCAL_EDGE",
-          country: request.cf ? request.cf.country || "" : "",
-          persisted_config: Boolean(env.CONFIG_KV),
-          persisted_provider_health: Boolean(env.CONFIG_KV),
-          admin_secret_configured: Boolean(getAdminSecret(env)),
-          hmac_secret_configured: Boolean(env.HMAC_SECRET),
-          bind_client_ip: bindClientIP,
-          rate_limit_enabled: limiters.enabled,
-        },
-        health: gradeHealth(metricsSnapshot),
-        metrics: metricsSnapshot,
-        rate_limits: limiters.snapshot(),
-        providers: snapshotProviderHealth(),
-        breakers: {
-          providers: providerBreakers.snapshot(),
-          hosts: hostBreakers.snapshot(),
-        },
-        caches: {
-          sources: sourceStaleCache.size,
-          metadata: metadataCache.size,
-          manifests: rawManifestCache.size,
-          last_good: lastGoodSourceCache.size,
-          subtitles: subtitleMemoryCache.size,
-        },
-        swarm: {
-          nodes: (runtimeConfig.proxy_swarm.workers || []).map((worker) => ({
-            id: worker.id,
-            name: worker.name,
-            url: worker.url,
-            enabled: worker.enabled !== false,
-            status: worker.status || "unknown",
-            latency_ms: Number(worker.latency_ms) || 0,
-          })),
-          strategy: runtimeConfig.proxy_swarm.strategy || "latency",
-          last_probe_at: runtimeConfig.proxy_swarm.last_probe_at || "",
-        },
-        engagement: engagementSnapshot(),
-        requests: requestLog.list(sampleLimit),
-        audit: auditLog.list(sampleLimit),
-      };
-      return new Response(JSON.stringify(payload, null, 2), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store",
-          "Access-Control-Allow-Origin": "*",
-        },
-      });
-    }
-
-    // 7.2 Admin Audit Log (Phase 3)
-    if (url.pathname === `${adminRoute}/api/audit`) {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const limit = Math.max(1, Math.min(120, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
-      return new Response(JSON.stringify({
-        success: true,
-        entries: auditLog.list(limit),
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7.3 Admin Config Export / Import (Phase 3)
-    if (url.pathname === `${adminRoute}/api/config/export` && request.method === "GET") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      await ensureRuntimeConfig(env);
-      const document = buildConfigExport(runtimeConfig);
-      recordAudit("config.export", request, { config_version: document.config_version });
-      return new Response(JSON.stringify(document, null, 2), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Content-Disposition": `attachment; filename="vidlyte-config-v${document.config_version}.json"`,
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/config/import` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      let payload = null;
-      try {
-        payload = await request.json();
-      } catch (e) {
-        payload = null;
-      }
-      const validation = validateConfigImport(payload);
-      if (!validation.ok) {
-        recordAudit("config.import.rejected", request, { errors: validation.errors.slice(0, 4) });
-        return new Response(JSON.stringify({
-          success: false,
-          error: "Invalid configuration import",
-          errors: validation.errors,
-        }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-
-      const applied = applyRuntimeConfig(validation.config);
-      const persisted = await persistRuntimeConfig(env);
-      const historyEntry = await recordConfigHistory(env, "import", {
-        note: `admin import from ${clientIP}`,
-      });
-      recordAudit("config.import", request, {
-        applied,
-        persisted,
-        config_version: runtimeConfig.config_version || CONFIG_VERSION,
-        history_id: historyEntry ? historyEntry.id : "",
-      });
-      return new Response(JSON.stringify({
-        success: true,
-        applied,
-        persisted,
-        persistence: env.CONFIG_KV ? "kv" : "memory_only",
-        config_version: runtimeConfig.config_version || CONFIG_VERSION,
-        history_id: historyEntry ? historyEntry.id : "",
-        config: runtimeConfig,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7.3 Admin Ops Feeds (quota / watchdog / sweep snapshots)
-    if (url.pathname === `${adminRoute}/api/ops` && request.method === "GET") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const force = url.searchParams.get("refresh") === "1";
-      let ops;
-      try {
-        ops = await loadOpsStatus(env, { force });
-      } catch (error) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "ops_feeds_unavailable",
-          detail: String((error && error.message) || error).slice(0, 160),
-        }), {
-          status: 502,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      return new Response(JSON.stringify({ success: true, ...ops }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7.4 Admin Config History & Rollback (Phase 5)
-    if (url.pathname === `${adminRoute}/api/config/history` && request.method === "GET") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const force = url.searchParams.get("refresh") === "1";
-      const list = await loadConfigHistory(env, { force });
-      const requestedId = url.searchParams.get("id");
-      if (requestedId) {
-        const entry = list.find((item) => item.id === requestedId);
-        if (!entry) {
-          return new Response(JSON.stringify({ error: "History entry not found" }), {
-            status: 404,
-            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-          });
-        }
-        return new Response(JSON.stringify({
-          success: true,
-          entry,
-          diff: diffConfigs(entry.config, runtimeConfig),
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const entries = list.map((entry) => ({
-        id: entry.id,
-        at: entry.at,
-        action: entry.action,
-        config_version: entry.config_version,
-        note: entry.note || "",
-        summary: entry.summary || summarizeConfig(entry.config),
-        config_bytes: (() => {
-          try {
-            return JSON.stringify(entry.config || {}).length;
-          } catch (e) {
-            return 0;
-          }
-        })(),
-      }));
-      return new Response(JSON.stringify({
-        success: true,
-        limit: CONFIG_HISTORY_LIMIT,
-        entries,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    if (url.pathname === `${adminRoute}/api/config/rollback` && request.method === "POST") {
-      if (!checkAdminAuth(request, env)) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const body = await request.json().catch(() => ({}));
-      const id = String(body && body.id ? body.id : "").slice(0, 80);
-      if (!id) {
-        return new Response(JSON.stringify({ error: "Missing history id" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const list = await loadConfigHistory(env, { force: true });
-      const entry = list.find((item) => item.id === id);
-      if (!entry || !entry.config || typeof entry.config !== "object") {
-        return new Response(JSON.stringify({ error: "History entry not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        });
-      }
-      const before = snapshotRuntimeConfig();
-      const applied = replaceRuntimeConfig(entry.config);
-      const persisted = await persistRuntimeConfig(env);
-      const rollbackEntry = await recordConfigHistory(env, "rollback", {
-        note: `rolled back to ${id}`,
-      });
-      const diff = diffConfigs(before, runtimeConfig);
-      recordAudit("config.rollback", request, {
-        source_id: id,
-        applied,
-        persisted,
-        history_id: rollbackEntry ? rollbackEntry.id : "",
-      });
-      return new Response(JSON.stringify({
-        success: true,
-        source_id: id,
-        applied,
-        persisted,
-        persistence: env.CONFIG_KV ? (persisted ? "kv" : "kv_error") : "memory_only",
-        history_id: rollbackEntry ? rollbackEntry.id : "",
-        diff,
-        config: runtimeConfig,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 7a. Zero-Leak Opaque Media Chunk Delivery (/stream/chunk/:opaqueId)
-    const chunkMatch = url.pathname.match(/^\/stream\/chunk\/([a-zA-Z0-9_\-]+)$/);
-    if (chunkMatch) {
-      const opaqueToken = chunkMatch[1];
-      const decoded = codec.decode(opaqueToken, { maxAgeSec: OPAQUE_MAX_AGE_SEC });
-      if (!decoded || !decoded.targetUrl) {
-        return new Response("Invalid chunk identifier", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
-      }
-
-      let targetUrl;
-      try {
-        targetUrl = assertSafeUpstreamUrl(decoded.targetUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST });
-      } catch (e) {
-        return new Response("Chunk target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
-      }
-
-      if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
-        return new Response("Chunk target expired", { status: 410, headers: { "Access-Control-Allow-Origin": "*" } });
-      }
-
-      return proxyUpstream(request, targetUrl, decoded.provider || "evion", env, codec);
-    }
-
-    // 7b. Zero-Leak Opaque Sub-Resource / Sub-Manifest Gateway (/hls/:assetID/res/:opaqueId)
-    const hlsResMatch = url.pathname.match(/^\/hls\/([^/]+)\/res\/([a-zA-Z0-9_\-]+)$/);
-    if (hlsResMatch) {
-      const assetID = decodeURIComponent(hlsResMatch[1]);
-      const opaqueToken = hlsResMatch[2];
-      const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
-
-      if (!token) {
-        return new Response("Unauthorized: missing playback token", {
-          status: 401,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
-      if (!isValid) {
-        return new Response("Unauthorized: invalid or expired playback token", {
-          status: 403,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const decoded = codec.decode(opaqueToken, { maxAgeSec: OPAQUE_MAX_AGE_SEC });
-      if (!decoded || !decoded.targetUrl) {
-        return new Response("Invalid resource identifier", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
-      }
-
-      let targetUrl;
-      try {
-        targetUrl = assertSafeUpstreamUrl(decoded.targetUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST });
-      } catch (e) {
-        return new Response("Resource target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
-      }
-
-      const provider = decoded.provider || "evion";
-      try {
-        const assetNorm = normalizeMultiAudioAsset(assetID);
-        const maRecord = assetNorm ? await readMultiAudioRecord(env, assetNorm) : null;
-        const orionMatch = targetUrl.toString().match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
-        let rawSubM3U8 = "";
-        if (orionMatch) {
-          const subKey = `${orionMatch[1]}:${orionMatch[2]}`;
-          if (maRecord && maRecord.subManifests && maRecord.subManifests[subKey]) {
-            rawSubM3U8 = maRecord.subManifests[subKey];
-          } else if (env && env.CONFIG_KV) {
-            try {
-              rawSubM3U8 = (await env.CONFIG_KV.get(`orion_sub:${subKey}`)) || "";
-            } catch (e) {}
-          }
-        }
-        if (!rawSubM3U8) {
-          rawSubM3U8 = await fetchRawManifest(targetUrl.toString(), provider, request, env);
-        }
-        if (rawSubM3U8.startsWith("#EXTM3U") || rawSubM3U8.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString())) {
-          const rewritten = rewriteManifest(rawSubM3U8, {
-            baseUrl: targetUrl.toString(),
-            assetId: assetID,
-            token,
-            origin: url.origin,
-            provider,
-            codec,
-          });
-
-          return new Response(rewritten, {
-            status: 200,
-            headers: {
-              "Content-Type": "application/vnd.apple.mpegurl",
-              "Access-Control-Allow-Origin": "*",
-              "Cache-Control": "private, max-age=5, must-revalidate",
-            },
-          });
-        }
-      } catch (err) {
-        if (err instanceof UpstreamUrlError) {
-          return new Response("Resource target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
-        }
-      }
-
-      return proxyUpstream(request, targetUrl, provider, env, codec);
-    }
-
-    // 7c. Client-Assisted HLS Manifest Gateway (/hls/:assetID/client.m3u8)
-    // Some providers gate their resolver APIs to a specific browser origin that
-    // Cloudflare egress cannot impersonate. The browser resolves the signed
-    // upstream URL and hands it back here; the URL is strictly allowlisted and
-    // the manifest is rewritten so every sub-resource keeps flowing through the
-    // opaque /res and /stream/chunk gateways.
-    const hlsClientMatch = url.pathname.match(/^\/hls\/([^/]+)\/client\.m3u8$/);
-    if (hlsClientMatch) {
-      const assetID = decodeURIComponent(hlsClientMatch[1]);
-      const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
-      const rawUpstream = url.searchParams.get("url");
-
-      if (!token) {
-        return new Response("Unauthorized: missing playback token", {
-          status: 401,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
-      if (!isValid) {
-        return new Response("Unauthorized: invalid or expired playback token", {
-          status: 403,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      if (!rawUpstream) {
-        return new Response("Missing 'url' parameter", {
-          status: 400,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      let targetUrl;
-      try {
-        targetUrl = assertSafeUpstreamUrl(rawUpstream, {
-          requireAllowlist: true,
-          extraAllowlist: env.UPSTREAM_ALLOWLIST,
-        });
-      } catch (e) {
-        return new Response("Upstream URL rejected", {
-          status: 403,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
-        return new Response("Upstream URL expired", {
-          status: 410,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const asset = normalizeMultiAudioAsset(assetID);
-      const record = asset ? await readMultiAudioRecord(env, asset) : null;
-      const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
-
-      if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
-        const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
-        const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${chunkUrl}\n#EXT-X-ENDLIST\n`;
-        return new Response(syntheticM3U8, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "private, max-age=5, must-revalidate",
-          },
-        });
-      }
-      try {
-        let raw = "";
-        if (request.method === "POST") {
-          try {
-            raw = (await request.text()).trim();
-          } catch (e) {}
-        }
-        if (!raw && record && record.masterManifest) {
-          raw = record.masterManifest;
-        }
-        if (!raw) {
-          raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
-        }
-        if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
-          return new Response("Upstream did not return a valid playlist", {
-            status: 502,
-            headers: { "Access-Control-Allow-Origin": "*" },
-          });
-        }
-
-        const rewritten = rewriteManifest(raw, {
-          baseUrl: targetUrl.toString(),
-          assetId: assetID,
-          token,
-          origin: url.origin,
-          provider,
-          codec,
-        });
-
-        return new Response(rewritten, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "private, max-age=5, must-revalidate",
-          },
-        });
-      } catch (err) {
-        if (err instanceof UpstreamUrlError) {
-          return new Response("Upstream URL rejected", {
-            status: 403,
-            headers: { "Access-Control-Allow-Origin": "*" },
-          });
-        }
-        return new Response("Upstream manifest unavailable", {
-          status: 502,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-    }
-
-
-    // 7d. Remote multi-audio gateway (/hls/:assetID/remote.m3u8)
-    // The external resolver stores the signed upstream URL in KV. The player
-    // requests this route instead of receiving the URL, so viewers never see an
-    // upstream host or signature in their network tab.
-    const hlsRemoteMatch = url.pathname.match(/^\/hls\/([^/]+)\/remote\.m3u8$/);
-    if (hlsRemoteMatch) {
-      const assetID = decodeURIComponent(hlsRemoteMatch[1]);
-      const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
-      const corsHeaders = { "Access-Control-Allow-Origin": "*" };
-
-      if (!token) {
-        return new Response("Unauthorized: missing playback token", { status: 401, headers: corsHeaders });
-      }
-      const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
-      if (!isValid) {
-        return new Response("Unauthorized: invalid or expired playback token", { status: 403, headers: corsHeaders });
-      }
-
-      const asset = normalizeMultiAudioAsset(assetID);
-      const record = asset ? await readMultiAudioRecord(env, asset) : null;
-      if (!multiAudioRecordUsable(record)) {
-        return new Response("Multi-audio source not ready", { status: 404, headers: corsHeaders });
-      }
-
-      let targetUrl;
-      try {
-        targetUrl = assertSafeUpstreamUrl(record.url, {
-          requireAllowlist: true,
-          extraAllowlist: env.UPSTREAM_ALLOWLIST,
-        });
-      } catch (e) {
-        return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
-      }
-      if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
-        return new Response("Upstream URL expired", { status: 410, headers: corsHeaders });
-      }
-
-      const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
-
-      if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
-        const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
-        const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${chunkUrl}\n#EXT-X-ENDLIST\n`;
-        return new Response(syntheticM3U8, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "private, max-age=5, must-revalidate",
-          },
-        });
-      }
-      try {
-        let raw = (record && record.masterManifest) || "";
-        if (!raw) {
-          raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
-        }
-        if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
-          return new Response("Upstream did not return a valid playlist", { status: 502, headers: corsHeaders });
-        }
-        const rewritten = rewriteManifest(raw, {
-          baseUrl: targetUrl.toString(),
-          assetId: assetID,
-          token,
-          origin: url.origin,
-          provider,
-          codec,
-        });
-        return new Response(rewritten, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "private, max-age=5, must-revalidate",
-          },
-        });
-      } catch (err) {
-        if (err instanceof UpstreamUrlError) {
-          return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
-        }
-        return new Response("Upstream manifest unavailable", { status: 502, headers: corsHeaders });
-      }
-    }
-
-
-    // 8a. Strict readiness for the external watchdog. Unlike /health this
-    // fails closed (503) when secrets, KV, config or the playback canary are
-    // unhealthy. `?canary=1` runs a real resolver check immediately.
-    if (url.pathname === "/health/ready" || url.pathname === "/readyz") {
-      const forceCanary =
-        url.searchParams.get("canary") === "1" || url.searchParams.get("canary") === "true";
-      const canary = forceCanary ? await runPlaybackCanary(env) : undefined;
-      const payload = await buildReadinessPayload(request, env, canary);
-      return new Response(JSON.stringify(payload, null, 2), {
-        status: payload.ready ? 200 : 503,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "no-cache, no-store",
-        },
-      });
-    }
-
-    // 8. Health & Telemetry Probe (for Swarm Balancer)
-    if (url.pathname === "/health" || url.pathname === "/healthz" || url.pathname === "/ping") {
-      const deep = url.searchParams.get("deep") === "1" || url.searchParams.get("deep") === "true";
-      if (deep) {
-        await loadPersistedProviderHealth(env);
-        const payload = buildDeepHealthPayload(request, env);
-        payload.canary = await loadCanaryState(env);
-        return new Response(JSON.stringify(payload, null, 2), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "no-cache, no-store",
-          },
-        });
-      }
-      return new Response(JSON.stringify({
-        status: "healthy",
-        service: "vidlyte-edge-proxy",
-        engine: "Native Edge Crypto Engine (Go WASM parity core available)",
-        timestamp: Date.now(),
-        colo: request.cf ? request.cf.colo : "LOCAL_EDGE",
-        country: request.cf ? request.cf.country : "N/A",
-      }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "no-cache, no-store",
-        },
-      });
-    }
-
-    // 8b. TMDB Search / Discovery / Episode Browser (Phase 4)
-    // Public metadata only: no tokens, no upstream URLs. Cached per isolate.
-    if (url.pathname === "/api/tmdb/search") {
-      const q = sanitizeText(url.searchParams.get("q") || "", 120).trim();
-      if (!q) {
-        return new Response(JSON.stringify({ success: false, error: "Missing search query" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const requestedType = String(url.searchParams.get("type") || "multi").toLowerCase();
-      const type = requestedType === "movie" || requestedType === "tv" ? requestedType : "multi";
-      const page = Math.max(1, Math.min(10, parseInt(url.searchParams.get("page") || "1", 10) || 1));
-      const cacheKey = `search:${type}:${page}:${q.toLowerCase()}`;
-      const hit = tmdbCache.get(cacheKey);
-      let payload = hit && hit.fresh ? hit.value : null;
-      if (!payload) {
-        try {
-          const data = await tmdbRequest(`search/${type}`, {
-            query: q,
-            page: String(page),
-            include_adult: "false",
-          });
-          payload = {
-            success: true,
-            query: q,
-            type,
-            page,
-            total_pages: Math.min(Number(data.total_pages) || 1, 20),
-            total_results: Number(data.total_results) || 0,
-            results: (data.results || [])
-              .map((item) => mapTmdbSearchResult(item, type === "tv" ? "tv" : "movie"))
-              .filter(Boolean),
-          };
-          tmdbCache.set(cacheKey, payload, 10 * 60 * 1000, 60 * 60 * 1000);
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: "TMDB search unavailable" }), {
-            status: 502,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      }
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
-        },
-      });
-    }
-
-    if (url.pathname === "/api/tmdb/trending") {
-      const requestedType = String(url.searchParams.get("type") || "all").toLowerCase();
-      const type = requestedType === "movie" || requestedType === "tv" ? requestedType : "all";
-      const window = String(url.searchParams.get("window") || "week").toLowerCase() === "day" ? "day" : "week";
-      const cacheKey = `trending:${type}:${window}`;
-      const hit = tmdbCache.get(cacheKey);
-      let payload = hit && hit.fresh ? hit.value : null;
-      if (!payload) {
-        try {
-          const data = await tmdbRequest(`trending/${type}/${window}`, {});
-          payload = {
-            success: true,
-            type,
-            window,
-            results: (data.results || [])
-              .map((item) => mapTmdbSearchResult(item, "movie"))
-              .filter((item) => item && item.type)
-              .slice(0, 20),
-          };
-          tmdbCache.set(cacheKey, payload, 15 * 60 * 1000, 2 * 60 * 60 * 1000);
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: "TMDB trending unavailable" }), {
-            status: 502,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      }
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=900, stale-while-revalidate=3600",
-        },
-      });
-    }
-
-    const tmdbSeasonsMatch = url.pathname.match(/^\/api\/tmdb\/tv\/([^/]+)\/seasons$/);
-    if (tmdbSeasonsMatch) {
-      const tvId = sanitizeText(decodeURIComponent(tmdbSeasonsMatch[1]), 24);
-      if (!/^\d+$/.test(tvId)) {
-        return new Response(JSON.stringify({ success: false, error: "Invalid TV id" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const cacheKey = `tv-seasons:${tvId}`;
-      const hit = tmdbCache.get(cacheKey);
-      let payload = hit && hit.fresh ? hit.value : null;
-      if (!payload) {
-        try {
-          const data = await tmdbRequest(`tv/${tvId}`, {});
-          payload = {
-            success: true,
-            id: tvId,
-            title: sanitizeText(data.name || "", 160),
-            number_of_seasons: Number(data.number_of_seasons) || 0,
-            number_of_episodes: Number(data.number_of_episodes) || 0,
-            seasons: (data.seasons || [])
-              .filter((season) => season && Number(season.season_number) > 0)
-              .map((season) => ({
-                season_number: Number(season.season_number) || 0,
-                name: sanitizeText(season.name || `Season ${season.season_number}`, 120),
-                episode_count: Number(season.episode_count) || 0,
-                air_date: String(season.air_date || "").slice(0, 10),
-                poster: season.poster_path ? `/tmdb-image/w342${season.poster_path}` : "",
-              })),
-          };
-          tmdbCache.set(cacheKey, payload, 30 * 60 * 1000, 6 * 60 * 60 * 1000);
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: "TMDB season list unavailable" }), {
-            status: 502,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      }
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=1800, stale-while-revalidate=7200",
-        },
-      });
-    }
-
-    const tmdbSeasonMatch = url.pathname.match(/^\/api\/tmdb\/tv\/([^/]+)\/season\/([^/]+)$/);
-    if (tmdbSeasonMatch) {
-      const tvId = sanitizeText(decodeURIComponent(tmdbSeasonMatch[1]), 24);
-      const seasonNumber = parseInt(decodeURIComponent(tmdbSeasonMatch[2]), 10);
-      if (!/^\d+$/.test(tvId) || !Number.isFinite(seasonNumber) || seasonNumber < 0) {
-        return new Response(JSON.stringify({ success: false, error: "Invalid season request" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const cacheKey = `tv-season:${tvId}:${seasonNumber}`;
-      const hit = tmdbCache.get(cacheKey);
-      let payload = hit && hit.fresh ? hit.value : null;
-      if (!payload) {
-        try {
-          const data = await tmdbRequest(`tv/${tvId}/season/${seasonNumber}`, {});
-          payload = {
-            success: true,
-            id: tvId,
-            season_number: seasonNumber,
-            name: sanitizeText(data.name || `Season ${seasonNumber}`, 120),
-            episodes: (data.episodes || []).map((episode) => ({
-              episode_number: Number(episode.episode_number) || 0,
-              season_number: Number(episode.season_number) || seasonNumber,
-              name: sanitizeText(episode.name || "", 160),
-              overview: sanitizeText(episode.overview, 600),
-              air_date: String(episode.air_date || "").slice(0, 10),
-              runtime: Number(episode.runtime) || 0,
-              rating: episode.vote_average ? Number(episode.vote_average).toFixed(1) : "",
-              still: episode.still_path ? `/tmdb-image/w300${episode.still_path}` : "",
-            })),
-          };
-          tmdbCache.set(cacheKey, payload, 30 * 60 * 1000, 6 * 60 * 60 * 1000);
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: "TMDB season unavailable" }), {
-            status: 502,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      }
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=1800, stale-while-revalidate=7200",
-        },
-      });
-    }
-
-    // 8d. Lightweight engagement telemetry (Phase 6). No PII, bounded counters.
-    if (url.pathname === "/api/telemetry/engagement" && request.method === "POST") {
-      const body = await request.json().catch(() => null);
-      const eventName = String((body && body.event) || "").toLowerCase();
-      if (!ENGAGEMENT_EVENTS.has(eventName)) {
-        return new Response(JSON.stringify({ success: false, error: "Unknown engagement event" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-        });
-      }
-      const assetId = sanitizeText((body && (body.assetId || body.asset_id)) || "", 80);
-      recordEngagement(eventName, assetId);
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-      });
-    }
-
-    // 3. Playback Session Token Issuance
-    if (url.pathname === "/v1/playback-sessions" && request.method === "POST") {
-      try {
-        const body = await request.json().catch(() => ({}));
-        const assetID = body.asset_id || url.searchParams.get("asset_id");
-        if (!assetID) {
-          return new Response(JSON.stringify({ error: "missing required asset_id" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          });
-        }
-
-        const ttlSec = parseInt(body.ttl || "900", 10);
-        const token = await wasmIssueToken(assetID, clientIP, ttlSec, secretSpec);
-
-        return new Response(JSON.stringify({
-          token,
-          asset_id: assetID,
-          client_ip: clientIP,
-          expires_in: ttlSec,
-          stream_url: `${url.origin}/hls/${encodeURIComponent(assetID)}/master.m3u8?token=${token}`,
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: 500,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         });
       }
-    }
 
-    // 4. Dynamic Server Switching Source API (/api/source/:type/:id)
-    const apiSourceMovie = url.pathname.match(/^\/api\/source\/([^/]+)\/([^/]+)$/);
-    const apiSourceTV = url.pathname.match(/^\/api\/source\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)$/);
-
-    if (apiSourceMovie || apiSourceTV) {
-      const type = apiSourceMovie ? apiSourceMovie[1] : apiSourceTV[1];
-      const id = apiSourceMovie ? apiSourceMovie[2] : apiSourceTV[2];
-      const season = apiSourceTV ? parseInt(apiSourceTV[3], 10) : 0;
-      const episode = apiSourceTV ? parseInt(apiSourceTV[4], 10) : 0;
-      const providerParam = String(url.searchParams.get("provider") || "").trim();
-      const provider = providerParam ? normalizeProvider(providerParam) : "";
-      const assetInfo = { type, id, season, episode };
+      const type = String(body.type || "tv");
+      const id = String(body.id);
+      const season = Number(body.season) || 0;
+      const episode = Number(body.episode) || 0;
+      const provider = normalizeProvider(body.provider || "orion");
       const assetID = season > 0 ? `tv-${id}-${season}-${episode}` : `movie-${id}`;
 
-      // Optional token verification: when a token is supplied it must be valid
-      // for this exact asset, otherwise we issue a fresh one.
-      let token = url.searchParams.get("token") || request.headers.get("X-Playback-Token") || "";
-      if (token) {
-        const valid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
-        if (!valid) token = "";
-      }
-      if (!token) {
-        token = await wasmIssueToken(assetID, clientIP, 10800, secretSpec);
-      }
+      const suppliedToken =
+        body.token ||
+        url.searchParams.get("token") ||
+        request.headers.get("X-Playback-Token") ||
+        "";
+      const authorized =
+        checkAdminAuth(request, env) ||
+        (suppliedToken && (await wasmVerifyToken(assetID, clientIP, suppliedToken, secretSpec, { bindClientIP })));
 
-      const resolved = await resolveUpstreamSource(assetInfo, provider, {
-        env,
-        waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
-      });
-      if (!resolved || !resolved.streamUrl || !isStreamUrlUsable(resolved.streamUrl)) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "No usable stream source is currently available for this title.",
-        }), {
-          status: 404,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      if (!authorized) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         });
       }
 
-      const encodedAsset = encodeURIComponent(assetID);
-      const encodedToken = encodeURIComponent(token);
-      const masterUrl = `${url.origin}/hls/${encodedAsset}/master.m3u8?token=${encodedToken}`;
+      const safeStreamUrl = assertSafeUpstreamUrl(body.streamUrl, {
+        requireAllowlist: true,
+        extraAllowlist: env.UPSTREAM_ALLOWLIST,
+      }).toString();
 
-      const sanitizeAudio = (tracks) =>
-        (Array.isArray(tracks) ? tracks : [])
+      const baseKey = `${type}:${id}:${season}:${episode}`;
+      const cacheKey = `${baseKey}:${provider}`;
+      const existing = metadataCache.get(cacheKey)?.data || {};
+      existing.streamUrl = safeStreamUrl;
+      existing.provider = provider;
+      existing.isMP4 = safeStreamUrl.toLowerCase().includes(".mp4");
+
+      if (Array.isArray(body.audioTracks) && body.audioTracks.length > 0 && body.audioTracks.length <= 32) {
+        existing.audioTracks = body.audioTracks
           .map((track, index) => {
-            if (!track) return null;
-            const rawUri = track.uri || track.url || "";
+            const rawUri = track && (track.uri || track.url || track.proxiedUri || track.proxied_uri);
             let safeUri = "";
             if (rawUri) {
               try {
@@ -5874,226 +4237,1116 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
                 safeUri = "";
               }
             }
-            const isTrkMp4 = Boolean(track.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
-            const gatewayUri = safeUri
-              ? (isTrkMp4
-                  ? `${url.origin}/stream/chunk/${codec.encode(safeUri, track.provider || resolved.provider)}`
-                  : `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`)
-              : (resolved.isMP4 ? `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}` : masterUrl);
             return {
-              id: Number(track.id) || index,
-              name: sanitizeSubtitleLabel(track.name || track.label || `Audio ${index + 1}`),
-              label: sanitizeSubtitleLabel(track.label || track.name || `Audio ${index + 1}`),
-              language: String(track.language || "eng").slice(0, 16),
-              default: Boolean(track.default) || index === 0,
-              isMP4: isTrkMp4,
-              uri: gatewayUri,
-              proxied_uri: gatewayUri,
-              proxiedUri: gatewayUri,
-              provider: "vidlyte",
+              id: Number(track && track.id) || index,
+              name: String((track && (track.name || track.label)) || `Audio ${index + 1}`).slice(0, 120),
+              language: String((track && track.language) || "eng").slice(0, 16),
+              default: Boolean(track && track.default),
+              uri: safeUri,
+              provider,
             };
           })
-          .filter(Boolean);
+          .filter((track) => track.uri);
+      }
 
-      const sanitizeSubtitles = (subs) => {
-        const seen = new Set();
-        const out = [];
-        (Array.isArray(subs) ? subs : []).forEach((sub) => {
-          if (!sub) return;
-          const rawUri = sub.url || sub.uri || "";
-          if (!rawUri) return;
-          let safeUri = "";
-          try {
-            safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-          } catch (e) {
-            return;
-          }
-          const label = sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles");
-          const key = label.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          const playlist = isPlaylistUrl(safeUri);
-          const gatewayUri = playlist
-            ? `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, sub.provider || resolved.provider)}?token=${encodedToken}`
-            : `${url.origin}/stream/chunk/${codec.encode(safeUri, sub.provider || resolved.provider)}`;
-          out.push({
-            label,
-            language: String(sub.language || "en").slice(0, 16),
-            uri: gatewayUri,
-            proxied_uri: gatewayUri,
-            proxiedUri: gatewayUri,
-            provider: "vidlyte",
-          });
-        });
-
-        // Strict English Subtitle Policy: English subtitles must be default when available
-        const engSubIdx = out.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
-        if (engSubIdx > 0) {
-          const engSub = out.splice(engSubIdx, 1)[0];
-          engSub.default = true;
-          out.unshift(engSub);
-        } else if (engSubIdx === 0) {
-          out[0].default = true;
-        }
-
-        return out;
-      };
-
-      const sanitizeVariants = (variants) =>
-        (Array.isArray(variants) ? variants : [])
-          .map((variant) => {
-            if (!variant) return null;
-            const rawUri = variant.playlistUri || variant.uri || variant.url || "";
+      if (Array.isArray(body.subtitles) && body.subtitles.length > 0 && body.subtitles.length <= 64) {
+        existing.subtitles = body.subtitles
+          .map((subtitle) => {
+            const rawUri = subtitle && (subtitle.url || subtitle.uri || subtitle.proxiedUri || subtitle.proxied_uri);
             if (!rawUri) return null;
-            let safeUri = "";
             try {
-              safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+              const safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+              return {
+                language: String((subtitle && subtitle.language) || "en").slice(0, 16),
+                label: sanitizeSubtitleLabel(subtitle && (subtitle.label || subtitle.language)),
+                url: safeUri,
+                uri: safeUri,
+              };
             } catch (e) {
               return null;
             }
-            const gatewayUri = `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, variant.provider || resolved.provider)}?token=${encodedToken}`;
-            return {
-              resolution: String(variant.resolution || "Auto").slice(0, 24),
-              bandwidth: Number(variant.bandwidth) || 0,
-              playlistUri: gatewayUri,
-              proxied_uri: gatewayUri,
-              provider: "vidlyte",
-            };
           })
           .filter(Boolean);
-
-      const audioTracks = sanitizeAudio(resolved.audioTracks);
-      const subtitles = sanitizeSubtitles(resolved.subtitles);
-      const variants = sanitizeVariants(resolved.variants);
-
-      let streamUrl;
-      if (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl)) {
-        try {
-          const safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-          streamUrl = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: "Resolved stream URL was rejected." }), {
-            status: 403,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
-          });
-        }
-      } else {
-        streamUrl = masterUrl;
       }
 
+      if (Array.isArray(body.variants) && body.variants.length > 0 && body.variants.length <= 32) {
+        existing.variants = body.variants
+          .map((variant) => {
+            const rawUri = variant && (variant.playlistUri || variant.uri || variant.url);
+            if (!rawUri) return null;
+            try {
+              const safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+              return {
+                resolution: String((variant && variant.resolution) || "Auto").slice(0, 24),
+                bandwidth: Number(variant && variant.bandwidth) || 0,
+                playlistUri: safeUri,
+                provider,
+              };
+            } catch (e) {
+              return null;
+            }
+          })
+          .filter(Boolean);
+      }
+
+      cacheResolvedResult(cacheKey, baseKey, existing);
+      return new Response(JSON.stringify({ success: true, cacheKey }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    } catch (e) {
+      const status = e instanceof UpstreamUrlError ? 403 : 400;
+      return new Response(JSON.stringify({ error: status === 403 ? "Upstream URL rejected" : "Invalid request" }), {
+        status,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+  }
+
+  // Multi-audio resolver: request a GitHub Actions resolution, read its
+  // result, and accept the signed result from the workflow. The player uses
+  // these when the browser cannot reach vidrift directly.
+  if (url.pathname === "/api/multi-audio/resolve" && request.method === "POST") {
+    const body = await request.json().catch(() => null);
+    const asset = normalizeMultiAudioAsset(body && body.asset);
+    if (!asset) {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    const force = Boolean(body && body.force === true);
+    const existing = await readMultiAudioRecord(env, asset);
+    if (!force && multiAudioRecordUsable(existing)) {
       return new Response(JSON.stringify({
-        success: true,
-        stream_url: streamUrl,
-        streams: [{
-          url: streamUrl,
-          provider: resolved.provider,
-          label: providerLabel(resolved.provider),
-          is_mp4: Boolean(resolved.isMP4),
-        }],
-        provider: resolved.provider,
-        title: resolved.title,
-        audio_tracks: audioTracks,
-        subtitles,
-        variants,
-        token,
-        asset_id: assetID,
-        expires_in: 10800,
+        ok: true,
+        state: "ready",
+        ready: true,
+        asset,
+        audio: Number(existing.audio) || 0,
+        exp: Number(existing.exp) || 0,
       }), {
         status: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
       });
     }
+    const dispatched = await dispatchMultiAudioResolution(env, asset);
+    return new Response(JSON.stringify({ ...dispatched, asset }), {
+      status: dispatched.ok ? 202 : 503,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  }
 
-    // 5. HLS Master Manifest Gateway
-    // The upstream URL is never accepted from the client: it is always resolved
-    // server-side from the signed asset identifier.
-    const hlsMasterMatch = url.pathname.match(/^\/hls\/([^/]+)\/master\.m3u8$/);
-    if (hlsMasterMatch) {
-      const assetID = decodeURIComponent(hlsMasterMatch[1]);
-      const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
-
-      if (!token) {
-        return new Response("Unauthorized: missing playback token", {
-          status: 401,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
-      if (!isValid) {
-        return new Response("Unauthorized: invalid or expired playback token", {
-          status: 403,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const assetInfo = parseAssetInfo(assetID);
-      const resolved = await resolveUpstreamSource(assetInfo, url.searchParams.get("provider") || undefined, {
-        env,
-        waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+  if (url.pathname === "/api/multi-audio/status" && request.method === "GET") {
+    const asset = normalizeMultiAudioAsset(url.searchParams.get("asset"));
+    if (!asset) {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
       });
-
-      if (!resolved || !resolved.streamUrl || !isStreamUrlUsable(resolved.streamUrl)) {
-        return new Response("Stream not available or upstream resolving failed.", {
-          status: 404,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "text/plain",
-          },
-        });
-      }
-
-      // 5a. Direct MP4 Single-Chunk RFC 8216 HLS Manifest
-      if (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl)) {
-        let safeMp4;
-        try {
-          safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-        } catch (e) {
-          return new Response("Upstream source rejected", {
-            status: 403,
-            headers: { "Access-Control-Allow-Origin": "*" },
-          });
-        }
-        const proxiedMP4 = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
-        const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${proxiedMP4}\n#EXT-X-ENDLIST\n`;
-
-        return new Response(syntheticM3U8, {
+    }
+    const record = await readMultiAudioRecord(env, asset);
+    if (record) {
+      if (multiAudioRecordUsable(record)) {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: "ready",
+          ready: true,
+          asset,
+          audio: Number(record.audio) || 0,
+          exp: Number(record.exp) || 0,
+          checked_at: record.checked_at || "",
+        }), {
           status: 200,
-          headers: {
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Access-Control-Allow-Origin": "*",
-            "Cache-Control": "private, no-cache, no-store",
-          },
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      if (record.ok === false || Number(record.audio) <= 1 || record.error === "single_audio") {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: record.ok === false ? "failed" : "single",
+          ready: true,
+          asset,
+          audio: Number(record.audio) || 1,
+          error: record.error || "single_audio",
+          checked_at: record.checked_at || "",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+    }
+    let pending = false;
+    if (env && env.CONFIG_KV) {
+      try {
+        pending = Boolean(await env.CONFIG_KV.get(multiAudioDispatchKey(asset)));
+      } catch (error) { }
+    }
+    // A fresh dispatch must not be masked by an older failed record: the
+    // player should keep polling while the resolver is working.
+    if (pending) {
+      return new Response(JSON.stringify({ ok: true, state: "resolving", asset }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    if (record && record.ok === false && record.error) {
+      return new Response(JSON.stringify({
+        ok: true,
+        state: "failed",
+        asset,
+        error: record.error,
+        checked_at: record.checked_at || "",
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, state: "unknown", asset }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === "/api/multi-audio/publish" && request.method === "POST") {
+    const rawBody = await request.text();
+    if (!rawBody || rawBody.length > MULTI_AUDIO_PUBLISH_MAX_BYTES) {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_body" }), {
+        status: 413,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    if (!(await verifyMultiAudioPublishSignature(request, env, rawBody))) {
+      return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    let body = null;
+    try {
+      body = JSON.parse(rawBody);
+    } catch (error) { }
+    const asset = normalizeMultiAudioAsset(body && body.asset);
+    if (!asset) {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const ok = Boolean(body && body.ok) && (isBigBangStreamUrl(body && body.url) || body.provider === "orion" || body.provider === "evion" || body.provider === "kisskh" || Boolean(body && body.url) || Boolean(body && body.masterManifest));
+    const isMP4 = ok && Boolean(body.isMP4 || (body.url && body.url.toLowerCase().includes(".mp4")));
+    const record = {
+      ok,
+      url: ok ? String(body.url) : "",
+      isMP4,
+      audio: ok ? Math.max(0, Math.min(64, Number(body.audio) || 0)) : 0,
+      provider: body && body.provider ? body.provider : "bigbang",
+      exp: ok ? Number(body.exp) || 0 : 0,
+      checked_at: new Date().toISOString(),
+      error: ok ? "" : String((body && body.error) || "no_multi_audio").slice(0, 80),
+      masterManifest: ok && body.masterManifest ? String(body.masterManifest) : undefined,
+      audioTracks: ok && Array.isArray(body.audioTracks) ? body.audioTracks : undefined,
+      variants: ok && Array.isArray(body.variants) ? body.variants : undefined,
+      subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
+      subManifests: ok && body.subManifests && typeof body.subManifests === "object" ? body.subManifests : undefined,
+    };
+    if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && (!record.subManifests || Object.keys(record.subManifests).length === 0)) {
+      record.subManifests = {};
+      for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
+        try {
+          const decompressed = await decompressGzipBase64(b64);
+          if (decompressed && decompressed.includes("#EXTM3U")) {
+            record.subManifests[subKey] = decompressed;
+          }
+        } catch (e) { }
+      }
+    }
+    const persisted = await writeMultiAudioRecord(env, asset, record);
+    if (env && env.CONFIG_KV) {
+      try {
+        await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
+      } catch (e) { }
+    }
+    return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
+      status: persisted ? 200 : 503,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // Diagnostic probe for upstream stream resolution (admin only).
+  if (url.pathname === "/api/test-vidrift") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response("Not Found", {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
+      });
+    }
+    const type = url.searchParams.get("type") === "tv" ? "tv" : "movie";
+    const id = String(url.searchParams.get("id") || "100088").slice(0, 32);
+    const s = parseInt(url.searchParams.get("s") || "1", 10);
+    const e = parseInt(url.searchParams.get("e") || "1", 10);
+    const customUrl = url.searchParams.get("url");
+    const bootPath = type === "tv" ? `/api/boot/tv/${encodeURIComponent(id)}/${s}/${e}` : `/api/boot/movie/${encodeURIComponent(id)}`;
+    const targetUrl = customUrl || `https://embed.vidrift.net${bootPath}`;
+
+    const tests = [
+      { name: "default", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Referer": "https://vidrift.net/", "Origin": "https://vidrift.net", "Accept": "application/json, text/plain, */*" } },
+      { name: "no-origin-referer", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "*/*" } },
+      { name: "embed-referer", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Referer": "https://embed.vidrift.net/", "Origin": "https://embed.vidrift.net", "Accept": "*/*" } },
+      { name: "mobile-ua", headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1", "Referer": "https://vidrift.net/", "Accept": "*/*" } },
+      { name: "curl-ua", headers: { "User-Agent": "curl/8.4.0", "Accept": "*/*" } }
+    ];
+
+    const results = [];
+    for (const t of tests) {
+      try {
+        const resp = await fetch(targetUrl, { headers: t.headers, signal: AbortSignal.timeout(4000) });
+        const text = await resp.text();
+        const respHeaders = {};
+        resp.headers.forEach((v, k) => { respHeaders[k] = v; });
+        results.push({ name: t.name, status: resp.status, headers: respHeaders, bodySnippet: text.slice(0, 150) });
+      } catch (err) {
+        results.push({ name: t.name, error: err.message });
+      }
+    }
+
+    return new Response(JSON.stringify({ targetUrl, results }, null, 2), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 2. Hide Legacy Admin Route (/admin-login-i)
+  if (url.pathname === "/admin-login-i" || url.pathname.startsWith("/admin-login-i/")) {
+    return new Response("Not Found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
+    });
+  }
+
+  // 2a. Admin Operations Vault (Configurable, default /vly-ops-7x)
+  if (url.pathname === adminRoute || url.pathname === `${adminRoute}/docs`) {
+    return new Response(renderAdminHTML(cspNonce), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
+
+  // 3. Admin Authentication (${adminRoute}/auth)
+  if (url.pathname === `${adminRoute}/auth` && request.method === "POST") {
+    const lockState = failedLogins.get(clientIP);
+    if (lockState && lockState.lockedUntil > Date.now()) {
+      const remainingMins = Math.ceil((lockState.lockedUntil - Date.now()) / 60000);
+      recordAudit("admin.auth.locked", request, { remaining_minutes: remainingMins });
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Too many failed attempts. Locked out for ${remainingMins} minutes.`,
+      }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const secret = body.secret || "";
+    const validSecret = getAdminSecret(env);
+
+    if (!validSecret) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Admin access is disabled: ADMIN_SECRET is not configured.",
+      }), {
+        status: 503,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
+    if (!constantTimeEqual(secret, validSecret)) {
+      const attempts = (lockState ? lockState.attempts : 0) + 1;
+      const locked = attempts >= 5;
+      failedLogins.set(clientIP, {
+        attempts,
+        lockedUntil: locked ? Date.now() + 15 * 60 * 1000 : 0,
+      });
+      recordAudit("admin.auth.failed", request, { attempts, locked });
+      const msg = locked
+        ? "Invalid secret. Account locked for 15 minutes."
+        : `Invalid secret. ${5 - attempts} attempts remaining.`;
+      return new Response(JSON.stringify({ success: false, error: msg }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
+    failedLogins.delete(clientIP);
+    pruneAdminSessions();
+    const sessionToken = signAdminSession(validSecret, clientIP);
+    if (!sessionToken) {
+      return new Response(JSON.stringify({ success: false, error: "Session issuance failed" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const sessionTtlSec = getAdminSessionTtlSec(env);
+    const csrfToken = deriveAdminCsrf(validSecret, sessionToken);
+    activeAdminSessions.set(sessionToken, Date.now() + sessionTtlSec * 1000);
+    recordAudit("admin.auth.success", request, {});
+    const secureFlag = url.protocol === "https:" ? "; Secure" : "";
+    const responseHeaders = new Headers({
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    responseHeaders.append(
+      "Set-Cookie",
+      `vidlyte_admin_session=${sessionToken}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionTtlSec}${secureFlag}`
+    );
+    responseHeaders.append(
+      "Set-Cookie",
+      `vidlyte_admin_csrf=${csrfToken}; Path=/; SameSite=Strict; Max-Age=${sessionTtlSec}${secureFlag}`
+    );
+
+    return new Response(
+      JSON.stringify({ success: true, csrf_token: csrfToken, expires_in: sessionTtlSec }),
+      { status: 200, headers: responseHeaders }
+    );
+  }
+
+  // 3b. Central CSRF gate for every mutating admin route (auth is exempt).
+  // Each route still checks authentication, but this ensures a cookie alone
+  // can never authorise a state-changing request.
+  const isAdminMutation =
+    request.method !== "GET" &&
+    request.method !== "HEAD" &&
+    request.method !== "OPTIONS" &&
+    (url.pathname === adminRoute || url.pathname.startsWith(`${adminRoute}/`)) &&
+    url.pathname !== `${adminRoute}/auth`;
+  if (isAdminMutation) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    if (!checkAdminCsrf(request, env)) {
+      recordAudit("admin.csrf.rejected", request, { path: url.pathname });
+      return new Response(JSON.stringify({ error: "Invalid or missing CSRF token" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+  }
+
+  // 4. Admin Logout (${adminRoute}/logout)
+  if (url.pathname === `${adminRoute}/logout` && request.method === "POST") {
+    const sessionToken = getAdminSessionToken(request);
+    if (sessionToken) activeAdminSessions.delete(sessionToken);
+    recordAudit("admin.logout", request, {});
+    const logoutHeaders = new Headers({
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    logoutHeaders.append("Set-Cookie", "vidlyte_admin_session=; Path=/; HttpOnly; Max-Age=0");
+    logoutHeaders.append("Set-Cookie", "vidlyte_admin_csrf=; Path=/; Max-Age=0");
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: logoutHeaders,
+    });
+  }
+
+  // 5. Admin Dynamic Config API (${adminRoute}/api/config)
+  if (url.pathname === `${adminRoute}/api/config`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    await ensureRuntimeConfig(env);
+    if (request.method === "POST") {
+      const newCfg = await request.json().catch(() => null);
+      if (!newCfg || typeof newCfg !== "object") {
+        return new Response(JSON.stringify({ error: "Invalid JSON configuration" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
         });
       }
 
-      // 5b. Fetch raw manifest (cached by upstream URL only) or use synthesized manifest,
-      // and rewrite it per request with the requester's own token.
+      const applied = applyRuntimeConfig(newCfg);
+
+      // Re-probe every swarm node after a config change so the admin UI and
+      // the runtime ordering see fresh health/latency data immediately.
+      const workers = runtimeConfig.proxy_swarm.workers || [];
+      const probeResults = await Promise.all(
+        workers.map((worker) => probeSwarmNode(worker).catch(() => null))
+      );
+      const probedById = new Map();
+      probeResults.forEach((result) => {
+        if (!result) return;
+        probedById.set(result.id, result);
+      });
+      runtimeConfig.proxy_swarm.workers = workers.map((worker) => {
+        const probed = probedById.get(worker.id);
+        if (!probed) return worker;
+        return {
+          ...worker,
+          url: probed.url || worker.url,
+          status: probed.status,
+          latency_ms: probed.latency_ms,
+        };
+      });
+      runtimeConfig.proxy_swarm.last_probe_at = new Date().toISOString();
+
+      const persisted = await persistRuntimeConfig(env);
+      const historyEntry = await recordConfigHistory(env, "update", {
+        note: `admin update from ${clientIP}`,
+      });
+      recordAudit("config.update", request, {
+        applied,
+        persisted,
+        config_version: runtimeConfig.config_version || CONFIG_VERSION,
+        history_id: historyEntry ? historyEntry.id : "",
+      });
+      return new Response(JSON.stringify({
+        success: true,
+        applied,
+        persisted,
+        persistence: env.CONFIG_KV ? (persisted ? "kv" : "kv_error") : "memory_only",
+        history_id: historyEntry ? historyEntry.id : "",
+        config: runtimeConfig,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(JSON.stringify(runtimeConfig), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 6. Admin Swarm Prober API (${adminRoute}/api/swarm/test)
+  if (url.pathname === `${adminRoute}/api/swarm/test` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const workers = normalizeSwarmWorkers(runtimeConfig.proxy_swarm.workers || []);
+    const results = await Promise.all(workers.map((worker) => probeSwarmNode(worker)));
+
+    runtimeConfig.proxy_swarm.workers = workers.map((worker) => {
+      const probed = results.find((result) => result.id === worker.id);
+      return probed
+        ? { ...worker, status: probed.status, latency_ms: probed.latency_ms }
+        : worker;
+    });
+    runtimeConfig.proxy_swarm.last_probe_at = new Date().toISOString();
+    await persistRuntimeConfig(env);
+
+    return new Response(JSON.stringify({ success: true, results }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 6b. Admin Provider Health & Resolution Tester
+  if (url.pathname === `${adminRoute}/api/providers/probe` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const results = await Promise.all(
+      defaultProviderOrder().map((id) => probeProviderReachability(id).catch(() => null))
+    );
+    await persistProviderHealth(env);
+    return new Response(JSON.stringify({
+      success: true,
+      results: results.filter(Boolean),
+      providers: snapshotProviderHealth(),
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/providers/health`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    await loadPersistedProviderHealth(env);
+    return new Response(JSON.stringify({
+      success: true,
+      providers: snapshotProviderHealth(),
+      breakers: providerBreakers.snapshot(),
+      last_probe_at: runtimeConfig.proxy_swarm.last_probe_at || "",
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // Alerting status/test. Mutations are already protected by the central CSRF
+  // gate; authentication is re-checked here to keep the route self-contained.
+  if (url.pathname === `${adminRoute}/api/alerts/status`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const config = getTelegramConfig(env);
+    return new Response(JSON.stringify({
+      success: true,
+      telegram: {
+        configured: config.configured,
+        enabled: config.enabled,
+        min_severity: config.minSeverity,
+        cooldown_min: Math.round(config.cooldownMs / 60000),
+      },
+      webhook_configured: Boolean(env && env.ALERT_WEBHOOK_URL),
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/alerts/test` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const body = await request.json().catch(() => ({}));
+    const severity = normalizeAlertSeverity(body.severity, "critical");
+    const note = String(body.text || "Manual test from the VidLyte admin panel.").slice(0, 500);
+    const result = await sendTelegramAlert(env, {
+      key: "admin-test",
+      type: "open",
+      severity,
+      signature: `admin-test:${Date.now()}`,
+      force: true,
+      text: formatTelegramMessage({
+        title: "VidLyte test alert",
+        type: "open",
+        severity,
+        lines: [note],
+      }),
+    });
+    recordAudit("alerts.test", request, {
+      sent: result.sent,
+      configured: result.configured,
+      skipped: result.skipped,
+      severity,
+    });
+    const status = result.sent ? 200 : result.configured ? 502 : 503;
+    return new Response(JSON.stringify({
+      success: result.sent,
+      configured: result.configured,
+      enabled: result.enabled,
+      severity,
+      skipped: result.skipped,
+      error: result.error || "",
+    }), {
+      status,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/watchdog/canary` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const canary = await runPlaybackCanary(env);
+    recordAudit("watchdog.canary", request, {
+      ok: canary.ok,
+      provider: canary.provider,
+      latency_ms: canary.latency_ms,
+    });
+    return new Response(JSON.stringify({ success: canary.ok, canary }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/providers/test` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const body = await request.json().catch(() => ({}));
+    const provider = normalizeProvider(body.provider || "asianflix");
+    const type = body.type === "tv" || body.type === "series" ? "tv" : "movie";
+    const id = String(body.id || "550").slice(0, 32);
+    const season = Number(body.season) || 1;
+    const episode = Number(body.episode) || 1;
+    const assetInfo = { type, id, season, episode };
+    const started = Date.now();
+    let result = null;
+    let error = "";
+    try {
+      const metaOverride = body.title
+        ? { title: String(body.title).slice(0, 160), seriesTitle: String(body.title).slice(0, 160), year: String(body.year || "") }
+        : null;
+      result = await attemptProvider(provider, assetInfo, metaOverride);
+    } catch (e) {
+      error = String((e && e.message) || e).slice(0, 160);
+    }
+    const latency = Date.now() - started;
+    let host = "";
+    if (result && result.streamUrl) {
       try {
-        let rawM3U8 = resolved.masterManifest || "";
-        let effectiveBaseUrl = resolved.streamUrl;
-        if (!rawM3U8) {
-          try {
-            rawM3U8 = await fetchRawManifest(resolved.streamUrl, resolved.provider, request, env);
-          } catch (fetchErr) {
-            if (resolved.backupStreamUrl && resolved.backupStreamUrl !== resolved.streamUrl) {
-              rawM3U8 = await fetchRawManifest(resolved.backupStreamUrl, resolved.provider, request, env);
-              effectiveBaseUrl = resolved.backupStreamUrl;
-            } else {
-              throw fetchErr;
-            }
-          }
+        host = new URL(result.streamUrl).hostname;
+      } catch (e) { }
+    }
+    return new Response(JSON.stringify({
+      success: Boolean(result && result.streamUrl),
+      provider,
+      asset: `${type}:${id}${type === "tv" ? `:${season}:${episode}` : ""}`,
+      latency_ms: latency,
+      error,
+      stream: result && result.streamUrl
+        ? {
+          host,
+          is_mp4: Boolean(result.isMP4),
+          title: result.title || "",
+          audio_tracks: Array.isArray(result.audioTracks) ? result.audioTracks.length : 0,
+          subtitles: Array.isArray(result.subtitles) ? result.subtitles.length : 0,
+          variants: Array.isArray(result.variants) ? result.variants.length : 0,
         }
-        const rewrittenM3U8 = rewriteManifest(rawM3U8, {
-          baseUrl: effectiveBaseUrl,
+        : null,
+      health: snapshotProviderHealth().find((item) => item.id === provider) || null,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7. System Metrics & Telemetry (Protected behind Admin Auth)
+  if (url.pathname === "/metrics" || url.pathname === `${adminRoute}/metrics`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response("Not Found", {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
+      });
+    }
+    const metricsSnapshot = metricsRegistry.snapshot();
+    return new Response(JSON.stringify({
+      total_requests: metricsData.totalRequests,
+      active_requests: metricsData.activeRequests,
+      bytes_streamed: metricsData.bytesStreamed,
+      cache_hits: metricsData.cacheHits,
+      cache_misses: metricsData.cacheMisses,
+      status_2xx: metricsData.status2xx,
+      status_4xx: metricsData.status4xx,
+      status_5xx: metricsData.status5xx,
+      rate_limit_rejections: metricsData.rateLimitRejections,
+      top_domains: Array.from(domainTelemetry.values()),
+      registry: metricsSnapshot,
+      health: gradeHealth(metricsSnapshot),
+      rate_limits: getRateLimiters(env).snapshot(),
+      engagement: engagementSnapshot(),
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7.1 Admin Diagnostics Snapshot (Phase 3)
+  if (url.pathname === `${adminRoute}/api/diagnostics`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    await loadPersistedProviderHealth(env);
+    const metricsSnapshot = metricsRegistry.snapshot();
+    const limiters = getRateLimiters(env);
+    const sampleLimit = Math.max(1, Math.min(120, parseInt(url.searchParams.get("logs") || "40", 10) || 40));
+    const payload = {
+      ok: true,
+      generated_at: new Date().toISOString(),
+      version: {
+        config_version: runtimeConfig.config_version || CONFIG_VERSION,
+        updated_at: runtimeConfig.updated_at || "",
+        bundle: "edge-native",
+      },
+      runtime: {
+        colo: request.cf ? request.cf.colo || "" : "LOCAL_EDGE",
+        country: request.cf ? request.cf.country || "" : "",
+        persisted_config: Boolean(env.CONFIG_KV),
+        persisted_provider_health: Boolean(env.CONFIG_KV),
+        admin_secret_configured: Boolean(getAdminSecret(env)),
+        hmac_secret_configured: Boolean(env.HMAC_SECRET),
+        bind_client_ip: bindClientIP,
+        rate_limit_enabled: limiters.enabled,
+      },
+      health: gradeHealth(metricsSnapshot),
+      metrics: metricsSnapshot,
+      rate_limits: limiters.snapshot(),
+      providers: snapshotProviderHealth(),
+      breakers: {
+        providers: providerBreakers.snapshot(),
+        hosts: hostBreakers.snapshot(),
+      },
+      caches: {
+        sources: sourceStaleCache.size,
+        metadata: metadataCache.size,
+        manifests: rawManifestCache.size,
+        last_good: lastGoodSourceCache.size,
+        subtitles: subtitleMemoryCache.size,
+      },
+      swarm: {
+        nodes: (runtimeConfig.proxy_swarm.workers || []).map((worker) => ({
+          id: worker.id,
+          name: worker.name,
+          url: worker.url,
+          enabled: worker.enabled !== false,
+          status: worker.status || "unknown",
+          latency_ms: Number(worker.latency_ms) || 0,
+        })),
+        strategy: runtimeConfig.proxy_swarm.strategy || "latency",
+        last_probe_at: runtimeConfig.proxy_swarm.last_probe_at || "",
+      },
+      engagement: engagementSnapshot(),
+      requests: requestLog.list(sampleLimit),
+      audit: auditLog.list(sampleLimit),
+    };
+    return new Response(JSON.stringify(payload, null, 2), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  }
+
+  // 7.2 Admin Audit Log (Phase 3)
+  if (url.pathname === `${adminRoute}/api/audit`) {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const limit = Math.max(1, Math.min(120, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+    return new Response(JSON.stringify({
+      success: true,
+      entries: auditLog.list(limit),
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7.3 Admin Config Export / Import (Phase 3)
+  if (url.pathname === `${adminRoute}/api/config/export` && request.method === "GET") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    await ensureRuntimeConfig(env);
+    const document = buildConfigExport(runtimeConfig);
+    recordAudit("config.export", request, { config_version: document.config_version });
+    return new Response(JSON.stringify(document, null, 2), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="vidlyte-config-v${document.config_version}.json"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/config/import` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    let payload = null;
+    try {
+      payload = await request.json();
+    } catch (e) {
+      payload = null;
+    }
+    const validation = validateConfigImport(payload);
+    if (!validation.ok) {
+      recordAudit("config.import.rejected", request, { errors: validation.errors.slice(0, 4) });
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Invalid configuration import",
+        errors: validation.errors,
+      }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
+    const applied = applyRuntimeConfig(validation.config);
+    const persisted = await persistRuntimeConfig(env);
+    const historyEntry = await recordConfigHistory(env, "import", {
+      note: `admin import from ${clientIP}`,
+    });
+    recordAudit("config.import", request, {
+      applied,
+      persisted,
+      config_version: runtimeConfig.config_version || CONFIG_VERSION,
+      history_id: historyEntry ? historyEntry.id : "",
+    });
+    return new Response(JSON.stringify({
+      success: true,
+      applied,
+      persisted,
+      persistence: env.CONFIG_KV ? "kv" : "memory_only",
+      config_version: runtimeConfig.config_version || CONFIG_VERSION,
+      history_id: historyEntry ? historyEntry.id : "",
+      config: runtimeConfig,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7.3 Admin Ops Feeds (quota / watchdog / sweep snapshots)
+  if (url.pathname === `${adminRoute}/api/ops` && request.method === "GET") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const force = url.searchParams.get("refresh") === "1";
+    let ops;
+    try {
+      ops = await loadOpsStatus(env, { force });
+    } catch (error) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "ops_feeds_unavailable",
+        detail: String((error && error.message) || error).slice(0, 160),
+      }), {
+        status: 502,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(JSON.stringify({ success: true, ...ops }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7.4 Admin Config History & Rollback (Phase 5)
+  if (url.pathname === `${adminRoute}/api/config/history` && request.method === "GET") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const force = url.searchParams.get("refresh") === "1";
+    const list = await loadConfigHistory(env, { force });
+    const requestedId = url.searchParams.get("id");
+    if (requestedId) {
+      const entry = list.find((item) => item.id === requestedId);
+      if (!entry) {
+        return new Response(JSON.stringify({ error: "History entry not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        entry,
+        diff: diffConfigs(entry.config, runtimeConfig),
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const entries = list.map((entry) => ({
+      id: entry.id,
+      at: entry.at,
+      action: entry.action,
+      config_version: entry.config_version,
+      note: entry.note || "",
+      summary: entry.summary || summarizeConfig(entry.config),
+      config_bytes: (() => {
+        try {
+          return JSON.stringify(entry.config || {}).length;
+        } catch (e) {
+          return 0;
+        }
+      })(),
+    }));
+    return new Response(JSON.stringify({
+      success: true,
+      limit: CONFIG_HISTORY_LIMIT,
+      entries,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  if (url.pathname === `${adminRoute}/api/config/rollback` && request.method === "POST") {
+    if (!checkAdminAuth(request, env)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const body = await request.json().catch(() => ({}));
+    const id = String(body && body.id ? body.id : "").slice(0, 80);
+    if (!id) {
+      return new Response(JSON.stringify({ error: "Missing history id" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const list = await loadConfigHistory(env, { force: true });
+    const entry = list.find((item) => item.id === id);
+    if (!entry || !entry.config || typeof entry.config !== "object") {
+      return new Response(JSON.stringify({ error: "History entry not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    const before = snapshotRuntimeConfig();
+    const applied = replaceRuntimeConfig(entry.config);
+    const persisted = await persistRuntimeConfig(env);
+    const rollbackEntry = await recordConfigHistory(env, "rollback", {
+      note: `rolled back to ${id}`,
+    });
+    const diff = diffConfigs(before, runtimeConfig);
+    recordAudit("config.rollback", request, {
+      source_id: id,
+      applied,
+      persisted,
+      history_id: rollbackEntry ? rollbackEntry.id : "",
+    });
+    return new Response(JSON.stringify({
+      success: true,
+      source_id: id,
+      applied,
+      persisted,
+      persistence: env.CONFIG_KV ? (persisted ? "kv" : "kv_error") : "memory_only",
+      history_id: rollbackEntry ? rollbackEntry.id : "",
+      diff,
+      config: runtimeConfig,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 7a. Zero-Leak Opaque Media Chunk Delivery (/stream/chunk/:opaqueId)
+  const chunkMatch = url.pathname.match(/^\/stream\/chunk\/([a-zA-Z0-9_\-]+)$/);
+  if (chunkMatch) {
+    const opaqueToken = chunkMatch[1];
+    const decoded = codec.decode(opaqueToken, { maxAgeSec: OPAQUE_MAX_AGE_SEC });
+    if (!decoded || !decoded.targetUrl) {
+      return new Response("Invalid chunk identifier", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    let targetUrl;
+    try {
+      targetUrl = assertSafeUpstreamUrl(decoded.targetUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST });
+    } catch (e) {
+      return new Response("Chunk target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
+      return new Response("Chunk target expired", { status: 410, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    return proxyUpstream(request, targetUrl, decoded.provider || "evion", env, codec);
+  }
+
+  // 7b. Zero-Leak Opaque Sub-Resource / Sub-Manifest Gateway (/hls/:assetID/res/:opaqueId)
+  const hlsResMatch = url.pathname.match(/^\/hls\/([^/]+)\/res\/([a-zA-Z0-9_\-]+)$/);
+  if (hlsResMatch) {
+    const assetID = decodeURIComponent(hlsResMatch[1]);
+    const opaqueToken = hlsResMatch[2];
+    const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
+
+    if (!token) {
+      return new Response("Unauthorized: missing playback token", {
+        status: 401,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+    if (!isValid) {
+      return new Response("Unauthorized: invalid or expired playback token", {
+        status: 403,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const decoded = codec.decode(opaqueToken, { maxAgeSec: OPAQUE_MAX_AGE_SEC });
+    if (!decoded || !decoded.targetUrl) {
+      return new Response("Invalid resource identifier", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    let targetUrl;
+    try {
+      targetUrl = assertSafeUpstreamUrl(decoded.targetUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST });
+    } catch (e) {
+      return new Response("Resource target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    const provider = decoded.provider || "evion";
+    try {
+      const assetNorm = normalizeMultiAudioAsset(assetID);
+      const maRecord = assetNorm ? await readMultiAudioRecord(env, assetNorm) : null;
+      const orionMatch = targetUrl.toString().match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+      let rawSubM3U8 = "";
+      if (orionMatch) {
+        const subKey = `${orionMatch[1]}:${orionMatch[2]}`;
+        if (maRecord && maRecord.subManifests && maRecord.subManifests[subKey]) {
+          rawSubM3U8 = maRecord.subManifests[subKey];
+        } else if (env && env.CONFIG_KV) {
+          try {
+            rawSubM3U8 = (await env.CONFIG_KV.get(`orion_sub:${subKey}`)) || "";
+          } catch (e) { }
+        }
+      }
+      if (!rawSubM3U8) {
+        rawSubM3U8 = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+      }
+      if (rawSubM3U8.startsWith("#EXTM3U") || rawSubM3U8.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString())) {
+        const rewritten = rewriteManifest(rawSubM3U8, {
+          baseUrl: targetUrl.toString(),
           assetId: assetID,
           token,
           origin: url.origin,
-          provider: resolved.provider,
+          provider,
           codec,
         });
 
-        return new Response(rewrittenM3U8, {
+        return new Response(rewritten, {
           status: 200,
           headers: {
             "Content-Type": "application/vnd.apple.mpegurl",
@@ -6101,220 +5354,638 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             "Cache-Control": "private, max-age=5, must-revalidate",
           },
         });
-      } catch (err) {
-        // The cached or last-good source may point at a provider whose manifest
-        // just died. Walk the remaining providers once before returning an
-        // error, so a stale cache entry cannot take the title down.
-        try {
-          const fallback = await resolveFallbackSource(assetInfo, resolved.provider, env);
-          if (fallback && fallback.streamUrl && isStreamUrlUsable(fallback.streamUrl)) {
-            let fallbackManifest = fallback.masterManifest || "";
-            if (!fallbackManifest) {
-              fallbackManifest = await fetchRawManifest(fallback.streamUrl, fallback.provider, request, env);
-            }
-            const rewrittenFallback = rewriteManifest(fallbackManifest, {
-              baseUrl: fallback.streamUrl,
-              assetId: assetID,
-              token,
-              origin: url.origin,
-              provider: fallback.provider,
-              codec,
-            });
-            return new Response(rewrittenFallback, {
-              status: 200,
-              headers: {
-                "Content-Type": "application/vnd.apple.mpegurl",
-                "Access-Control-Allow-Origin": "*",
-                "Cache-Control": "private, max-age=5, must-revalidate",
-              },
-            });
-          }
-        } catch (fallbackErr) {}
-
-        const status = err instanceof UpstreamUrlError ? 403 : 502;
-        return new Response(`Gateway error: ${status === 403 ? "upstream rejected" : "manifest fetch failed"} (${err.message})`, {
-          status,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
+      }
+    } catch (err) {
+      if (err instanceof UpstreamUrlError) {
+        return new Response("Resource target rejected", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
       }
     }
 
-    // 6. Legacy raw-resource gateway removed: it exposed upstream URLs in the
-    // request path. All sub-resources now use opaque /res/:token routes.
+    return proxyUpstream(request, targetUrl, provider, env, codec);
+  }
 
-    // 7. Edge Segment & Stream Proxy with Swarm Failover & Byte-Range Streaming
-    // Legacy open-proxy surface: restricted to safe, allowlisted upstream hosts.
-    if (url.pathname === "/proxy") {
-      const rawTarget = url.searchParams.get("url");
-      if (!rawTarget) {
-        return new Response("Missing target 'url' parameter.", {
-          status: 400,
+  // 7c. Client-Assisted HLS Manifest Gateway (/hls/:assetID/client.m3u8)
+  // Some providers gate their resolver APIs to a specific browser origin that
+  // Cloudflare egress cannot impersonate. The browser resolves the signed
+  // upstream URL and hands it back here; the URL is strictly allowlisted and
+  // the manifest is rewritten so every sub-resource keeps flowing through the
+  // opaque /res and /stream/chunk gateways.
+  const hlsClientMatch = url.pathname.match(/^\/hls\/([^/]+)\/client\.m3u8$/);
+  if (hlsClientMatch) {
+    const assetID = decodeURIComponent(hlsClientMatch[1]);
+    const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
+    const rawUpstream = url.searchParams.get("url");
+
+    if (!token) {
+      return new Response("Unauthorized: missing playback token", {
+        status: 401,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+    if (!isValid) {
+      return new Response("Unauthorized: invalid or expired playback token", {
+        status: 403,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    if (!rawUpstream) {
+      return new Response("Missing 'url' parameter", {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    let targetUrl;
+    try {
+      targetUrl = assertSafeUpstreamUrl(rawUpstream, {
+        requireAllowlist: true,
+        extraAllowlist: env.UPSTREAM_ALLOWLIST,
+      });
+    } catch (e) {
+      return new Response("Upstream URL rejected", {
+        status: 403,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
+      return new Response("Upstream URL expired", {
+        status: 410,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const asset = normalizeMultiAudioAsset(assetID);
+    const record = asset ? await readMultiAudioRecord(env, asset) : null;
+    const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
+
+    if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
+      const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
+      const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${chunkUrl}\n#EXT-X-ENDLIST\n`;
+      return new Response(syntheticM3U8, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, max-age=5, must-revalidate",
+        },
+      });
+    }
+    try {
+      let raw = "";
+      if (request.method === "POST") {
+        try {
+          raw = (await request.text()).trim();
+        } catch (e) { }
+      }
+      if (!raw && record && record.masterManifest) {
+        raw = record.masterManifest;
+      }
+      if (!raw) {
+        raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+      }
+      if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
+        return new Response("Upstream did not return a valid playlist", {
+          status: 502,
           headers: { "Access-Control-Allow-Origin": "*" },
         });
       }
 
-      let targetUrl;
-      try {
-        targetUrl = assertSafeUpstreamUrl(rawTarget, {
-          requireAllowlist: true,
-          extraAllowlist: env.UPSTREAM_ALLOWLIST,
-        });
-      } catch (e) {
-        return new Response("Target URL rejected.", {
+      const rewritten = rewriteManifest(raw, {
+        baseUrl: targetUrl.toString(),
+        assetId: assetID,
+        token,
+        origin: url.origin,
+        provider,
+        codec,
+      });
+
+      return new Response(rewritten, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, max-age=5, must-revalidate",
+        },
+      });
+    } catch (err) {
+      if (err instanceof UpstreamUrlError) {
+        return new Response("Upstream URL rejected", {
           status: 403,
           headers: { "Access-Control-Allow-Origin": "*" },
         });
       }
+      return new Response("Upstream manifest unavailable", {
+        status: 502,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+  }
 
-      const provider = normalizeProvider(url.searchParams.get("provider") || "framextv");
-      return proxyUpstream(request, targetUrl, provider, env, codec);
+
+  // 7d. Remote multi-audio gateway (/hls/:assetID/remote.m3u8)
+  // The external resolver stores the signed upstream URL in KV. The player
+  // requests this route instead of receiving the URL, so viewers never see an
+  // upstream host or signature in their network tab.
+  const hlsRemoteMatch = url.pathname.match(/^\/hls\/([^/]+)\/remote\.m3u8$/);
+  if (hlsRemoteMatch) {
+    const assetID = decodeURIComponent(hlsRemoteMatch[1]);
+    const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
+    const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
+    if (!token) {
+      return new Response("Unauthorized: missing playback token", { status: 401, headers: corsHeaders });
+    }
+    const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+    if (!isValid) {
+      return new Response("Unauthorized: invalid or expired playback token", { status: 403, headers: corsHeaders });
     }
 
-    // 8. Universal Embed Player with Full Go Feature Parity
-    const embedMovieMatch = url.pathname.match(/^\/embed\/movie\/([^/]+)/);
-    const embedTvMatch = url.pathname.match(/^\/embed\/tv\/([^/]+)\/([^/]+)\/([^/]+)/);
-    const embedGenericMatch = url.pathname.match(/^\/embed\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)/);
+    const asset = normalizeMultiAudioAsset(assetID);
+    const record = asset ? await readMultiAudioRecord(env, asset) : null;
+    if (!multiAudioRecordUsable(record)) {
+      return new Response("Multi-audio source not ready", { status: 404, headers: corsHeaders });
+    }
 
-    if (embedMovieMatch || embedTvMatch || embedGenericMatch) {
-      let type = "movie";
-      let id = "";
-      let season = 0;
-      let episode = 0;
+    let targetUrl;
+    try {
+      targetUrl = assertSafeUpstreamUrl(record.url, {
+        requireAllowlist: true,
+        extraAllowlist: env.UPSTREAM_ALLOWLIST,
+      });
+    } catch (e) {
+      return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
+    }
+    if (!isStreamUrlUsable(targetUrl.toString(), 0)) {
+      return new Response("Upstream URL expired", { status: 410, headers: corsHeaders });
+    }
 
-      if (embedTvMatch) {
-        type = "tv";
-        id = embedTvMatch[1];
-        season = parseInt(embedTvMatch[2], 10);
-        episode = parseInt(embedTvMatch[3], 10);
-      } else if (embedGenericMatch) {
-        type = embedGenericMatch[1];
-        id = embedGenericMatch[2];
-        season = parseInt(embedGenericMatch[3], 10);
-        episode = parseInt(embedGenericMatch[4], 10);
-      } else {
-        id = embedMovieMatch[1];
+    const provider = normalizeProvider((record && record.provider) || url.searchParams.get("provider") || "bigbang");
+
+    if (targetUrl.toString().toLowerCase().includes(".mp4") || (record && record.isMP4)) {
+      const chunkUrl = `${url.origin}/stream/chunk/${codec.encode(targetUrl.toString(), provider)}`;
+      const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${chunkUrl}\n#EXT-X-ENDLIST\n`;
+      return new Response(syntheticM3U8, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, max-age=5, must-revalidate",
+        },
+      });
+    }
+    try {
+      let raw = (record && record.masterManifest) || "";
+      if (!raw) {
+        raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
       }
+      if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
+        return new Response("Upstream did not return a valid playlist", { status: 502, headers: corsHeaders });
+      }
+      const rewritten = rewriteManifest(raw, {
+        baseUrl: targetUrl.toString(),
+        assetId: assetID,
+        token,
+        origin: url.origin,
+        provider,
+        codec,
+      });
+      return new Response(rewritten, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, max-age=5, must-revalidate",
+        },
+      });
+    } catch (err) {
+      if (err instanceof UpstreamUrlError) {
+        return new Response("Upstream URL rejected", { status: 403, headers: corsHeaders });
+      }
+      return new Response("Upstream manifest unavailable", { status: 502, headers: corsHeaders });
+    }
+  }
 
-      const assetInfo = { type, id, season, episode };
-      const assetID = season > 0 ? `tv-${id}-${season}-${episode}` : `movie-${id}`;
 
-      // Automatically issue token via Go Wasm engine
-      const token = await wasmIssueToken(assetID, clientIP, 10800, secretSpec);
+  // 8a. Strict readiness for the external watchdog. Unlike /health this
+  // fails closed (503) when secrets, KV, config or the playback canary are
+  // unhealthy. `?canary=1` runs a real resolver check immediately.
+  if (url.pathname === "/health/ready" || url.pathname === "/readyz") {
+    const forceCanary =
+      url.searchParams.get("canary") === "1" || url.searchParams.get("canary") === "true";
+    const canary = forceCanary ? await runPlaybackCanary(env) : undefined;
+    const payload = await buildReadinessPayload(request, env, canary);
+    return new Response(JSON.stringify(payload, null, 2), {
+      status: payload.ready ? 200 : 503,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache, no-store",
+      },
+    });
+  }
 
-      // Resolve rich stream metadata (audio tracks, servers, subtitles).
-      // Server-side resolution can legitimately fail for providers whose APIs
-      // are origin-gated. In that case we still render the player and let the
-      // browser resolve the signed upstream URL (see clientResolve below).
-      let resolved = null;
-      const requestedProvider = url.searchParams.get("server") || url.searchParams.get("provider") || undefined;
+  // 8. Health & Telemetry Probe (for Swarm Balancer)
+  if (url.pathname === "/health" || url.pathname === "/healthz" || url.pathname === "/ping") {
+    const deep = url.searchParams.get("deep") === "1" || url.searchParams.get("deep") === "true";
+    if (deep) {
+      await loadPersistedProviderHealth(env);
+      const payload = buildDeepHealthPayload(request, env);
+      payload.canary = await loadCanaryState(env);
+      return new Response(JSON.stringify(payload, null, 2), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-cache, no-store",
+        },
+      });
+    }
+    return new Response(JSON.stringify({
+      status: "healthy",
+      service: "vidlyte-edge-proxy",
+      engine: "Native Edge Crypto Engine (Go WASM parity core available)",
+      timestamp: Date.now(),
+      colo: request.cf ? request.cf.colo : "LOCAL_EDGE",
+      country: request.cf ? request.cf.country : "N/A",
+    }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache, no-store",
+      },
+    });
+  }
+
+  // 8b. TMDB Search / Discovery / Episode Browser (Phase 4)
+  // Public metadata only: no tokens, no upstream URLs. Cached per isolate.
+  if (url.pathname === "/api/tmdb/search") {
+    const q = sanitizeText(url.searchParams.get("q") || "", 120).trim();
+    if (!q) {
+      return new Response(JSON.stringify({ success: false, error: "Missing search query" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    const requestedType = String(url.searchParams.get("type") || "multi").toLowerCase();
+    const type = requestedType === "movie" || requestedType === "tv" ? requestedType : "multi";
+    const page = Math.max(1, Math.min(10, parseInt(url.searchParams.get("page") || "1", 10) || 1));
+    const cacheKey = `search:${type}:${page}:${q.toLowerCase()}`;
+    const hit = tmdbCache.get(cacheKey);
+    let payload = hit && hit.fresh ? hit.value : null;
+    if (!payload) {
       try {
-        resolved = await resolveUpstreamSource(assetInfo, requestedProvider, {
-          env,
-          waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+        const data = await tmdbRequest(`search/${type}`, {
+          query: q,
+          page: String(page),
+          include_adult: "false",
         });
+        payload = {
+          success: true,
+          query: q,
+          type,
+          page,
+          total_pages: Math.min(Number(data.total_pages) || 1, 20),
+          total_results: Number(data.total_results) || 0,
+          results: (data.results || [])
+            .map((item) => mapTmdbSearchResult(item, type === "tv" ? "tv" : "movie"))
+            .filter(Boolean),
+        };
+        tmdbCache.set(cacheKey, payload, 10 * 60 * 1000, 60 * 60 * 1000);
       } catch (e) {
-        resolved = null;
+        return new Response(JSON.stringify({ success: false, error: "TMDB search unavailable" }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
+      },
+    });
+  }
+
+  if (url.pathname === "/api/tmdb/trending") {
+    const requestedType = String(url.searchParams.get("type") || "all").toLowerCase();
+    const type = requestedType === "movie" || requestedType === "tv" ? requestedType : "all";
+    const window = String(url.searchParams.get("window") || "week").toLowerCase() === "day" ? "day" : "week";
+    const cacheKey = `trending:${type}:${window}`;
+    const hit = tmdbCache.get(cacheKey);
+    let payload = hit && hit.fresh ? hit.value : null;
+    if (!payload) {
+      try {
+        const data = await tmdbRequest(`trending/${type}/${window}`, {});
+        payload = {
+          success: true,
+          type,
+          window,
+          results: (data.results || [])
+            .map((item) => mapTmdbSearchResult(item, "movie"))
+            .filter((item) => item && item.type)
+            .slice(0, 20),
+        };
+        tmdbCache.set(cacheKey, payload, 15 * 60 * 1000, 2 * 60 * 60 * 1000);
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: "TMDB trending unavailable" }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=900, stale-while-revalidate=3600",
+      },
+    });
+  }
+
+  const tmdbSeasonsMatch = url.pathname.match(/^\/api\/tmdb\/tv\/([^/]+)\/seasons$/);
+  if (tmdbSeasonsMatch) {
+    const tvId = sanitizeText(decodeURIComponent(tmdbSeasonsMatch[1]), 24);
+    if (!/^\d+$/.test(tvId)) {
+      return new Response(JSON.stringify({ success: false, error: "Invalid TV id" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    const cacheKey = `tv-seasons:${tvId}`;
+    const hit = tmdbCache.get(cacheKey);
+    let payload = hit && hit.fresh ? hit.value : null;
+    if (!payload) {
+      try {
+        const data = await tmdbRequest(`tv/${tvId}`, {});
+        payload = {
+          success: true,
+          id: tvId,
+          title: sanitizeText(data.name || "", 160),
+          number_of_seasons: Number(data.number_of_seasons) || 0,
+          number_of_episodes: Number(data.number_of_episodes) || 0,
+          seasons: (data.seasons || [])
+            .filter((season) => season && Number(season.season_number) > 0)
+            .map((season) => ({
+              season_number: Number(season.season_number) || 0,
+              name: sanitizeText(season.name || `Season ${season.season_number}`, 120),
+              episode_count: Number(season.episode_count) || 0,
+              air_date: String(season.air_date || "").slice(0, 10),
+              poster: season.poster_path ? `/tmdb-image/w342${season.poster_path}` : "",
+            })),
+        };
+        tmdbCache.set(cacheKey, payload, 30 * 60 * 1000, 6 * 60 * 60 * 1000);
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: "TMDB season list unavailable" }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=1800, stale-while-revalidate=7200",
+      },
+    });
+  }
+
+  const tmdbSeasonMatch = url.pathname.match(/^\/api\/tmdb\/tv\/([^/]+)\/season\/([^/]+)$/);
+  if (tmdbSeasonMatch) {
+    const tvId = sanitizeText(decodeURIComponent(tmdbSeasonMatch[1]), 24);
+    const seasonNumber = parseInt(decodeURIComponent(tmdbSeasonMatch[2]), 10);
+    if (!/^\d+$/.test(tvId) || !Number.isFinite(seasonNumber) || seasonNumber < 0) {
+      return new Response(JSON.stringify({ success: false, error: "Invalid season request" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    const cacheKey = `tv-season:${tvId}:${seasonNumber}`;
+    const hit = tmdbCache.get(cacheKey);
+    let payload = hit && hit.fresh ? hit.value : null;
+    if (!payload) {
+      try {
+        const data = await tmdbRequest(`tv/${tvId}/season/${seasonNumber}`, {});
+        payload = {
+          success: true,
+          id: tvId,
+          season_number: seasonNumber,
+          name: sanitizeText(data.name || `Season ${seasonNumber}`, 120),
+          episodes: (data.episodes || []).map((episode) => ({
+            episode_number: Number(episode.episode_number) || 0,
+            season_number: Number(episode.season_number) || seasonNumber,
+            name: sanitizeText(episode.name || "", 160),
+            overview: sanitizeText(episode.overview, 600),
+            air_date: String(episode.air_date || "").slice(0, 10),
+            runtime: Number(episode.runtime) || 0,
+            rating: episode.vote_average ? Number(episode.vote_average).toFixed(1) : "",
+            still: episode.still_path ? `/tmdb-image/w300${episode.still_path}` : "",
+          })),
+        };
+        tmdbCache.set(cacheKey, payload, 30 * 60 * 1000, 6 * 60 * 60 * 1000);
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: "TMDB season unavailable" }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=1800, stale-while-revalidate=7200",
+      },
+    });
+  }
+
+  // 8d. Lightweight engagement telemetry (Phase 6). No PII, bounded counters.
+  if (url.pathname === "/api/telemetry/engagement" && request.method === "POST") {
+    const body = await request.json().catch(() => null);
+    const eventName = String((body && body.event) || "").toLowerCase();
+    if (!ENGAGEMENT_EVENTS.has(eventName)) {
+      return new Response(JSON.stringify({ success: false, error: "Unknown engagement event" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+    const assetId = sanitizeText((body && (body.assetId || body.asset_id)) || "", 80);
+    recordEngagement(eventName, assetId);
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  }
+
+  // 3. Playback Session Token Issuance
+  if (url.pathname === "/v1/playback-sessions" && request.method === "POST") {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const assetID = body.asset_id || url.searchParams.get("asset_id");
+      if (!assetID) {
+        return new Response(JSON.stringify({ error: "missing required asset_id" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
       }
 
-      const assetNorm = normalizeMultiAudioAsset(
-        type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
-      );
-      if (
-        ctx &&
-        typeof ctx.waitUntil === "function" &&
-        env &&
-        env.GITHUB_DISPATCH_TOKEN &&
-        (!resolved || !resolved.audioTracks || resolved.audioTracks.length <= 1)
-      ) {
-        ctx.waitUntil(dispatchMultiAudioResolution(env, assetNorm));
-      }
+      const ttlSec = parseInt(body.ttl || "900", 10);
+      const token = await wasmIssueToken(assetID, clientIP, ttlSec, secretSpec);
 
-      const serverStreamUsable = Boolean(
-        resolved && resolved.streamUrl && isStreamUrlUsable(resolved.streamUrl)
-      );
+      return new Response(JSON.stringify({
+        token,
+        asset_id: assetID,
+        client_ip: clientIP,
+        expires_in: ttlSec,
+        stream_url: `${url.origin}/hls/${encodeURIComponent(assetID)}/master.m3u8?token=${token}`,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+  }
 
-      // Sanitize audio tracks for player popover menu
-      const sanitizedAudio = ((resolved && resolved.audioTracks) || [])
-        .map((trk, index) => {
-          if (!trk) return null;
-          let trackUri = "";
+  // 4. Dynamic Server Switching Source API (/api/source/:type/:id)
+  const apiSourceMovie = url.pathname.match(/^\/api\/source\/([^/]+)\/([^/]+)$/);
+  const apiSourceTV = url.pathname.match(/^\/api\/source\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)$/);
+
+  if (apiSourceMovie || apiSourceTV) {
+    const type = apiSourceMovie ? apiSourceMovie[1] : apiSourceTV[1];
+    const id = apiSourceMovie ? apiSourceMovie[2] : apiSourceTV[2];
+    const season = apiSourceTV ? parseInt(apiSourceTV[3], 10) : 0;
+    const episode = apiSourceTV ? parseInt(apiSourceTV[4], 10) : 0;
+    const providerParam = String(url.searchParams.get("provider") || "").trim();
+    const provider = providerParam ? normalizeProvider(providerParam) : "";
+    const assetInfo = { type, id, season, episode };
+    const assetID = season > 0 ? `tv-${id}-${season}-${episode}` : `movie-${id}`;
+
+    // Optional token verification: when a token is supplied it must be valid
+    // for this exact asset, otherwise we issue a fresh one.
+    let token = url.searchParams.get("token") || request.headers.get("X-Playback-Token") || "";
+    if (token) {
+      const valid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+      if (!valid) token = "";
+    }
+    if (!token) {
+      token = await wasmIssueToken(assetID, clientIP, 10800, secretSpec);
+    }
+
+    const resolved = await resolveUpstreamSource(assetInfo, provider, {
+      env,
+      waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+    });
+    if (!resolved || !resolved.streamUrl || !isStreamUrlUsable(resolved.streamUrl)) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "No usable stream source is currently available for this title.",
+      }), {
+        status: 404,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+      });
+    }
+
+    const encodedAsset = encodeURIComponent(assetID);
+    const encodedToken = encodeURIComponent(token);
+    const masterUrl = `${url.origin}/hls/${encodedAsset}/master.m3u8?token=${encodedToken}`;
+
+    const sanitizeAudio = (tracks) =>
+      (Array.isArray(tracks) ? tracks : [])
+        .map((track, index) => {
+          if (!track) return null;
+          const rawUri = track.uri || track.url || "";
           let safeUri = "";
-          if (trk.uri) {
+          if (rawUri) {
             try {
-              safeUri = assertSafeUpstreamUrl(trk.uri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+              safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
             } catch (e) {
               safeUri = "";
             }
           }
-          const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
-          if (safeUri) {
-            trackUri = isTrkMp4
-              ? `${url.origin}/stream/chunk/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "kisskh")}`
-              : `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "bigbang")}?token=${encodeURIComponent(token)}`;
-          }
-          if (!trackUri && resolved && resolved.isMP4 && resolved.streamUrl) {
-            trackUri = `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}`;
-          }
+          const isTrkMp4 = Boolean(track.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
+          const gatewayUri = safeUri
+            ? (isTrkMp4
+              ? `${url.origin}/stream/chunk/${codec.encode(safeUri, track.provider || resolved.provider)}`
+              : `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`)
+            : (resolved.isMP4 ? `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}` : masterUrl);
           return {
-            name: sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${index + 1}`),
-            label: sanitizeSubtitleLabel(trk.label || trk.name || `Audio ${index + 1}`),
-            language: String(trk.language || "eng").slice(0, 16),
-            default: trk.default || false,
+            id: Number(track.id) || index,
+            name: sanitizeSubtitleLabel(track.name || track.label || `Audio ${index + 1}`),
+            label: sanitizeSubtitleLabel(track.label || track.name || `Audio ${index + 1}`),
+            language: String(track.language || "eng").slice(0, 16),
+            default: Boolean(track.default) || index === 0,
             isMP4: isTrkMp4,
-            uri: trackUri,
-            proxiedUri: trackUri,
-            proxied_uri: trackUri,
+            uri: gatewayUri,
+            proxied_uri: gatewayUri,
+            proxiedUri: gatewayUri,
             provider: "vidlyte",
           };
         })
-        .filter((track) => track && track.uri);
+        .filter(Boolean);
 
-      // Sanitize subtitle tracks (strip "Subtitles •", server branding, and deduplicate)
-      const seenSubLabels = new Set();
-      const sanitizedSubs = [];
-      ((resolved && resolved.subtitles) || []).forEach((sub) => {
+    const sanitizeSubtitles = (subs) => {
+      const seen = new Set();
+      const out = [];
+      (Array.isArray(subs) ? subs : []).forEach((sub) => {
         if (!sub) return;
-        const rawSubUrl = sub.url || sub.uri || "";
-        if (!rawSubUrl) return;
-        let safeSubUrl = "";
+        const rawUri = sub.url || sub.uri || "";
+        if (!rawUri) return;
+        let safeUri = "";
         try {
-          safeSubUrl = assertSafeUpstreamUrl(rawSubUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+          safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
         } catch (e) {
           return;
         }
-        const opaque = codec.encode(safeSubUrl, (resolved && resolved.provider) || "bigbang");
-        const proxiedSub = isPlaylistUrl(safeSubUrl)
-          ? `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${opaque}?token=${encodeURIComponent(token)}`
-          : `${url.origin}/stream/chunk/${opaque}`;
-        const cleanLabel = sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles");
-        const labelKey = cleanLabel.toLowerCase();
-        if (!seenSubLabels.has(labelKey)) {
-          seenSubLabels.add(labelKey);
-          sanitizedSubs.push({
-            label: cleanLabel,
-            language: String(sub.language || "en").slice(0, 16),
-            uri: proxiedSub,
-            proxiedUri: proxiedSub,
-            provider: "vidlyte",
-          });
-        }
+        const label = sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles");
+        const key = label.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        const playlist = isPlaylistUrl(safeUri);
+        const gatewayUri = playlist
+          ? `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, sub.provider || resolved.provider)}?token=${encodedToken}`
+          : `${url.origin}/stream/chunk/${codec.encode(safeUri, sub.provider || resolved.provider)}`;
+        out.push({
+          label,
+          language: String(sub.language || "en").slice(0, 16),
+          uri: gatewayUri,
+          proxied_uri: gatewayUri,
+          proxiedUri: gatewayUri,
+          provider: "vidlyte",
+        });
       });
 
       // Strict English Subtitle Policy: English subtitles must be default when available
-      const engSubIdx = sanitizedSubs.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
+      const engSubIdx = out.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
       if (engSubIdx > 0) {
-        const engSub = sanitizedSubs.splice(engSubIdx, 1)[0];
+        const engSub = out.splice(engSubIdx, 1)[0];
         engSub.default = true;
-        sanitizedSubs.unshift(engSub);
+        out.unshift(engSub);
       } else if (engSubIdx === 0) {
-        sanitizedSubs[0].default = true;
+        out[0].default = true;
       }
 
-      // Sanitize quality variants
-      const sanitizedVariants = ((resolved && resolved.variants) || [])
-        .map((v) => {
-          if (!v) return null;
-          const rawUri = v.playlistUri || v.uri || v.url || "";
+      return out;
+    };
+
+    const sanitizeVariants = (variants) =>
+      (Array.isArray(variants) ? variants : [])
+        .map((variant) => {
+          if (!variant) return null;
+          const rawUri = variant.playlistUri || variant.uri || variant.url || "";
           if (!rawUri) return null;
           let safeUri = "";
           try {
@@ -6322,139 +5993,510 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           } catch (e) {
             return null;
           }
-          const opaque = codec.encode(safeUri, v.provider || (resolved && resolved.provider) || "bigbang");
-          const proxiedVar = `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${opaque}?token=${encodeURIComponent(token)}`;
+          const gatewayUri = `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, variant.provider || resolved.provider)}?token=${encodedToken}`;
           return {
-            resolution: String(v.resolution || "Auto").slice(0, 24),
-            bandwidth: Number(v.bandwidth) || 0,
-            playlistUri: proxiedVar,
-            proxiedUri: proxiedVar,
+            resolution: String(variant.resolution || "Auto").slice(0, 24),
+            bandwidth: Number(variant.bandwidth) || 0,
+            playlistUri: gatewayUri,
+            proxied_uri: gatewayUri,
             provider: "vidlyte",
           };
         })
         .filter(Boolean);
 
-      const isMP4 = Boolean(
-        resolved && (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl || ""))
-      );
-      let streamUrl = "";
-      if (serverStreamUsable) {
-        if (isMP4) {
-          let safeMp4;
-          try {
-            safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-          } catch (e) {
-            safeMp4 = resolved.streamUrl;
-          }
-          streamUrl = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
-        } else {
-          streamUrl = `${url.origin}/hls/${encodeURIComponent(assetID)}/master.m3u8?token=${encodeURIComponent(token)}`;
-        }
-      }
+    const audioTracks = sanitizeAudio(resolved.audioTracks);
+    const subtitles = sanitizeSubtitles(resolved.subtitles);
+    const variants = sanitizeVariants(resolved.variants);
 
-      const domainCheck = recordDomainImpression(request, assetID);
-      if (domainCheck.blocked) {
-        return new Response(`<!DOCTYPE html><html><body style="background:#0b0b0d;color:#ef4444;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:20px;"><h2>Access Suspended</h2><p style="color:#94a3b8;">Embedding on domain <b>${escapeHTML(domainCheck.host)}</b> has been blocked by administrator.</p></div></body></html>`, {
+    let streamUrl;
+    if (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl)) {
+      try {
+        const safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+        streamUrl = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: "Resolved stream URL was rejected." }), {
           status: 403,
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
         });
       }
+    } else {
+      streamUrl = masterUrl;
+    }
 
-      const bootstrap = {
-        assetId: assetID,
-        streamUrl: streamUrl,
-        mediaType: type === "tv" ? "tv" : "movie",
-        tmdbId: id,
-        season: season,
-        episode: episode,
-        title: (resolved && resolved.title) || "",
-        kicker: type === "tv" ? `Season ${season} · Episode ${episode}` : "",
-        year: (resolved && resolved.year) || "",
-        rating: (resolved && resolved.rating) || "",
-        genres: (resolved && resolved.genres) || [],
-        overview: (resolved && resolved.overview) || "",
-        logoUrl: (resolved && resolved.logoUrl) || "",
-        poster: (resolved && (resolved.posterUrl || resolved.backdropUrl)) || "",
-        backdropUrl: (resolved && resolved.backdropUrl) || "",
-        posterUrl: (resolved && resolved.posterUrl) || "",
-        autoplay: true,
-        muted: false,
-        token: token,
-        playbackToken: token,
-        provider: (resolved && resolved.provider) || "",
-        currentServer: (resolved && resolved.provider) || "",
-        isMP4: isMP4,
-        clientResolve: {
-          enabled: false,
-          bootUrl: "",
-          sourceUrl: "",
-          parent: "",
-          gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
-          token: token,
-          provider: (resolved && resolved.provider) || "orion",
-          // External resolver (GitHub Actions) for viewers whose browser or
-          // network blocks vidrift. Disabled when the dispatch token is absent, or for direct MP4 / KissKH streams.
-          remote: {
-            enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN) && !isMP4 && (resolved && resolved.provider !== "kisskh"),
-            resolve: `${url.origin}/api/multi-audio/resolve`,
-            status: `${url.origin}/api/multi-audio/status`,
-            gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,
-            asset: normalizeMultiAudioAsset(
-              type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
-            ),
-          },
-        },
-        servers: (runtimeConfig.upstreams || [])
-          .filter((upstream) => upstream && upstream.enabled !== false)
-          .sort((a, b) => (Number(a.priority) || 99) - (Number(b.priority) || 99))
-          .map((upstream) => ({
-            id: normalizeProvider(upstream.id),
-            label: providerLabel(normalizeProvider(upstream.id)),
-          })),
-        subtitles: sanitizedSubs,
-        audioTracks: sanitizedAudio,
-        variants: sanitizedVariants,
-        adConfig: {
-          enabled: runtimeConfig.monetization.popunders_enabled,
-          smartlinkUrl: runtimeConfig.monetization.smartlink_url,
-          maxPopunders: runtimeConfig.monetization.max_popunders_per_session,
-          cooldownMins: runtimeConfig.monetization.cooldown_minutes,
-          triggerEvent: runtimeConfig.monetization.trigger_event,
-          antiAdblockEnabled: runtimeConfig.monetization.anti_adblock_enabled,
-          antiAdblockStrictBrave: runtimeConfig.monetization.anti_adblock_strict_brave,
-          antiAdblockMessage: runtimeConfig.monetization.anti_adblock_message,
-        },
-        serverBranding: runtimeConfig.server_branding,
-      };
+    return new Response(JSON.stringify({
+      success: true,
+      stream_url: streamUrl,
+      streams: [{
+        url: streamUrl,
+        provider: resolved.provider,
+        label: providerLabel(resolved.provider),
+        is_mp4: Boolean(resolved.isMP4),
+      }],
+      provider: resolved.provider,
+      title: resolved.title,
+      audio_tracks: audioTracks,
+      subtitles,
+      variants,
+      token,
+      asset_id: assetID,
+      expires_in: 10800,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+    });
+  }
 
-      const renderedHTML = renderFullPlayerHTML(bootstrap, cspNonce);
+  // 5. HLS Master Manifest Gateway
+  // The upstream URL is never accepted from the client: it is always resolved
+  // server-side from the signed asset identifier.
+  const hlsMasterMatch = url.pathname.match(/^\/hls\/([^/]+)\/master\.m3u8$/);
+  if (hlsMasterMatch) {
+    const assetID = decodeURIComponent(hlsMasterMatch[1]);
+    const token = url.searchParams.get("token") || request.headers.get("X-Playback-Token");
 
-      return new Response(renderedHTML, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-        },
+    if (!token) {
+      return new Response("Unauthorized: missing playback token", {
+        status: 401,
+        headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    // 8e. Unknown API routes return JSON, never the portal HTML.
-    if (url.pathname.startsWith("/api/")) {
-      return new Response(JSON.stringify({ success: false, error: "Not found" }), {
+    const isValid = await wasmVerifyToken(assetID, clientIP, token, secretSpec, { bindClientIP });
+    if (!isValid) {
+      return new Response("Unauthorized: invalid or expired playback token", {
+        status: 403,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const assetInfo = parseAssetInfo(assetID);
+    const resolved = await resolveUpstreamSource(assetInfo, url.searchParams.get("provider") || undefined, {
+      env,
+      waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+    });
+
+    if (!resolved || !resolved.streamUrl || !isStreamUrlUsable(resolved.streamUrl)) {
+      return new Response("Stream not available or upstream resolving failed.", {
         status: 404,
         headers: {
-          "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "no-store",
+          "Content-Type": "text/plain",
         },
       });
     }
 
-    // 9. Root Portal / Landing / Live Tester
-    return new Response(renderPortalHTML(url.origin, cspNonce), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+    // 5a. Direct MP4 Single-Chunk RFC 8216 HLS Manifest
+    if (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl)) {
+      let safeMp4;
+      try {
+        safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+      } catch (e) {
+        return new Response("Upstream source rejected", {
+          status: 403,
+          headers: { "Access-Control-Allow-Origin": "*" },
+        });
+      }
+      const proxiedMP4 = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
+      const syntheticM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:7200.0,\n${proxiedMP4}\n#EXT-X-ENDLIST\n`;
+
+      return new Response(syntheticM3U8, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, no-cache, no-store",
+        },
+      });
+    }
+
+    // 5b. Fetch raw manifest (cached by upstream URL only) or use synthesized manifest,
+    // and rewrite it per request with the requester's own token.
+    try {
+      let rawM3U8 = resolved.masterManifest || "";
+      let effectiveBaseUrl = resolved.streamUrl;
+      if (!rawM3U8) {
+        try {
+          rawM3U8 = await fetchRawManifest(resolved.streamUrl, resolved.provider, request, env);
+        } catch (fetchErr) {
+          if (resolved.backupStreamUrl && resolved.backupStreamUrl !== resolved.streamUrl) {
+            rawM3U8 = await fetchRawManifest(resolved.backupStreamUrl, resolved.provider, request, env);
+            effectiveBaseUrl = resolved.backupStreamUrl;
+          } else {
+            throw fetchErr;
+          }
+        }
+      }
+      const rewrittenM3U8 = rewriteManifest(rawM3U8, {
+        baseUrl: effectiveBaseUrl,
+        assetId: assetID,
+        token,
+        origin: url.origin,
+        provider: resolved.provider,
+        codec,
+      });
+
+      return new Response(rewrittenM3U8, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "private, max-age=5, must-revalidate",
+        },
+      });
+    } catch (err) {
+      // The cached or last-good source may point at a provider whose manifest
+      // just died. Walk the remaining providers once before returning an
+      // error, so a stale cache entry cannot take the title down.
+      try {
+        const fallback = await resolveFallbackSource(assetInfo, resolved.provider, env);
+        if (fallback && fallback.streamUrl && isStreamUrlUsable(fallback.streamUrl)) {
+          let fallbackManifest = fallback.masterManifest || "";
+          if (!fallbackManifest) {
+            fallbackManifest = await fetchRawManifest(fallback.streamUrl, fallback.provider, request, env);
+          }
+          const rewrittenFallback = rewriteManifest(fallbackManifest, {
+            baseUrl: fallback.streamUrl,
+            assetId: assetID,
+            token,
+            origin: url.origin,
+            provider: fallback.provider,
+            codec,
+          });
+          return new Response(rewrittenFallback, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/vnd.apple.mpegurl",
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "private, max-age=5, must-revalidate",
+            },
+          });
+        }
+      } catch (fallbackErr) { }
+
+      const status = err instanceof UpstreamUrlError ? 403 : 502;
+      return new Response(`Gateway error: ${status === 403 ? "upstream rejected" : "manifest fetch failed"} (${err.message})`, {
+        status,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+  }
+
+  // 6. Legacy raw-resource gateway removed: it exposed upstream URLs in the
+  // request path. All sub-resources now use opaque /res/:token routes.
+
+  // 7. Edge Segment & Stream Proxy with Swarm Failover & Byte-Range Streaming
+  // Legacy open-proxy surface: restricted to safe, allowlisted upstream hosts.
+  if (url.pathname === "/proxy") {
+    const rawTarget = url.searchParams.get("url");
+    if (!rawTarget) {
+      return new Response("Missing target 'url' parameter.", {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    let targetUrl;
+    try {
+      targetUrl = assertSafeUpstreamUrl(rawTarget, {
+        requireAllowlist: true,
+        extraAllowlist: env.UPSTREAM_ALLOWLIST,
+      });
+    } catch (e) {
+      return new Response("Target URL rejected.", {
+        status: 403,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const provider = normalizeProvider(url.searchParams.get("provider") || "framextv");
+    return proxyUpstream(request, targetUrl, provider, env, codec);
+  }
+
+  // 8. Universal Embed Player with Full Go Feature Parity
+  const embedMovieMatch = url.pathname.match(/^\/embed\/movie\/([^/]+)/);
+  const embedTvMatch = url.pathname.match(/^\/embed\/tv\/([^/]+)\/([^/]+)\/([^/]+)/);
+  const embedGenericMatch = url.pathname.match(/^\/embed\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)/);
+
+  if (embedMovieMatch || embedTvMatch || embedGenericMatch) {
+    let type = "movie";
+    let id = "";
+    let season = 0;
+    let episode = 0;
+
+    if (embedTvMatch) {
+      type = "tv";
+      id = embedTvMatch[1];
+      season = parseInt(embedTvMatch[2], 10);
+      episode = parseInt(embedTvMatch[3], 10);
+    } else if (embedGenericMatch) {
+      type = embedGenericMatch[1];
+      id = embedGenericMatch[2];
+      season = parseInt(embedGenericMatch[3], 10);
+      episode = parseInt(embedGenericMatch[4], 10);
+    } else {
+      id = embedMovieMatch[1];
+    }
+
+    const assetInfo = { type, id, season, episode };
+    const assetID = season > 0 ? `tv-${id}-${season}-${episode}` : `movie-${id}`;
+
+    // Automatically issue token via Go Wasm engine
+    const token = await wasmIssueToken(assetID, clientIP, 10800, secretSpec);
+
+    // Resolve rich stream metadata (audio tracks, servers, subtitles).
+    // Server-side resolution can legitimately fail for providers whose APIs
+    // are origin-gated. In that case we still render the player and let the
+    // browser resolve the signed upstream URL (see clientResolve below).
+    let resolved = null;
+    const requestedProvider = url.searchParams.get("server") || url.searchParams.get("provider") || undefined;
+    try {
+      resolved = await resolveUpstreamSource(assetInfo, requestedProvider, {
+        env,
+        waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+      });
+    } catch (e) {
+      resolved = null;
+    }
+
+    const assetNorm = normalizeMultiAudioAsset(
+      type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
+    );
+    if (
+      ctx &&
+      typeof ctx.waitUntil === "function" &&
+      env &&
+      env.GITHUB_DISPATCH_TOKEN &&
+      (!resolved || !resolved.audioTracks || resolved.audioTracks.length <= 1)
+    ) {
+      ctx.waitUntil(dispatchMultiAudioResolution(env, assetNorm));
+    }
+
+    const serverStreamUsable = Boolean(
+      resolved && resolved.streamUrl && isStreamUrlUsable(resolved.streamUrl)
+    );
+
+    // Sanitize audio tracks for player popover menu
+    const sanitizedAudio = ((resolved && resolved.audioTracks) || [])
+      .map((trk, index) => {
+        if (!trk) return null;
+        let trackUri = "";
+        let safeUri = "";
+        if (trk.uri) {
+          try {
+            safeUri = assertSafeUpstreamUrl(trk.uri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+          } catch (e) {
+            safeUri = "";
+          }
+        }
+        const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
+        if (safeUri) {
+          trackUri = isTrkMp4
+            ? `${url.origin}/stream/chunk/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "kisskh")}`
+            : `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${codec.encode(safeUri, trk.provider || (resolved && resolved.provider) || "bigbang")}?token=${encodeURIComponent(token)}`;
+        }
+        if (!trackUri && resolved && resolved.isMP4 && resolved.streamUrl) {
+          trackUri = `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}`;
+        }
+        return {
+          name: sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${index + 1}`),
+          label: sanitizeSubtitleLabel(trk.label || trk.name || `Audio ${index + 1}`),
+          language: String(trk.language || "eng").slice(0, 16),
+          default: trk.default || false,
+          isMP4: isTrkMp4,
+          uri: trackUri,
+          proxiedUri: trackUri,
+          proxied_uri: trackUri,
+          provider: "vidlyte",
+        };
+      })
+      .filter((track) => track && track.uri);
+
+    // Sanitize subtitle tracks (strip "Subtitles •", server branding, and deduplicate)
+    const seenSubLabels = new Set();
+    const sanitizedSubs = [];
+    ((resolved && resolved.subtitles) || []).forEach((sub) => {
+      if (!sub) return;
+      const rawSubUrl = sub.url || sub.uri || "";
+      if (!rawSubUrl) return;
+      let safeSubUrl = "";
+      try {
+        safeSubUrl = assertSafeUpstreamUrl(rawSubUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+      } catch (e) {
+        return;
+      }
+      const opaque = codec.encode(safeSubUrl, (resolved && resolved.provider) || "bigbang");
+      const proxiedSub = isPlaylistUrl(safeSubUrl)
+        ? `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${opaque}?token=${encodeURIComponent(token)}`
+        : `${url.origin}/stream/chunk/${opaque}`;
+      const cleanLabel = sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles");
+      const labelKey = cleanLabel.toLowerCase();
+      if (!seenSubLabels.has(labelKey)) {
+        seenSubLabels.add(labelKey);
+        sanitizedSubs.push({
+          label: cleanLabel,
+          language: String(sub.language || "en").slice(0, 16),
+          uri: proxiedSub,
+          proxiedUri: proxiedSub,
+          provider: "vidlyte",
+        });
+      }
     });
+
+    // Strict English Subtitle Policy: English subtitles must be default when available
+    const engSubIdx = sanitizedSubs.findIndex((s) => s && (s.language === "en" || /english/i.test(s.label)));
+    if (engSubIdx > 0) {
+      const engSub = sanitizedSubs.splice(engSubIdx, 1)[0];
+      engSub.default = true;
+      sanitizedSubs.unshift(engSub);
+    } else if (engSubIdx === 0) {
+      sanitizedSubs[0].default = true;
+    }
+
+    // Sanitize quality variants
+    const sanitizedVariants = ((resolved && resolved.variants) || [])
+      .map((v) => {
+        if (!v) return null;
+        const rawUri = v.playlistUri || v.uri || v.url || "";
+        if (!rawUri) return null;
+        let safeUri = "";
+        try {
+          safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+        } catch (e) {
+          return null;
+        }
+        const opaque = codec.encode(safeUri, v.provider || (resolved && resolved.provider) || "bigbang");
+        const proxiedVar = `${url.origin}/hls/${encodeURIComponent(assetID)}/res/${opaque}?token=${encodeURIComponent(token)}`;
+        return {
+          resolution: String(v.resolution || "Auto").slice(0, 24),
+          bandwidth: Number(v.bandwidth) || 0,
+          playlistUri: proxiedVar,
+          proxiedUri: proxiedVar,
+          provider: "vidlyte",
+        };
+      })
+      .filter(Boolean);
+
+    const isMP4 = Boolean(
+      resolved && (resolved.isMP4 || /\.mp4(\?|$)/i.test(resolved.streamUrl || ""))
+    );
+    let streamUrl = "";
+    if (serverStreamUsable) {
+      if (isMP4) {
+        let safeMp4;
+        try {
+          safeMp4 = assertSafeUpstreamUrl(resolved.streamUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+        } catch (e) {
+          safeMp4 = resolved.streamUrl;
+        }
+        streamUrl = `${url.origin}/stream/chunk/${codec.encode(safeMp4, resolved.provider)}`;
+      } else {
+        streamUrl = `${url.origin}/hls/${encodeURIComponent(assetID)}/master.m3u8?token=${encodeURIComponent(token)}`;
+      }
+    }
+
+    const domainCheck = recordDomainImpression(request, assetID);
+    if (domainCheck.blocked) {
+      return new Response(`<!DOCTYPE html><html><body style="background:#0b0b0d;color:#ef4444;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:20px;"><h2>Access Suspended</h2><p style="color:#94a3b8;">Embedding on domain <b>${escapeHTML(domainCheck.host)}</b> has been blocked by administrator.</p></div></body></html>`, {
+        status: 403,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    const bootstrap = {
+      assetId: assetID,
+      streamUrl: streamUrl,
+      mediaType: type === "tv" ? "tv" : "movie",
+      tmdbId: id,
+      season: season,
+      episode: episode,
+      title: (resolved && resolved.title) || "",
+      kicker: type === "tv" ? `Season ${season} · Episode ${episode}` : "",
+      year: (resolved && resolved.year) || "",
+      rating: (resolved && resolved.rating) || "",
+      genres: (resolved && resolved.genres) || [],
+      overview: (resolved && resolved.overview) || "",
+      logoUrl: (resolved && resolved.logoUrl) || "",
+      poster: (resolved && (resolved.posterUrl || resolved.backdropUrl)) || "",
+      backdropUrl: (resolved && resolved.backdropUrl) || "",
+      posterUrl: (resolved && resolved.posterUrl) || "",
+      autoplay: true,
+      muted: false,
+      token: token,
+      playbackToken: token,
+      provider: (resolved && resolved.provider) || "",
+      currentServer: (resolved && resolved.provider) || "",
+      isMP4: isMP4,
+      clientResolve: {
+        enabled: false,
+        bootUrl: "",
+        sourceUrl: "",
+        parent: "",
+        gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/client.m3u8`,
+        token: token,
+        provider: (resolved && resolved.provider) || "orion",
+        // External resolver (GitHub Actions) for viewers whose browser or
+        // network blocks vidrift. Disabled when the dispatch token is absent, or for direct MP4 / KissKH streams.
+        remote: {
+          enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN) && !isMP4 && (resolved && resolved.provider !== "kisskh"),
+          resolve: `${url.origin}/api/multi-audio/resolve`,
+          status: `${url.origin}/api/multi-audio/status`,
+          gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,
+          asset: normalizeMultiAudioAsset(
+            type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
+          ),
+        },
+      },
+      servers: (runtimeConfig.upstreams || [])
+        .filter((upstream) => upstream && upstream.enabled !== false)
+        .sort((a, b) => (Number(a.priority) || 99) - (Number(b.priority) || 99))
+        .map((upstream) => ({
+          id: normalizeProvider(upstream.id),
+          label: providerLabel(normalizeProvider(upstream.id)),
+        })),
+      subtitles: sanitizedSubs,
+      audioTracks: sanitizedAudio,
+      variants: sanitizedVariants,
+      adConfig: {
+        enabled: runtimeConfig.monetization.popunders_enabled,
+        smartlinkUrl: runtimeConfig.monetization.smartlink_url,
+        maxPopunders: runtimeConfig.monetization.max_popunders_per_session,
+        cooldownMins: runtimeConfig.monetization.cooldown_minutes,
+        triggerEvent: runtimeConfig.monetization.trigger_event,
+        antiAdblockEnabled: runtimeConfig.monetization.anti_adblock_enabled,
+        antiAdblockStrictBrave: runtimeConfig.monetization.anti_adblock_strict_brave,
+        antiAdblockMessage: runtimeConfig.monetization.anti_adblock_message,
+      },
+      serverBranding: runtimeConfig.server_branding,
+    };
+
+    const renderedHTML = renderFullPlayerHTML(bootstrap, cspNonce);
+
+    return new Response(renderedHTML, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  }
+
+  // 8e. Unknown API routes return JSON, never the portal HTML.
+  if (url.pathname.startsWith("/api/")) {
+    return new Response(JSON.stringify({ success: false, error: "Not found" }), {
+      status: 404,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  // 9. Root Portal / Landing / Live Tester
+  return new Response(renderPortalHTML(url.origin, cspNonce), {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 /**
@@ -6483,7 +6525,7 @@ async function fetchRawManifest(upstreamUrl, provider, request, env) {
         rawManifestCache.set(safeUrl, { body: kvVal, expiresAt: now + 86400 * 1000 });
         return kvVal;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const cacheKeyUrl = `${safeUrl}::manifest`;
@@ -6712,7 +6754,7 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
           },
         });
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   if (cache && isMediaChunk && !rangeHeader && request.method === "GET") {
@@ -6857,7 +6899,7 @@ async function fetchWithSwarmFallback(targetURL, init = {}, env) {
 
   try {
     await ensureRuntimeConfig(env);
-  } catch (e) {}
+  } catch (e) { }
 
   const nodes = orderSwarmNodes(collectSwarmNodes(env)).slice(0, 5);
   if (nodes.length === 0) {
@@ -6894,7 +6936,7 @@ async function fetchWithSwarmFallback(targetURL, init = {}, env) {
       });
       try {
         await response.arrayBuffer();
-      } catch (e) {}
+      } catch (e) { }
     } catch (e) {
       const previous = swarmState.get(node) || { failures: 0, latencyMs: 0 };
       const failures = (previous.failures || 0) + 1;
