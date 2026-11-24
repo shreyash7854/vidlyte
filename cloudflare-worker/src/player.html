@@ -1498,7 +1498,7 @@
       border-radius: 4px;
       opacity: 0;
       transition: bottom 0.25s var(--ease), opacity 0.15s var(--ease);
-      z-index: 15;
+      z-index: 45;
       pointer-events: none;
       white-space: pre-line;
       unicode-bidi: plaintext;
@@ -4737,6 +4737,7 @@
       }
 
       function parseCues(text) {
+        if (!text) return [];
         var lines = text.replace(/\r/g, '').split('\n');
         var cues = [];
         for (var i = 0; i < lines.length; i++) {
@@ -4747,7 +4748,8 @@
           var cueLines = [];
           var j = i + 1;
           while (j < lines.length && lines[j].trim()) {
-            cueLines.push(lines[j].replace(/<[^>]+>/g, ''));
+            var clean = lines[j].replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+            if (clean) cueLines.push(clean);
             j++;
           }
           if (isFinite(start) && isFinite(end) && cueLines.length) {
@@ -4759,12 +4761,14 @@
 
       function cleanSubtitleLabel(label) {
         if (!label) return '';
-        return label
+        var cleaned = label
           .replace(/^Subtitles\s*[•·\-–—]\s*/i, '')
           .replace(/\s*[-·]\s*Server\s*\d+.*/gi, '')
           .replace(/\s*\([^)]*Server[^)]*\)/gi, '')
           .replace(/\s*\(\d+\)$/, '')
-          .trim() || label;
+          .replace(/\s+Subtitles$/i, '')
+          .trim();
+        return cleaned || label;
       }
 
       // Pick English when available, otherwise fall back to the first track.
@@ -4839,13 +4843,38 @@
           });
       }
 
+      function findSubtitleEntry(subKey) {
+        if (!subKey || subKey === 'off') return null;
+        if (subtitleElements[subKey]) return subtitleElements[subKey];
+        var cleanTarget = cleanSubtitleLabel(subKey).toLowerCase().replace(/\s*subtitles?$/i, '').trim();
+        var keys = Object.keys(subtitleElements);
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          var cleanK = cleanSubtitleLabel(k).toLowerCase().replace(/\s*subtitles?$/i, '').trim();
+          if (cleanK === cleanTarget || k.toLowerCase() === subKey.toLowerCase()) {
+            return subtitleElements[k];
+          }
+        }
+        for (var j = 0; j < keys.length; j++) {
+          var entry = subtitleElements[keys[j]];
+          if (entry && entry.item) {
+            var lang = String(entry.item.language || entry.item.lang || '').toLowerCase();
+            var lbl = cleanSubtitleLabel(entry.item.label || '').toLowerCase().replace(/\s*subtitles?$/i, '').trim();
+            if (lang === cleanTarget || lbl === cleanTarget || lbl.indexOf(cleanTarget) >= 0 || cleanTarget.indexOf(lbl) >= 0) {
+              return entry;
+            }
+          }
+        }
+        return null;
+      }
+
       function updateCaptions() {
         if (!captionOverlay) return;
         if (currentSub === 'off') {
           captionOverlay.classList.remove('show');
           return;
         }
-        var entry = subtitleElements[currentSub];
+        var entry = findSubtitleEntry(currentSub);
         if (!entry || !entry.cues) {
           captionOverlay.classList.remove('show');
           return;
@@ -5192,6 +5221,9 @@
         var label = name.replace(/^Server\s*\d+\s*[·•-]\s*/i, '').replace(/^[^\s·•-]+\s*[·•-]\s*/i, '').trim();
         if (!label) label = name;
         label = label.replace(/\s*\([^)]*Server[^)]*\)/gi, '').trim();
+        if (/^original\s*\/\s*dual\s*audio$/i.test(label)) {
+          label = 'Original Audio';
+        }
         return label;
       }
 
@@ -5266,20 +5298,26 @@
               sheetAudioTracksList.appendChild(shItem);
             }
           });
+          appendMultiAudioReloadItem();
           return;
         }
 
         // 2. Fallback to bootstrap / Orion multi-stream audioTracks
         if (config.audioTracks && config.audioTracks.length > 1) {
-          var displayList = config.audioTracks.map(function (trk, idx) {
+          var seenNames = new Set();
+          var displayList = [];
+          config.audioTracks.forEach(function (trk, idx) {
             var cleanName = cleanAudioLabel(trk.name || trk.label || trk.language, trk.default, trk.language);
-            return {
+            var norm = cleanName.toLowerCase();
+            if (seenNames.has(norm)) return;
+            seenNames.add(norm);
+            displayList.push({
               id: idx,
               name: cleanName,
               lang: trk.language,
               isDefault: !!trk.default,
               uri: trk.proxied_uri || trk.proxiedUri || trk.uri
-            };
+            });
           });
 
           displayList.forEach(function (item) {
@@ -5309,6 +5347,7 @@
               sheetAudioTracksList.appendChild(shItem);
             }
           });
+          appendMultiAudioReloadItem();
           return;
         }
 

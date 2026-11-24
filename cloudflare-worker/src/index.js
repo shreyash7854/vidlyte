@@ -192,12 +192,14 @@ function normalizeProvider(value) {
 }
 
 function sanitizeSubtitleLabel(rawLabel) {
-  return String(rawLabel || "Subtitles")
+  const cleaned = String(rawLabel || "Subtitles")
     .replace(/^Subtitles\s*[•·\-–—]\s*/i, "")
     .replace(/\s*[-·]\s*Server\s*\d+.*/gi, "")
     .replace(/\s*\([^)]*Server[^)]*\)/gi, "")
     .replace(/\s*\(\d+\)$/, "")
-    .trim() || "Subtitles";
+    .replace(/\s+Subtitles$/i, "")
+    .trim();
+  return cleaned || "Subtitles";
 }
 
 function cloneValue(value) {
@@ -1531,8 +1533,8 @@ async function resolve2EmbedSource(assetInfo) {
     variants: [],
     audioTracks: [
       {
-        name: "Original / Dual Audio",
-        label: "Original / Dual Audio",
+        name: "Original Audio",
+        label: "Original Audio",
         language: "orig",
         default: true,
         uri: embed2.masterUrl,
@@ -1624,21 +1626,33 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
 
 function isAsianContent(assetInfo, tmdbMeta) {
   const idStr = String(assetInfo?.id || "");
-  if (idStr === "122206" || idStr === "93846" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[idStr])) return true;
+  if (idStr === "122206" || idStr === "93846" || idStr === "303745" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[idStr])) return true;
   if (!tmdbMeta) {
     const showCacheKey = `tmdb_show_${assetInfo?.type || "tv"}_${idStr}`;
     const cachedShow = tmdbCache.get(showCacheKey);
     if (cachedShow) {
       const l = String(cachedShow.original_language || "").toLowerCase();
       if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(l)) return true;
-      if (Array.isArray(cachedShow.origin_country) && cachedShow.origin_country.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN", "PH"].includes(String(c).toUpperCase()))) return true;
+      const origin = [
+        ...(Array.isArray(cachedShow.origin_country) ? cachedShow.origin_country : []),
+        ...(Array.isArray(cachedShow.originCountry) ? cachedShow.originCountry : []),
+      ].map((c) => String(c).toUpperCase());
+      if (origin.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN", "PH"].includes(c))) return true;
     }
     return false;
   }
-  const lang = String(tmdbMeta.originalLanguage || "").toLowerCase();
+  const lang = String(tmdbMeta.originalLanguage || tmdbMeta.original_language || "").toLowerCase();
   if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(lang)) return true;
-  if (Array.isArray(tmdbMeta.originCountry) && tmdbMeta.originCountry.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN", "PH"].includes(String(c).toUpperCase()))) return true;
-  if (Array.isArray(tmdbMeta.spokenLanguages) && tmdbMeta.spokenLanguages.some((s) => ["zh", "ko", "ja", "th", "vi", "tl"].includes(String(s).toLowerCase()))) return true;
+  const countries = [
+    ...(Array.isArray(tmdbMeta.originCountry) ? tmdbMeta.originCountry : []),
+    ...(Array.isArray(tmdbMeta.origin_country) ? tmdbMeta.origin_country : []),
+  ].map((c) => String(c).toUpperCase());
+  if (countries.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN", "PH"].includes(c))) return true;
+  const spoken = [
+    ...(Array.isArray(tmdbMeta.spokenLanguages) ? tmdbMeta.spokenLanguages : []),
+    ...(Array.isArray(tmdbMeta.spoken_languages) ? tmdbMeta.spoken_languages : []),
+  ].map((s) => String(s && (s.iso_639_1 || s)).toLowerCase());
+  if (spoken.some((s) => ["zh", "ko", "ja", "th", "vi", "tl"].includes(s))) return true;
   if (Array.isArray(tmdbMeta.genres) && tmdbMeta.genres.some((g) => /asian|k-drama|c-drama|anime/i.test(String(g)))) return true;
   return false;
 }
@@ -1942,7 +1956,7 @@ function audioTrackKey(track) {
 function isOriginalLikeAudio(track) {
   const name = String((track && (track.name || track.label)) || "").trim();
   const lang = String((track && track.language) || "").toLowerCase();
-  return /^(original|orig|multi[\s-]?audio|default)$/i.test(name) || ["orig", "und", "original"].includes(lang);
+  return /^(original(\s+audio)?|original\s*\/\s*dual\s*audio|orig|multi[\s-]?audio|default)$/i.test(name) || ["orig", "und", "original"].includes(lang);
 }
 
 function mergeAudioTrackLists(baseTracks, extraTracks) {
@@ -2258,7 +2272,8 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       const hasEnglishSub = (result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
       const needsSubs = !result.subtitles || result.subtitles.length === 0 || !hasEnglishSub;
 
-      if ((needsSubs || needsAudio) && chosen.provider !== "kisskh") {
+      // KissKH is strictly for Asian content
+      if (isAsian && (needsSubs || needsAudio) && chosen.provider !== "kisskh") {
         try {
           const kissRes = await resolveKissKH({
             assetInfo,
@@ -6383,39 +6398,58 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     const encodedToken = encodeURIComponent(token);
     const masterUrl = `${url.origin}/hls/${encodedAsset}/master.m3u8?token=${encodedToken}`;
 
-    const sanitizeAudio = (tracks) =>
-      (Array.isArray(tracks) ? tracks : [])
-        .map((track, index) => {
-          if (!track) return null;
-          const rawUri = track.uri || track.url || "";
-          let safeUri = "";
-          if (rawUri) {
-            try {
-              safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-            } catch (e) {
-              safeUri = "";
-            }
+    const sanitizeAudio = (tracks) => {
+      const seen = new Set();
+      let seenOrig = false;
+      const out = [];
+      const list = Array.isArray(tracks) ? tracks : [];
+      list.forEach((track, index) => {
+        if (!track) return;
+        const rawName = String(track.name || track.label || `Audio ${index + 1}`).trim();
+        const rawUri = track.uri || track.url || "";
+        let safeUri = "";
+        if (rawUri) {
+          try {
+            safeUri = assertSafeUpstreamUrl(rawUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+          } catch (e) {
+            safeUri = "";
           }
-          const isTrkMp4 = Boolean(track.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
-          const gatewayUri = safeUri
-            ? (isTrkMp4
-              ? `${url.origin}/stream/chunk/${codec.encode(safeUri, track.provider || resolved.provider)}`
-              : `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`)
-            : (resolved.isMP4 ? `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}` : masterUrl);
-          return {
-            id: Number(track.id) || index,
-            name: sanitizeSubtitleLabel(track.name || track.label || `Audio ${index + 1}`),
-            label: sanitizeSubtitleLabel(track.label || track.name || `Audio ${index + 1}`),
-            language: String(track.language || "eng").slice(0, 16),
-            default: Boolean(track.default) || index === 0,
-            isMP4: isTrkMp4,
-            uri: gatewayUri,
-            proxied_uri: gatewayUri,
-            proxiedUri: gatewayUri,
-            provider: "vidlyte",
-          };
-        })
-        .filter(Boolean);
+        }
+        const isTrkMp4 = Boolean(track.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || (resolved && resolved.isMP4));
+        const gatewayUri = safeUri
+          ? (isTrkMp4
+            ? `${url.origin}/stream/chunk/${codec.encode(safeUri, track.provider || resolved.provider)}`
+            : `${url.origin}/hls/${encodedAsset}/res/${codec.encode(safeUri, track.provider || resolved.provider)}?token=${encodedToken}`)
+          : (resolved.isMP4 ? `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}` : masterUrl);
+
+        let cleanName = sanitizeSubtitleLabel(rawName);
+        if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) {
+          cleanName = "Original Audio";
+        }
+        const isOrig = isOriginalLikeAudio({ name: cleanName, language: track.language });
+        if (isOrig) {
+          if (seenOrig) return;
+          seenOrig = true;
+        }
+        const key = cleanName.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        out.push({
+          id: Number(track.id) || index,
+          name: cleanName,
+          label: cleanName,
+          language: String(track.language || "eng").slice(0, 16),
+          default: Boolean(track.default) || out.length === 0,
+          isMP4: isTrkMp4,
+          uri: gatewayUri,
+          proxied_uri: gatewayUri,
+          proxiedUri: gatewayUri,
+          provider: "vidlyte",
+        });
+      });
+      return out;
+    };
 
     const sanitizeSubtitles = (subs) => {
       const seen = new Set();
