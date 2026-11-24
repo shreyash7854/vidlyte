@@ -183,11 +183,11 @@ async function enrichWithKissKH(candidate, target, started) {
     if (!title) return candidate;
 
     const isAsian = ["ko", "ja", "zh", "th"].includes(origLang);
-    const hasOriginal = (candidate.audioTracks || []).some((t) =>
-      /original|korean|japanese|chinese/i.test(t.name || t.label || "")
+    const hasAuthenticAsian = (candidate.audioTracks || []).some((t) =>
+      /korean|japanese|chinese|thai|^ko$|^zh$|^ja$|^th$/i.test(t.name || t.label || t.language || "")
     );
     const needsAudio =
-      !candidate.audioTracks || candidate.audioTracks.length <= 1 || (isAsian && !hasOriginal);
+      !candidate.audioTracks || candidate.audioTracks.length <= 1 || (isAsian && !hasAuthenticAsian);
     const needsSubs = !candidate.subtitles || candidate.subtitles.length === 0;
 
     if (needsSubs || needsAudio) {
@@ -202,7 +202,7 @@ async function enrichWithKissKH(candidate, target, started) {
         if (needsSubs && Array.isArray(kiss.subtitles) && kiss.subtitles.length > 0) {
           candidate.subtitles = kiss.subtitles;
         }
-        if (needsAudio && Array.isArray(kiss.audioTracks) && kiss.audioTracks.length > 0 && !kiss.isMP4) {
+        if (needsAudio && Array.isArray(kiss.audioTracks) && kiss.audioTracks.length > 0) {
           const kissTrack = {
             id: candidate.audioTracks.length,
             name: kiss.audioTracks[0].name,
@@ -215,7 +215,14 @@ async function enrichWithKissKH(candidate, target, started) {
             provider: "kisskh",
             isMP4: kiss.isMP4,
           };
-          (candidate.audioTracks || []).forEach((t) => (t.default = false));
+          (candidate.audioTracks || []).forEach((t) => {
+            t.default = false;
+            if (isAsian && /^original$/i.test(t.name || t.label || "")) {
+              t.name = "English (Dub)";
+              t.label = t.name;
+              t.language = "eng";
+            }
+          });
           candidate.audioTracks = [kissTrack, ...(candidate.audioTracks || [])];
           candidate.audio = candidate.audioTracks.length;
           if (candidate.masterManifest) {
@@ -229,6 +236,126 @@ async function enrichWithKissKH(candidate, target, started) {
     }
   } catch (err) {}
   if (started) candidate.latency_ms = Date.now() - started;
+  return candidate;
+}
+
+async function enrichWithFrameX(candidate, target) {
+  if (!candidate || !candidate.ok) return candidate;
+  try {
+    const cluster = [
+      "https://api.framextv.xyz",
+      "https://api.framextv.cc",
+      "https://api.framextv.tech",
+    ];
+    for (const host of cluster) {
+      try {
+        const endpoint = target.type === "tv"
+          ? `${host}/api/stream?type=tv&id=${target.id}&season=${target.season}&episode=${target.episode}`
+          : `${host}/api/stream?type=movie&id=${target.id}`;
+        const resp = await fetchWithTimeout(endpoint, {
+          headers: {
+            Referer: "https://framextv.cc/",
+            Origin: "https://framextv.cc",
+            "User-Agent": BROWSER_HEADERS["User-Agent"],
+          },
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => null);
+        if (!resp || !resp.ok) continue;
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.success || !Array.isArray(data.sources) || data.sources.length === 0) continue;
+        const hls = data.sources.find((s) => s.type === "hls" || s.url?.includes(".m3u8")) || data.sources[0];
+        if (!hls || !hls.url) continue;
+
+        const hasHindi = (candidate.audioTracks || []).some((t) => /hindi|hin/i.test(t.name || t.label || t.language || ""));
+        if (!hasHindi) {
+          const hindiTrack = {
+            id: (candidate.audioTracks || []).length,
+            name: "Hindi",
+            label: "Hindi",
+            language: "hin",
+            default: false,
+            uri: hls.url,
+            proxiedUri: hls.url,
+            proxied_uri: hls.url,
+            provider: "framextv",
+            isMP4: hls.type === "mp4" || /\.mp4(\?|$)/i.test(hls.url),
+          };
+          candidate.audioTracks = [...(candidate.audioTracks || []), hindiTrack];
+          candidate.audio = candidate.audioTracks.length;
+        }
+
+        if (Array.isArray(data.subtitles) && data.subtitles.length > 0) {
+          const currentSubs = candidate.subtitles || [];
+          data.subtitles.forEach((sub) => {
+            if (!sub || !sub.url) return;
+            const subLang = sub.language || sub.lang || "und";
+            const subLabel = `${sub.label || subLang || "Subtitles"} Subtitles`;
+            if (!currentSubs.some((cs) => cs.language === subLang || cs.label === subLabel)) {
+              currentSubs.push({
+                language: subLang,
+                label: subLabel,
+                url: sub.url,
+                uri: sub.url,
+                provider: "framextv",
+              });
+            }
+          });
+          candidate.subtitles = currentSubs;
+        }
+        break;
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return candidate;
+}
+
+async function enrichWithVidrift(candidate, target) {
+  if (!candidate || !candidate.ok) return candidate;
+  try {
+    const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
+    for (const host of BOOT_HOSTS) {
+      try {
+        const bootRes = await fetchWithTimeout(`${host}/api/boot/${target.type}/${target.id}${suffix}`, {
+          headers: HEADER_PROFILES.browser,
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+        if (!bootRes || !bootRes.ok) continue;
+        const boot = await bootRes.json().catch(() => null);
+        if (boot && boot.meta && Array.isArray(boot.meta.orionStreams)) {
+          const currentTracks = candidate.audioTracks || [];
+          boot.meta.orionStreams.forEach((s) => {
+            if (!s || !s.url) return;
+            const cleanName = s.name ? s.name.replace(/^Orion\s*[·•-]\s*/i, "").trim() : "";
+            if (!cleanName || /^original$/i.test(cleanName)) return;
+            const langCode = langMap[cleanName.toLowerCase()] || "und";
+            const alreadyHas = currentTracks.some((t) => {
+              const tLang = String(t.language || "").toLowerCase();
+              const tName = String(t.name || t.label || "").toLowerCase();
+              return (langCode && tLang && langCode === tLang) || (tName && tName === cleanName.toLowerCase());
+            });
+            if (!alreadyHas) {
+              const fullStreamUrl = s.url.startsWith("http") ? s.url : `${host}${s.url}`;
+              currentTracks.push({
+                id: currentTracks.length,
+                name: cleanName,
+                label: cleanName,
+                language: langCode,
+                default: false,
+                uri: fullStreamUrl,
+                proxiedUri: fullStreamUrl,
+                proxied_uri: fullStreamUrl,
+                provider: "orion",
+                isMP4: false,
+              });
+            }
+          });
+          candidate.audioTracks = currentTracks;
+          candidate.audio = currentTracks.length;
+          break;
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
   return candidate;
 }
 
@@ -283,10 +410,32 @@ export async function resolveAsset(target) {
   const started = Date.now();
   const failures = [];
 
-  // For known Asian drama / target 122206 or 93846, fast-path resolve through KissKH directly
-  if (String(target.id) === "122206" || String(target.id) === "93846" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[String(target.id)])) {
+  // For known Asian drama / target 122206 or 93846, or Asian content, fast-path resolve through KissKH directly and enrich with FrameX & Vidrift
+  let isAsianTitle = String(target.id) === "122206" || String(target.id) === "93846" || String(target.id) === "221851" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[String(target.id)]);
+  if (!isAsianTitle) {
+    try {
+      const tmdbRes = await fetchWithTimeout(
+        `https://api.themoviedb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
+        { signal: AbortSignal.timeout(3000) }
+      ).catch(() => null);
+      if (tmdbRes && tmdbRes.ok) {
+        const tmdbData = await tmdbRes.json().catch(() => null);
+        if (tmdbData) {
+          const l = String(tmdbData.original_language || "").toLowerCase();
+          const countries = Array.isArray(tmdbData.origin_country) ? tmdbData.origin_country.map((c) => String(c).toUpperCase()) : [];
+          if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(l) || countries.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN"].includes(c))) {
+            isAsianTitle = true;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (isAsianTitle) {
     const directKiss = await fallbackToKissKH(target, started, failures);
     if (directKiss && directKiss.url) {
+      await enrichWithFrameX(directKiss, target);
+      await enrichWithVidrift(directKiss, target);
       return directKiss;
     }
   }
@@ -603,16 +752,10 @@ export async function resolveAsset(target) {
 
   if (directCandidates.length > 0) {
     directCandidates.sort((a, b) => b.audio - a.audio);
-    const chosen = directCandidates[0];
-    if (chosen.audio > 1) {
-      return await enrichWithKissKH(chosen, target, started);
-    }
-    // If chosen direct candidate is single-audio, try KissKH fallback before settling for single audio
-    const kissFallback = await fallbackToKissKH(target, started, failures);
-    if (kissFallback && kissFallback.url) {
-      return kissFallback;
-    }
-    return await enrichWithKissKH(chosen, target, started);
+    let chosen = directCandidates[0];
+    chosen = await enrichWithKissKH(chosen, target, started);
+    chosen = await enrichWithFrameX(chosen, target);
+    return chosen;
   }
 
   const token = boot.meta.playbackToken;
@@ -800,7 +943,11 @@ export async function resolveAsset(target) {
   const audio = (master.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
   if (audio < 2) {
     const kissFallback = await fallbackToKissKH(target, started, failures);
-    if (kissFallback) return kissFallback;
+    if (kissFallback) {
+      await enrichWithFrameX(kissFallback, target);
+      await enrichWithVidrift(kissFallback, target);
+      return kissFallback;
+    }
     return { ok: false, error: `single_audio_${audio}`, latency_ms: Date.now() - started };
   }
 

@@ -6160,37 +6160,58 @@
           })
           .then(function (payload) {
             remoteResolvePending = null;
-            if (!payload || payload.state === 'single') {
-              setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
-              if (!currentStreamUrl) {
-                startInitialPlayback(buildRemoteGatewayUrl(remote));
-              }
-              return null;
-            }
-            if (payload.state === 'failed') {
-              setClientResolveStatus({ remoteState: 'failed', remoteError: payload.error || 'no_result' });
+            if (!payload || payload.state === 'failed') {
+              setClientResolveStatus({ remoteState: 'failed', remoteError: (payload && payload.error) || 'no_result' });
               if (!currentStreamUrl) {
                 spinner.style.display = 'none';
               }
               return null;
             }
-            return verifyClientGateway(buildRemoteGatewayUrl(remote)).then(function (result) {
-              if (!result || result.audioCount <= 1) {
-                setClientResolveStatus({ remoteState: 'failed', remoteError: 'single_audio' });
-                if (!currentStreamUrl && result && result.url) {
-                  startInitialPlayback(result.url);
-                }
-                return null;
-              }
+
+            var remoteUrl = buildRemoteGatewayUrl(remote);
+            return verifyClientGateway(remoteUrl).then(function (result) {
+              var tracks = (payload && payload.audioTracks) || (result && result.audioTracks) || [];
+              var totalAudio = tracks.length > 0 ? tracks.length : (result ? result.audioCount : (payload ? payload.audio : 1));
+
               setClientResolveStatus({
                 remoteState: 'ready',
                 remoteError: '',
-                audioCount: result.audioCount
+                audioCount: totalAudio
               });
-              if (!currentStreamUrl && result && result.url) {
-                startInitialPlayback(result.url);
+
+              var finalStream = {
+                url: remoteUrl,
+                audioCount: totalAudio,
+                audioTracks: tracks,
+                subtitles: (payload && payload.subtitles) || null
+              };
+
+              if (!currentStreamUrl) {
+                startInitialPlayback(remoteUrl);
               }
-              return result;
+              return finalStream;
+            }).catch(function () {
+              if (payload && (payload.state === 'ready' || payload.ok === true)) {
+                var tracks = payload.audioTracks || [];
+                var totalAudio = tracks.length > 0 ? tracks.length : (payload.audio || 1);
+                setClientResolveStatus({
+                  remoteState: 'ready',
+                  remoteError: '',
+                  audioCount: totalAudio
+                });
+                var finalStream = {
+                  url: remoteUrl,
+                  audioCount: totalAudio,
+                  audioTracks: tracks,
+                  subtitles: payload.subtitles || null
+                };
+                if (!currentStreamUrl) {
+                  startInitialPlayback(remoteUrl);
+                }
+                return finalStream;
+              }
+              setClientResolveStatus({ remoteState: 'failed', remoteError: 'gateway_failed' });
+              return null;
             });
           })
           .catch(function (error) {
@@ -6212,54 +6233,84 @@
         return pending;
       }
 
-      // Swap to the multi-audio master once it is verified. Returns true only
-      // when the player actually moved to a stream with more than one track.
+      // Swap to the multi-audio master once it is verified or append newly resolved tracks.
       function applyClientUpgrade(clientStream, manual) {
-        if (!clientStream || !clientStream.url) return false;
-        if (!currentStreamUrl) {
+        if (!clientStream || (!clientStream.url && (!clientStream.audioTracks || clientStream.audioTracks.length === 0))) return false;
+        if (!currentStreamUrl && clientStream.url) {
           startInitialPlayback(clientStream.url);
           return true;
         }
-        if (clientStream.audioCount <= 1) return false;
-        if (currentStreamUrl === clientStream.url) return true;
 
-        var isActivelyPlaying = (!video.paused && video.currentTime > 0.5) || (video.currentTime > 2);
-
-        // Seamlessly attach upgraded subtitles if the initial stream lacked them
-        if (clientStream.subtitles && clientStream.subtitles.length > 0 && (!config.subtitles || config.subtitles.length === 0)) {
-          config.subtitles = clientStream.subtitles;
-          var enIdx = findEnglishSubtitleIndex(config.subtitles);
-          var defTrack = config.subtitles[enIdx >= 0 ? enIdx : 0];
-          if (defTrack) {
-            currentSub = cleanSubtitleLabel(defTrack.label || defTrack.language || 'English');
-            loadSubtitle(defTrack, true);
+        // Seamlessly attach upgraded subtitles if the initial stream lacked them or merge extra subtitles
+        if (clientStream.subtitles && clientStream.subtitles.length > 0) {
+          var curSubs = config.subtitles || [];
+          var addedSub = false;
+          clientStream.subtitles.forEach(function (cs) {
+            var exists = curSubs.some(function (es) {
+              return (es.language && cs.language && es.language.toLowerCase() === cs.language.toLowerCase()) ||
+                     (es.label && cs.label && es.label.toLowerCase() === cs.label.toLowerCase());
+            });
+            if (!exists) {
+              curSubs.push(cs);
+              addedSub = true;
+            }
+          });
+          if (addedSub || curSubs.length === 0) {
+            config.subtitles = curSubs;
             buildSubtitlesList();
           }
         }
 
-        // If video is actively playing and this is an automatic background upgrade,
-        // NEVER tear down HLS or break active playback! Keep video playing smoothly.
-        if (!manual && isActivelyPlaying) {
-          pendingUpgradedStream = clientStream;
-          config.upgradedMasterUrl = clientStream.url;
-          if (clientStream.audioTracks && clientStream.audioTracks.length > 0) {
-            config.audioTracks = clientStream.audioTracks;
-          }
-          setupAudioTracks();
+        // Merge & Append newly resolved audio tracks!
+        var existingTracks = config.audioTracks || [];
+        var incomingTracks = clientStream.audioTracks || [];
+        var mergedTracks = existingTracks.slice();
+        var newlyAdded = 0;
 
-          var count = clientStream.audioCount || (clientStream.audioTracks ? clientStream.audioTracks.length : 2);
-          showPlayerToast('Audio dubs available (' + count + ' tracks)', 'Audio tracks', function () {
+        incomingTracks.forEach(function (nt) {
+          if (!nt) return;
+          var ntLang = String(nt.language || '').toLowerCase().trim();
+          var ntName = String(nt.name || nt.label || '').toLowerCase().trim();
+          var exists = mergedTracks.some(function (et) {
+            var etLang = String(et.language || '').toLowerCase().trim();
+            var etName = String(et.name || et.label || '').toLowerCase().trim();
+            return (ntLang && etLang && ntLang === etLang) ||
+                   (ntName && etName && ntName === etName);
+          });
+          if (!exists) {
+            var cloned = Object.assign({}, nt);
+            cloned.id = mergedTracks.length;
+            cloned.default = false;
+            mergedTracks.push(cloned);
+            newlyAdded++;
+          }
+        });
+
+        if (newlyAdded > 0) {
+          config.audioTracks = mergedTracks;
+          setupAudioTracks();
+          showPlayerToast('Audio dubs available (' + mergedTracks.length + ' tracks)', 'Audio tracks', function () {
             openAudioPopover();
           }, 8000, 'bottom-right');
           return true;
         }
 
-        loadNewStream(clientStream.url);
-        setupAudioTracks();
-        if (autoplay && video.paused) {
-          video.play().catch(function () { });
+        if (incomingTracks.length > 1 && existingTracks.length <= 1) {
+          config.audioTracks = incomingTracks;
+          setupAudioTracks();
+          showPlayerToast('Audio dubs available (' + incomingTracks.length + ' tracks)', 'Audio tracks', function () {
+            openAudioPopover();
+          }, 8000, 'bottom-right');
+          return true;
         }
-        return true;
+
+        if (clientStream.url && currentStreamUrl !== clientStream.url && (!video.currentTime || video.paused || video.readyState === 0)) {
+          loadNewStream(clientStream.url);
+          setupAudioTracks();
+          return true;
+        }
+
+        return false;
       }
 
       var multiAudioRetryInFlight = false;
@@ -6284,15 +6335,15 @@
             multiAudioRetryInFlight = false;
             if (manual) {
               if (applied) {
-                showPlayerToast('Multi-audio ready · ' + clientResolveStatus.audioCount + ' tracks', null, null, 4000);
-              } else if (clientResolveStatus.remoteState === 'failed' && clientResolveStatus.remoteError === 'single_audio') {
-                showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
+                showPlayerToast('Multi-audio ready · ' + (config.audioTracks ? config.audioTracks.length : clientResolveStatus.audioCount) + ' tracks', null, null, 4000);
+              } else if (clientResolveStatus.remoteState === 'ready' || (config.audioTracks && config.audioTracks.length > 1)) {
+                showPlayerToast('Audio tracks up to date (' + (config.audioTracks ? config.audioTracks.length : 1) + ' available)', null, null, 4000);
                 setupAudioTracks();
-              } else if (clientResolveStatus.state === 'single' && !remoteResolverConfig()) {
-                showPlayerToast('This title only has one audio track upstream.', null, null, 6000);
+              } else if (clientResolveStatus.remoteState === 'failed' && clientResolveStatus.remoteError === 'single_audio') {
+                showPlayerToast('Upstream providers report single audio track.', null, null, 6000);
                 setupAudioTracks();
               } else {
-                showPlayerToast('Multi-audio reload failed. Try again in a moment.', null, null, 6000);
+                showPlayerToast('Multi-audio check finished.', null, null, 4000);
                 setupAudioTracks();
               }
             }
@@ -6359,7 +6410,7 @@
 
       var remote = remoteResolverConfig();
       var hasClientDirect = Boolean(config.clientResolve && config.clientResolve.enabled && config.clientResolve.bootUrl);
-      var canUpgradeMultiAudio = Boolean(hasClientDirect || remote) && !config.isMP4;
+      var canUpgradeMultiAudio = Boolean(hasClientDirect || remote);
 
       if (!canUpgradeMultiAudio) {
         if (streamUrl) {

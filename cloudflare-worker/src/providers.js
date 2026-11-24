@@ -475,13 +475,13 @@ export async function resolveAsianFlix({
 
     const subtitles = entry.subtitleUrl
       ? [
-          {
-            label: `${entry.language || "English"} Subtitles`,
-            language: languageCode,
-            url: entry.subtitleUrl,
-            provider: "asianflix",
-          },
-        ]
+        {
+          label: `${entry.language || "English"} Subtitles`,
+          language: languageCode,
+          url: entry.subtitleUrl,
+          provider: "asianflix",
+        },
+      ]
       : [];
 
     return {
@@ -551,9 +551,9 @@ function createKissKHCipher() {
     }
   }
 
-  const _0x6b7b62 = [[0x4f6bdaa3,-0x61d07350,0x7f5e722d,-0x61210cec,0x536620a8,-0x32b653e8,-0x4de821cb,0x2cc92d21,-0x73412227,0x41f771c1,-0xc1f500c,-0x20d67d2b,0x2dadde47,0x6c5aaf86,-0x6045ff8e,0x409382a7,-0x6417db2,-0x6a1bd238,0xa5e2dba,0x4acdaf1d,0x54c72698,-0x3edcf4b0,-0x3482d916,-0x7e4f7609,-0x6c9fb16c,0x524345c4,-0x66c19cd2,0x188eead9,-0x351884c7,-0x675bc103,0x19a5dd3,0x1914b70a,-0x4fb1e313,0x28ea2210,0x29707fc3,0x3064c8c9,-0x17593e17,-0x3fb31c07,-0x16c363c6,-0x26a7ab0d,-0x4b793324,0x74ca2f25,-0x62094ce1,0x44aee7ec]];
+  const _0x6b7b62 = [[0x4f6bdaa3, -0x61d07350, 0x7f5e722d, -0x61210cec, 0x536620a8, -0x32b653e8, -0x4de821cb, 0x2cc92d21, -0x73412227, 0x41f771c1, -0xc1f500c, -0x20d67d2b, 0x2dadde47, 0x6c5aaf86, -0x6045ff8e, 0x409382a7, -0x6417db2, -0x6a1bd238, 0xa5e2dba, 0x4acdaf1d, 0x54c72698, -0x3edcf4b0, -0x3482d916, -0x7e4f7609, -0x6c9fb16c, 0x524345c4, -0x66c19cd2, 0x188eead9, -0x351884c7, -0x675bc103, 0x19a5dd3, 0x1914b70a, -0x4fb1e313, 0x28ea2210, 0x29707fc3, 0x3064c8c9, -0x17593e17, -0x3fb31c07, -0x16c363c6, -0x26a7ab0d, -0x4b793324, 0x74ca2f25, -0x62094ce1, 0x44aee7ec]];
 
-  (function() {
+  (function () {
     var _0x43be17 = [], _0x42a74d = [], _0xb4bd43 = [], _0x25f5e6 = [], _0x5d5f77 = [], _0x2de806 = [];
     for (let _0x21abca = 0; _0x21abca < 0x100; _0x21abca++) {
       _0x2de806[_0x21abca] = _0x21abca < 0x80 ? _0x21abca << 1 : (_0x21abca << 1) ^ 0x11b;
@@ -587,12 +587,12 @@ function createKissKHCipher() {
       _0x13a508[_0x5baaa1 + _0x5b9637] ^= _0x21ba3f[_0x5b9637];
     }
     for (var _0x116405 = 10,
-         _0x4d3231 = _0x13a508[_0x5baaa1] ^ _0x458390[0],
-         _0x1f3a4f = _0x13a508[_0x5baaa1 + 1] ^ _0x458390[1],
-         _0x598b52 = _0x13a508[_0x5baaa1 + 2] ^ _0x458390[2],
-         _0x2265d4 = _0x13a508[_0x5baaa1 + 3] ^ _0x458390[3],
-         _0xcb5ec5 = 4,
-         _0x5e2dc7 = 1; _0x5e2dc7 < _0x116405; _0x5e2dc7++) {
+      _0x4d3231 = _0x13a508[_0x5baaa1] ^ _0x458390[0],
+      _0x1f3a4f = _0x13a508[_0x5baaa1 + 1] ^ _0x458390[1],
+      _0x598b52 = _0x13a508[_0x5baaa1 + 2] ^ _0x458390[2],
+      _0x2265d4 = _0x13a508[_0x5baaa1 + 3] ^ _0x458390[3],
+      _0xcb5ec5 = 4,
+      _0x5e2dc7 = 1; _0x5e2dc7 < _0x116405; _0x5e2dc7++) {
       var _0x34de78 = _0x32aa26[_0x4d3231 >>> 24] ^ _0x53dadc[(_0x1f3a4f >>> 16) & 0xff] ^ _0x4810d1[(_0x598b52 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x2265d4] ^ _0x458390[_0xcb5ec5++];
       var _0x42d7a0 = _0x32aa26[_0x1f3a4f >>> 24] ^ _0x53dadc[(_0x598b52 >>> 16) & 0xff] ^ _0x4810d1[(_0x2265d4 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x4d3231] ^ _0x458390[_0xcb5ec5++];
       var _0x4a8c71 = _0x32aa26[_0x598b52 >>> 24] ^ _0x53dadc[(_0x2265d4 >>> 16) & 0xff] ^ _0x4810d1[(_0x4d3231 >>> 8) & 0xff] ^ _0x3c0f1b[0xff & _0x1f3a4f] ^ _0x458390[_0xcb5ec5++];
@@ -606,7 +606,7 @@ function createKissKHCipher() {
     _0x13a508[_0x5baaa1] = _0x34de78; _0x13a508[_0x5baaa1 + 1] = _0x42d7a0; _0x13a508[_0x5baaa1 + 2] = _0x4a8c71; _0x13a508[_0x5baaa1 + 3] = _0x2265d4;
   }
 
-  return function(_0x3be93d, _0x3e48ea, _0xbf2c16, _0x576527, _0x454b79, _0x361753, _0x3cdffa, _0x2fa7de, _0xdaf7bd, _0x59e242, _0x5674ce) {
+  return function (_0x3be93d, _0x3e48ea, _0xbf2c16, _0x576527, _0x454b79, _0x361753, _0x3cdffa, _0x2fa7de, _0xdaf7bd, _0x59e242, _0x5674ce) {
     const _0x5989e7 = ['', _0x3be93d, _0x3e48ea, 'mg3c3b04ba', _0xbf2c16, _0x576527, _0x454b79, _0x12af79(_0x361753), _0x12af79((_0x3cdffa || '').toLowerCase()), _0x12af79(_0x2fa7de), _0xdaf7bd, _0x59e242, _0x5674ce, '00', ''];
     _0x5989e7.splice(1, 0, _0x70dbf4(_0x5989e7.join('|')));
     const _0x278f64 = _0x29e11d(_0x5989e7.join('|'));
@@ -632,6 +632,7 @@ const KISSKH_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 export const KISSKH_DRAMA_OVERRIDES = {
   "122206": { id: 1886, title: "The Rational Life" },
   "93846": { id: 28, title: "The King: Eternal Monarch" },
+  "221851": { id: 8409, title: "Marry My Husband" },
 };
 
 /**
@@ -720,7 +721,10 @@ export async function resolveKissKH({
       if (!matchedDrama && title && title !== cleanTitle) {
         const normTitle = normalizeTitleForMatch(title);
         matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title) === normTitle) ||
-                       searchData.find((item) => item && titleMatches(item.title, title, year));
+          searchData.find((item) => item && titleMatches(item.title, title, year));
+      }
+      if (!matchedDrama) {
+        matchedDrama = searchData.find((item) => item && normalizeTitleForMatch(item.title).startsWith(normClean));
       }
     }
 
@@ -764,7 +768,7 @@ export async function resolveKissKH({
   }
 
   const episode = drama.episodes.find((e) => Number(e.number) === reqEpNum) ||
-                  (reqEpNum === 1 ? (drama.episodes.find((e) => Number(e.number) === 1) || drama.episodes[drama.episodes.length - 1]) : null);
+    (reqEpNum === 1 ? (drama.episodes.find((e) => Number(e.number) === 1) || drama.episodes[drama.episodes.length - 1]) : null);
   if (!episode || !episode.id) return null;
 
   const videoKey = generateKissKHKey(episode.id, false);
