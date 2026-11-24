@@ -398,7 +398,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
 
     if (env) {
       const maRecord = await readMultiAudioRecord(env, asset);
-      if (multiAudioRecordUsable(maRecord) && (maRecord.url || maRecord.masterManifest)) {
+      const isKissRecord = maRecord && (maRecord.provider === "kisskh" || maRecord.via === "kisskh");
+      if (!isKissRecord && multiAudioRecordUsable(maRecord) && (maRecord.url || maRecord.masterManifest)) {
         if (maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
           const resObj = {
             streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
@@ -1595,13 +1596,23 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
     let kissTitle = (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || "";
     const override = assetInfo && assetInfo.id && KISSKH_DRAMA_OVERRIDES[String(assetInfo.id)];
     if (!kissTitle && override) kissTitle = override.title;
-    return resolveKissKH({
+    const tryResolve = () => resolveKissKH({
       assetInfo,
       title: kissTitle,
       year: (tmdbMeta && tmdbMeta.year) || "",
       originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
+      kv: env && env.CONFIG_KV,
       timeoutMs: 8000,
     });
+    const first = await tryResolve();
+    if (first) return first;
+    // KissKH's JSON API is intermittently edge-blocked for datacenter egress.
+    // A previously resolved episode of the same drama proves the deterministic
+    // CDN path, so seed the pattern from a sibling record and retry once.
+    if (await seedKisskhPatternFromSibling(env, assetInfo)) {
+      return tryResolve();
+    }
+    return null;
   }
 
   if (id === "2vcdn") {
@@ -1845,6 +1856,276 @@ async function raceFirstProvider(providers, assetInfo, tmdbMeta) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Asian dub enrichment
+ * ---------------------------------------------------------------------------
+ * KissKH supplies the authentic original audio immediately. Vidrift (orion)
+ * and FrameX supply dubs. Those probes are slow and can fail transiently, so
+ * they run in the background and only ever append tracks to the existing
+ * record. First playback is never blocked on a dub probe.
+ * ------------------------------------------------------------------------ */
+
+const ASIAN_DUB_MARKER_PREFIX = "ma_dub_v1:";
+const ASIAN_DUB_MARKER_TTL_SEC = 900;
+const ASIAN_DUB_RECHECK_MS = 6 * 60 * 60 * 1000;
+
+function multiAudioAssetKey(assetInfo) {
+  return assetInfo.type === "tv" || assetInfo.type === "series"
+    ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
+    : `movie/${assetInfo.id}`;
+}
+
+function multiAudioDubMarkerKey(asset) {
+  return `${ASIAN_DUB_MARKER_PREFIX}${asset}`;
+}
+
+// KissKH episode CDN URLs are deterministic: hlsNN.cdnvideoNN.shop/hlsNN/<dramaId>/Ep<N>_index.m3u8.
+// Once one episode of a drama is known, every sibling episode is reachable even
+// while the JSON API is edge-blocked. The cache below avoids repeat KV lists.
+const kisskhSiblingSeedAttempts = new Set();
+const KISSKH_EPISODE_URL_RE = /^https?:\/\/[^/]+\/(?:[^/]+\/)?(\d+)\/.*(?:Ep\d+|Episode-\d+)/i;
+
+async function seedKisskhPatternFromRecord(env, record) {
+  if (!env || !env.CONFIG_KV || !record) return false;
+  const url = String(record.url || "");
+  const match = url.match(KISSKH_EPISODE_URL_RE);
+  if (!match) return false;
+  const dramaId = match[1];
+  const patternKey = `kisskh_pattern_v1:${dramaId}`;
+  const subPattern = String(
+    ((record.subtitles || []).find((sub) => /^en/i.test(String(sub && sub.language)) || /english/i.test(String(sub && sub.label))) || {}).url || ""
+  );
+  try {
+    if (await env.CONFIG_KV.get(patternKey)) return true;
+    let pattern = url.replace(/Ep\d+_/i, "Ep{ep}_");
+    if (pattern === url) pattern = url.replace(/Ep\d+\./i, "Ep{ep}.");
+    await env.CONFIG_KV.put(patternKey, pattern, {
+      expirationTtl: 7 * 24 * 60 * 60,
+    });
+    if (/Ep\d+[._]/i.test(subPattern)) {
+      let subTemplate = subPattern.replace(/Ep\d+_/i, "Ep{ep}_");
+      if (subTemplate === subPattern) subTemplate = subPattern.replace(/Ep\d+\./i, "Ep{ep}.");
+      await env.CONFIG_KV.put(`kisskh_subpattern_v1:${dramaId}`, subTemplate, {
+        expirationTtl: 7 * 24 * 60 * 60,
+      });
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function seedKisskhPatternFromSibling(env, assetInfo) {
+  if (!env || !env.CONFIG_KV) return false;
+  if (assetInfo.type !== "tv" && assetInfo.type !== "series") return false;
+  const showKey = `tv/${assetInfo.id}`;
+  if (kisskhSiblingSeedAttempts.has(showKey)) return false;
+  if (kisskhSiblingSeedAttempts.size > 500) kisskhSiblingSeedAttempts.clear();
+  kisskhSiblingSeedAttempts.add(showKey);
+  try {
+    const listing = await env.CONFIG_KV.list({ prefix: `ma_status_v1:${showKey}/`, limit: 20 });
+    for (const entry of (listing.keys || []).slice(0, 8)) {
+      const asset = String(entry.name || "").replace(/^ma_status_v1:/, "");
+      const record = await readMultiAudioRecord(env, asset);
+      if (await seedKisskhPatternFromRecord(env, record)) return true;
+    }
+  } catch (e) { }
+  return false;
+}
+
+function audioTrackKey(track) {
+  const lang = String((track && track.language) || "").toLowerCase().trim();
+  const name = String((track && (track.name || track.label)) || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return `${lang}|${name}`;
+}
+
+function isOriginalLikeAudio(track) {
+  const name = String((track && (track.name || track.label)) || "").trim();
+  const lang = String((track && track.language) || "").toLowerCase();
+  return /^(original|orig|multi[\s-]?audio|default)$/i.test(name) || ["orig", "und", "original"].includes(lang);
+}
+
+function mergeAudioTrackLists(baseTracks, extraTracks) {
+  const merged = Array.isArray(baseTracks) ? baseTracks.slice() : [];
+  const seen = new Set(merged.map(audioTrackKey));
+  const seenLang = new Set(
+    merged.map((track) => String((track && track.language) || "").toLowerCase()).filter(Boolean)
+  );
+  for (const track of Array.isArray(extraTracks) ? extraTracks : []) {
+    if (!track || !(track.uri || track.url)) continue;
+    // The KissKH original already covers the authentic original language.
+    if (isOriginalLikeAudio(track)) continue;
+    const key = audioTrackKey(track);
+    if (seen.has(key)) continue;
+    const lang = String(track.language || "").toLowerCase();
+    const name = String(track.name || track.label || "");
+    if (lang && seenLang.has(lang) && !/dub/i.test(name)) continue;
+    merged.push({ ...track, id: merged.length, default: false });
+    seen.add(key);
+    if (lang) seenLang.add(lang);
+  }
+  return merged;
+}
+
+function mergeSubtitleLists(baseSubs, extraSubs) {
+  const merged = Array.isArray(baseSubs) ? baseSubs.slice() : [];
+  const seen = new Set(
+    merged.map((sub) => String((sub && (sub.label || sub.language)) || "").toLowerCase().trim())
+  );
+  for (const sub of Array.isArray(extraSubs) ? extraSubs : []) {
+    if (!sub || !(sub.url || sub.uri)) continue;
+    const key = String(sub.label || sub.language || "").toLowerCase().trim();
+    if (seen.has(key)) continue;
+    merged.push({ ...sub });
+    seen.add(key);
+  }
+  return merged;
+}
+
+async function enrichAsianDubs(assetInfo, tmdbMeta, baseResult, env) {
+  if (!baseResult) return baseResult;
+  const probes = await Promise.allSettled([
+    attemptProvider("orion", assetInfo, tmdbMeta, env),
+    attemptProvider("framextv", assetInfo, tmdbMeta, env),
+  ]);
+  const extraTracks = [];
+  const extraSubs = [];
+  for (const probe of probes) {
+    if (probe.status !== "fulfilled" || !probe.value) continue;
+    const res = probe.value;
+    const tracks = Array.isArray(res.audioTracks) && res.audioTracks.length > 0
+      ? res.audioTracks
+      : (res.streamUrl
+        ? [{
+          name: res.provider === "framextv" ? "Hindi" : "Dub",
+          label: res.provider === "framextv" ? "Hindi" : "Dub",
+          language: res.provider === "framextv" ? "hin" : "und",
+          uri: res.streamUrl,
+          provider: res.provider,
+        }]
+        : []);
+    for (const track of tracks) {
+      if (track && (track.uri || track.url)) extraTracks.push({ ...track, provider: track.provider || res.provider });
+    }
+    for (const sub of res.subtitles || []) {
+      if (sub && (sub.url || sub.uri)) extraSubs.push({ ...sub, provider: sub.provider || res.provider });
+    }
+  }
+  return {
+    ...baseResult,
+    audioTracks: mergeAudioTrackLists(baseResult.audioTracks, extraTracks),
+    subtitles: mergeSubtitleLists(baseResult.subtitles, extraSubs),
+  };
+}
+
+function buildMultiAudioRecord(existing, result, asset, options = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const base = existing && typeof existing === "object" ? existing : {};
+  const baseTracks = Array.isArray(base.audioTracks) ? base.audioTracks : [];
+  const incomingTracks = Array.isArray(result && result.audioTracks) ? result.audioTracks : [];
+  const audioTracks = baseTracks.length > 0
+    ? mergeAudioTrackLists(baseTracks, incomingTracks)
+    : incomingTracks.slice();
+  const subtitles = mergeSubtitleLists(base.subtitles || [], (result && result.subtitles) || []);
+  const streamUrl = (result && result.streamUrl) || base.url || "";
+  const isMP4 = Boolean(
+    (result && result.isMP4) ||
+    (streamUrl && streamUrl.toLowerCase().includes(".mp4")) ||
+    base.isMP4
+  );
+  return {
+    ...base,
+    ok: true,
+    url: streamUrl || base.url || "",
+    isMP4,
+    audio: audioTracks.length || Number(base.audio) || 1,
+    provider: base.provider || (result && result.provider) || "kisskh",
+    exp: Number(base.exp) || now + 86400 * 30,
+    checked_at: new Date().toISOString(),
+    // Only a real dub probe may declare "checked". A plain source write must not
+    // mark the record as dub-checked, or the player would stop polling before
+    // the background enrichment has had a chance to append anything.
+    dubCheckedAt: options.dubChecked ? now : (Number(base.dubCheckedAt) || 0),
+    audioTracks,
+    subtitles,
+    masterManifest: (result && result.masterManifest) || base.masterManifest,
+    subManifests: (result && result.subManifests) || base.subManifests,
+    variants: (result && Array.isArray(result.variants) && result.variants.length > 0)
+      ? result.variants
+      : base.variants,
+  };
+}
+
+function mergeMultiAudioRecords(existing, incoming) {
+  if (!incoming || incoming.ok !== true) return incoming;
+  if (!existing || existing.ok !== true) return incoming;
+  const existingTracks = Array.isArray(existing.audioTracks) ? existing.audioTracks : [];
+  const incomingTracks = Array.isArray(incoming.audioTracks) ? incoming.audioTracks : [];
+  if (incomingTracks.length > 0 && incomingTracks.length >= existingTracks.length) {
+    return {
+      ...incoming,
+      subManifests: incoming.subManifests || existing.subManifests,
+      subtitles: mergeSubtitleLists(incoming.subtitles || [], existing.subtitles || []),
+      exp: Number(incoming.exp) || Number(existing.exp) || 0,
+    };
+  }
+  const merged = buildMultiAudioRecord(existing, {
+    streamUrl: incoming.url,
+    provider: incoming.provider,
+    isMP4: incoming.isMP4,
+    audioTracks: incomingTracks,
+    subtitles: incoming.subtitles || [],
+    masterManifest: incoming.masterManifest,
+    subManifests: incoming.subManifests,
+    variants: incoming.variants,
+  }, "");
+  merged.subManifests = merged.subManifests || existing.subManifests;
+  merged.exp = Number(incoming.exp) || Number(existing.exp) || merged.exp;
+  return merged;
+}
+
+function scheduleAsianDubEnrichment(assetInfo, tmdbMeta, baseResult, options = {}) {
+  const env = options.env;
+  if (!env || !env.CONFIG_KV || !baseResult) return;
+  const asset = multiAudioAssetKey(assetInfo);
+  const markerKey = multiAudioDubMarkerKey(asset);
+
+  const run = (async () => {
+    try {
+      const claimed = await env.CONFIG_KV.get(markerKey);
+      if (claimed) return;
+      await env.CONFIG_KV.put(markerKey, "1", { expirationTtl: ASIAN_DUB_MARKER_TTL_SEC });
+    } catch (e) {
+      return;
+    }
+    try {
+      const enriched = await enrichAsianDubs(assetInfo, tmdbMeta, baseResult, env);
+      const existing = await readMultiAudioRecord(env, asset);
+      const record = buildMultiAudioRecord(existing, enriched, asset, { dubChecked: true });
+      await writeMultiAudioRecord(env, asset, record);
+    } catch (e) {
+    } finally {
+      try {
+        await env.CONFIG_KV.delete(markerKey);
+      } catch (e) { }
+    }
+  })();
+
+  if (typeof options.waitUntil === "function") options.waitUntil(run);
+  else run.catch(() => { });
+}
+
+async function shouldRecheckAsianDubs(env, asset) {
+  if (!env || !env.CONFIG_KV) return false;
+  try {
+    const record = await readMultiAudioRecord(env, asset);
+    const checkedAt = Number(record && record.dubCheckedAt) || 0;
+    return !checkedAt || (Date.now() - checkedAt * 1000) > ASIAN_DUB_RECHECK_MS;
+  } catch (e) {
+    return true;
+  }
+}
+
 async function resolveUpstreamSource(assetInfo, requestedProvider, options = {}) {
   const requested = requestedProvider ? normalizeProvider(requestedProvider) : "";
   const baseCacheKey = `${assetInfo.type}:${assetInfo.id}:${assetInfo.season || 0}:${assetInfo.episode || 0}`;
@@ -1984,6 +2265,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
             title: (tmdbMeta && (tmdbMeta.seriesTitle || tmdbMeta.title)) || result.title || "",
             year: (tmdbMeta && tmdbMeta.year) || result.year || "",
             originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
+            kv: options.env && options.env.CONFIG_KV,
             timeoutMs: 4000,
           });
           if (kissRes) {
@@ -2018,65 +2300,30 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         } catch (e) { }
       }
 
-      // Asian multi-audio merge: When KissKH is primary, also probe FrameX for Hindi dub & extra subtitles
-      if (isAsian && (chosen.provider === "kisskh" || result.provider === "kisskh")) {
+      // Asian dubs: keep the authentic KissKH original and append dubs that are
+      // already cached. Vidrift/FrameX probes run in the background so first
+      // playback is never blocked on a slow or blocked upstream.
+      if (isAsian) {
+        const assetKey = multiAudioAssetKey(assetInfo);
+        let maRecord = null;
         try {
-          const framexRes = await attemptProvider("framextv", assetInfo, tmdbMeta, options.env);
-          if (framexRes && framexRes.streamUrl && isStreamUrlUsable(framexRes.streamUrl)) {
-            const hasHindi = (result.audioTracks || []).some((t) => /hindi|hin/i.test(t.name || t.label || t.language || ""));
-            if (!hasHindi) {
-              const hindiTrack = {
-                id: (result.audioTracks || []).length,
-                name: "Hindi",
-                label: "Hindi",
-                language: "hin",
-                default: false,
-                uri: framexRes.streamUrl,
-                isMP4: Boolean(framexRes.isMP4),
-                provider: "framextv",
-              };
-              result.audioTracks = [...(result.audioTracks || []), hindiTrack];
-            }
-            if (Array.isArray(framexRes.subtitles) && framexRes.subtitles.length > 0) {
-              const currentSubs = result.subtitles || [];
-              const framexSubs = framexRes.subtitles.filter(
-                (fs) => !currentSubs.some((cs) => cs && (cs.language === fs.language || cs.label === fs.label))
-              );
-              result.subtitles = [...currentSubs, ...framexSubs];
-            }
+          maRecord = await readMultiAudioRecord(options.env, assetKey);
+          if (maRecord && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
+            const baseTracks = Array.isArray(result.audioTracks) ? result.audioTracks : [];
+            result.audioTracks = baseTracks.length > 0
+              ? mergeAudioTrackLists(baseTracks, maRecord.audioTracks)
+              : maRecord.audioTracks.slice();
+            result.subtitles = mergeSubtitleLists(result.subtitles, maRecord.subtitles || []);
           }
         } catch (e) { }
 
-        // Also check if KV has extra multi-audio dubs from Vidrift (e.g. French, Spanish)
-        try {
-          const assetKey = assetInfo.type === "tv" || assetInfo.type === "series"
-            ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
-            : `movie/${assetInfo.id}`;
-          const maRecord = await readMultiAudioRecord(options.env, assetKey);
-          if (maRecord && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
-            maRecord.audioTracks.forEach((vt) => {
-              const vtLang = String(vt.language || "").toLowerCase();
-              const vtName = String(vt.name || vt.label || "").toLowerCase();
-              const alreadyHas = (result.audioTracks || []).some((at) => {
-                const atLang = String(at.language || "").toLowerCase();
-                const atName = String(at.name || at.label || "").toLowerCase();
-                return (vtLang && atLang && vtLang === atLang) || (vtName && atName && vtName === atName);
-              });
-              if (!alreadyHas && vt.uri && !/^original$/i.test(vt.name || vt.label || "")) {
-                result.audioTracks.push({
-                  id: result.audioTracks.length,
-                  name: vt.name,
-                  label: vt.label || vt.name,
-                  language: vt.language || "und",
-                  default: false,
-                  uri: vt.uri,
-                  isMP4: Boolean(vt.isMP4),
-                  provider: vt.provider || "orion",
-                });
-              }
-            });
+        if (chosen.provider === "kisskh" || result.provider === "kisskh") {
+          const dubCheckedAt = Number(maRecord && maRecord.dubCheckedAt) || 0;
+          const needsDubCheck = !dubCheckedAt || (Date.now() - dubCheckedAt * 1000) > ASIAN_DUB_RECHECK_MS;
+          if (needsDubCheck) {
+            scheduleAsianDubEnrichment(assetInfo, tmdbMeta, result, options);
           }
-        } catch (e) {}
+        }
       }
 
       // If still missing English subtitles, check Stremio OpenSubtitles v3 using IMDB ID
@@ -2118,24 +2365,14 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         sourceStaleCache.set(cacheKey, cloneValue(result), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
         cacheResolvedResult(cacheKey, baseCacheKey, result);
         if (options.env && options.env.CONFIG_KV) {
-          const assetNorm = (assetInfo.type === "tv" || assetInfo.type === "series")
-            ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
-            : `movie/${assetInfo.id}`;
-          const isMP4 = Boolean(result.isMP4 || (result.streamUrl && result.streamUrl.toLowerCase().includes(".mp4")));
-          const kvRecord = {
-            ok: true,
-            url: result.streamUrl,
-            isMP4,
-            audio: (result.audioTracks && result.audioTracks.length) || 1,
-            provider: result.provider || "kisskh",
-            exp: Math.floor(Date.now() / 1000) + 86400 * 30,
-            checked_at: new Date().toISOString(),
-            audioTracks: result.audioTracks || [],
-            subtitles: result.subtitles || [],
-          };
-          const putPromise = options.env.CONFIG_KV.put(`ma_status_v1:${assetNorm}`, JSON.stringify(kvRecord), {
-            expirationTtl: 86400 * 30,
-          }).catch(() => { });
+          const assetNorm = multiAudioAssetKey(assetInfo);
+          const putPromise = (async () => {
+            const existing = await readMultiAudioRecord(options.env, assetNorm);
+            const kvRecord = buildMultiAudioRecord(existing, result, assetNorm);
+            await options.env.CONFIG_KV.put(`ma_status_v1:${assetNorm}`, JSON.stringify(kvRecord), {
+              expirationTtl: 86400 * 30,
+            });
+          })().catch(() => { });
           if (options.waitUntil && typeof options.waitUntil === "function") {
             options.waitUntil(putPromise);
           }
@@ -4414,19 +4651,66 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     }
     const force = Boolean(body && body.force === true);
     const existing = await readMultiAudioRecord(env, asset);
-    if (!force && multiAudioRecordUsable(existing)) {
+    const existingAudio = Number(existing && existing.audio) ||
+      (Array.isArray(existing && existing.audioTracks) ? existing.audioTracks.length : 0);
+
+    if (!force && multiAudioRecordUsable(existing) && existingAudio > 1) {
       return new Response(JSON.stringify({
         ok: true,
         state: "ready",
         ready: true,
         asset,
-        audio: Number(existing.audio) || 0,
+        audio: existingAudio,
         exp: Number(existing.exp) || 0,
       }), {
         status: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
       });
     }
+
+    // A single-audio record is not the final state for an Asian title: dubs may
+    // still be resolvable from vidrift/framex. Enrich server-side in the
+    // background and let the player keep polling. After a recent dub check that
+    // found nothing, report "single" so the player stops instead of looping.
+    if (!force && multiAudioRecordUsable(existing) && existingAudio <= 1) {
+      const checkedAt = Number(existing.dubCheckedAt) || 0;
+      if (checkedAt && (Date.now() - checkedAt * 1000) < ASIAN_DUB_RECHECK_MS) {
+        return new Response(JSON.stringify({
+          ok: true,
+          state: "single",
+          ready: true,
+          asset,
+          audio: existingAudio || 1,
+          exp: Number(existing.exp) || 0,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+        });
+      }
+      try {
+        const assetInfo = parseAssetInfo(asset);
+        const tmdbMeta = await fetchTMDBMetadata(
+          assetInfo.type,
+          assetInfo.id,
+          assetInfo.season || 1,
+          assetInfo.episode || 1,
+          env
+        );
+        if (assetInfo && isAsianContent(assetInfo, tmdbMeta)) {
+          scheduleAsianDubEnrichment(assetInfo, tmdbMeta, {
+            streamUrl: existing.url || "",
+            provider: existing.provider || "kisskh",
+            isMP4: Boolean(existing.isMP4),
+            audioTracks: Array.isArray(existing.audioTracks) ? existing.audioTracks : [],
+            subtitles: Array.isArray(existing.subtitles) ? existing.subtitles : [],
+          }, {
+            env,
+            waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+          });
+        }
+      } catch (e) { }
+    }
+
     const dispatched = await dispatchMultiAudioResolution(env, asset);
     return new Response(JSON.stringify({ ...dispatched, asset }), {
       status: dispatched.ok ? 202 : 503,
@@ -4495,12 +4779,46 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           };
         }).filter(Boolean);
 
+        const recordAudio = Number(record.audio) || sanitizedTracks.length || 1;
+        if (recordAudio <= 1) {
+          let dubPending = false;
+          if (env && env.CONFIG_KV) {
+            try {
+              dubPending = Boolean(await env.CONFIG_KV.get(multiAudioDubMarkerKey(asset)));
+            } catch (e) { }
+          }
+          const checkedAt = Number(record.dubCheckedAt) || 0;
+          const recordAgeMs = Math.max(0, Date.now() - Date.parse(record.checked_at || 0) || 0);
+          // Give a freshly written record a short grace window to let the
+          // background enrichment finish before declaring single-audio final.
+          if (dubPending || (!checkedAt && recordAgeMs < 120000)) {
+            return new Response(JSON.stringify({ ok: true, state: "resolving", asset }), {
+              status: 200,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+            });
+          }
+          return new Response(JSON.stringify({
+            ok: true,
+            state: "single",
+            ready: true,
+            asset,
+            audio: recordAudio,
+            exp: Number(record.exp) || 0,
+            audioTracks: sanitizedTracks,
+            subtitles: sanitizedSubs,
+            checked_at: record.checked_at || "",
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
+          });
+        }
+
         return new Response(JSON.stringify({
           ok: true,
           state: "ready",
           ready: true,
           asset,
-          audio: Number(record.audio) || sanitizedTracks.length || 1,
+          audio: recordAudio,
           exp: Number(record.exp) || 0,
           audioTracks: sanitizedTracks,
           subtitles: sanitizedSubs,
@@ -4598,13 +4916,23 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         } catch (e) { }
       }
     }
-    const persisted = await writeMultiAudioRecord(env, asset, record);
+    let finalRecord = record;
+    if (ok) {
+      try {
+        const existing = await readMultiAudioRecord(env, asset);
+        finalRecord = mergeMultiAudioRecords(existing, record);
+      } catch (e) { }
+    }
+    const persisted = await writeMultiAudioRecord(env, asset, finalRecord);
+    if (finalRecord && finalRecord.ok) {
+      await seedKisskhPatternFromRecord(env, finalRecord);
+    }
     if (env && env.CONFIG_KV) {
       try {
         await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
       } catch (e) { }
     }
-    return new Response(JSON.stringify({ ok: persisted, asset, stored: record.ok }), {
+    return new Response(JSON.stringify({ ok: persisted, asset, stored: finalRecord.ok }), {
       status: persisted ? 200 : 503,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
@@ -6028,6 +6356,20 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
     });
     if (!resolved || !resolved.streamUrl || !isStreamUrlUsable(resolved.streamUrl)) {
+      // Cold-start recovery for Asian dramas: vidrift/KissKH may be blocked from
+      // this edge but reachable from the external runner. Dispatch in the
+      // background so the player's next status poll can upgrade.
+      try {
+        let asian = isAsianContent(assetInfo, null);
+        if (!asian) {
+          const meta = await fetchTMDBMetadata(assetInfo.type, assetInfo.id, assetInfo.season || 1, assetInfo.episode || 1, env).catch(() => null);
+          asian = isAsianContent(assetInfo, meta);
+        }
+        if (asian) {
+          const dispatchPromise = dispatchMultiAudioResolution(env, multiAudioAssetKey(assetInfo)).catch(() => { });
+          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(dispatchPromise);
+        }
+      } catch (e) { }
       return new Response(JSON.stringify({
         success: false,
         error: "No usable stream source is currently available for this title.",
@@ -6540,15 +6882,16 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       });
     }
 
+    const isTvShow = type === "tv" || type === "series";
     const bootstrap = {
       assetId: assetID,
       streamUrl: streamUrl,
-      mediaType: type === "tv" ? "tv" : "movie",
+      mediaType: isTvShow ? "tv" : "movie",
       tmdbId: id,
       season: season,
       episode: episode,
       title: (resolved && resolved.title) || "",
-      kicker: type === "tv" ? `Season ${season} · Episode ${episode}` : "",
+      kicker: isTvShow ? `Season ${season} · Episode ${episode}` : "",
       year: (resolved && resolved.year) || "",
       rating: (resolved && resolved.rating) || "",
       genres: (resolved && resolved.genres) || [],
@@ -6580,7 +6923,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           status: `${url.origin}/api/multi-audio/status`,
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,
           asset: normalizeMultiAudioAsset(
-            type === "tv" ? `tv/${id}/${season}/${episode}` : `movie/${id}`
+            isTvShow ? `tv/${id}/${season}/${episode}` : `movie/${id}`
           ),
         },
       },

@@ -535,11 +535,15 @@ await test("cron trigger and admin provider UI are configured", () => {
   assert.ok(admin.includes("testProvider"));
 });
 
-await test("Asian content correctly identifies Hindi dub from FrameX and enables dual audio merging", () => {
+await test("Asian content merges the KissKH original with background dub enrichment", () => {
   assert.ok(indexSource.includes("const isAsian = isAsianContent(assetInfo, tmdbMeta);"));
-  assert.ok(indexSource.includes('const audioName = isAsian ? "Hindi" : "Original Audio";'));
-  assert.ok(indexSource.includes('name: "Hindi"'));
-  assert.ok(indexSource.includes('language: "hin"'));
+  assert.ok(indexSource.includes("async function enrichAsianDubs("));
+  assert.ok(indexSource.includes("function mergeAudioTrackLists("));
+  assert.ok(indexSource.includes("function scheduleAsianDubEnrichment("));
+  assert.ok(indexSource.includes("function buildMultiAudioRecord("));
+  assert.ok(indexSource.includes('language: res.provider === "framextv" ? "hin" : "und"'));
+  // The authentic original must survive every merge.
+  assert.ok(indexSource.includes("if (isOriginalLikeAudio(track)) continue;"));
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

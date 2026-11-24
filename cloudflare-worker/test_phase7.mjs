@@ -38,6 +38,7 @@ const quotaWorkflow = readRoot(".github/workflows/quota-watch.yml");
 const multiAudioWorkflow = readRoot(".github/workflows/multi-audio-resolve.yml");
 const player = read("src/player.html");
 const resolverScript = read("scripts/resolve-multi-audio.mjs");
+const providersSource = read("src/providers.js");
 const pkg = JSON.parse(read("package.json"));
 
 let passed = 0;
@@ -707,6 +708,170 @@ await test("readiness reports the multi-audio resolver as a non-fatal check", ()
     "MULTI_AUDIO_PUBLISH_KEY",
   ], "readiness");
   assert.match(readiness, /add\(\s*"multi_audio_resolver",[\s\S]{0,120}false\s*\)/);
+});
+
+await test("single-audio records are not treated as a final multi-audio result", () => {
+  var resolveRoute = indexSource.slice(
+    indexSource.indexOf('url.pathname === "/api/multi-audio/resolve"'),
+    indexSource.indexOf('url.pathname === "/api/multi-audio/status"')
+  );
+  hasAll(resolveRoute, [
+    "multiAudioRecordUsable(existing) && existingAudio > 1",
+    'state: "single"',
+    "scheduleAsianDubEnrichment",
+    "ASIAN_DUB_RECHECK_MS",
+  ], "resolve route");
+  assert.ok(
+    resolveRoute.indexOf("existingAudio > 1") < resolveRoute.indexOf('state: "single"'),
+    "a multi-audio record must short-circuit before the single-audio path"
+  );
+
+  var statusRoute = indexSource.slice(
+    indexSource.indexOf('url.pathname === "/api/multi-audio/status"'),
+    indexSource.indexOf('url.pathname === "/api/multi-audio/publish"')
+  );
+  hasAll(statusRoute, [
+    "multiAudioDubMarkerKey(asset)",
+    'state: "resolving"',
+    'state: "single"',
+    "recordAudio <= 1",
+  ], "status route");
+});
+
+await test("background dub enrichment only appends and never blocks playback", () => {
+  var enrich = indexSource.slice(
+    indexSource.indexOf("async function enrichAsianDubs("),
+    indexSource.indexOf("function buildMultiAudioRecord(")
+  );
+  hasAll(enrich, [
+    'attemptProvider("orion"',
+    'attemptProvider("framextv"',
+    "Promise.allSettled",
+    "mergeAudioTrackLists",
+    "mergeSubtitleLists",
+  ], "enrichAsianDubs");
+
+  var schedule = indexSource.slice(
+    indexSource.indexOf("function scheduleAsianDubEnrichment("),
+    indexSource.indexOf("async function shouldRecheckAsianDubs(")
+  );
+  hasAll(schedule, [
+    "multiAudioDubMarkerKey(asset)",
+    "ASIAN_DUB_MARKER_TTL_SEC",
+    "options.waitUntil(run)",
+    "buildMultiAudioRecord(existing, enriched, asset, { dubChecked: true })",
+    "writeMultiAudioRecord(env, asset, record)",
+  ], "scheduleAsianDubEnrichment");
+  assert.ok(
+    schedule.indexOf("markerKey") < schedule.indexOf("enrichAsianDubs("),
+    "the dub marker must be claimed before any probe runs"
+  );
+
+  var merge = indexSource.slice(
+    indexSource.indexOf("function mergeAudioTrackLists("),
+    indexSource.indexOf("function mergeSubtitleLists(")
+  );
+  hasAll(merge, ["if (isOriginalLikeAudio(track)) continue;", "seenLang.has(lang)"], "mergeAudioTrackLists");
+});
+
+await test("multi-audio publish merges records instead of dropping tracks", () => {
+  hasAll(indexSource, [
+    "function mergeMultiAudioRecords(",
+    "finalRecord = mergeMultiAudioRecords(existing, record)",
+    "buildMultiAudioRecord(existing, result, assetNorm)",
+    "multiAudioRecordUsable(maRecord)",
+  ]);
+  var vidrift = indexSource.slice(
+    indexSource.indexOf("async function resolveVidrift("),
+    indexSource.indexOf("function *")
+  );
+  assert.ok(vidrift.length > 0);
+  assert.ok(
+    vidrift.includes('maRecord.provider === "kisskh"'),
+    "vidrift must ignore KissKH records so a 1-audio KissKH entry cannot short-circuit orion"
+  );
+  assert.ok(player.includes("payload.state === 'single'"), "player must stop polling on a single-audio result");
+});
+
+await test("KissKH retries transient edge blocks and caches API bodies in KV", () => {
+  hasAll(providersSource, [
+    "KISSKH_RETRY_STATUSES",
+    "async function kisskhFetchJson(",
+    "kisskh_search_v1:",
+    "kisskh_drama_v1:",
+    "kisskh_ep_v1:",
+    "kisskh_sub_v1:",
+    "kisskh_pattern_v1:",
+  ]);
+  assert.ok(
+    indexSource.includes("kv: env && env.CONFIG_KV") &&
+      indexSource.includes("kv: options.env && options.env.CONFIG_KV"),
+    "both KissKH call sites must pass the KV binding"
+  );
+  var fetchJson = providersSource.slice(
+    providersSource.indexOf("async function kisskhFetchJson("),
+    providersSource.indexOf("export async function resolveKissKH(")
+  );
+  hasAll(fetchJson, [
+    "await kv.get(cacheKey, \"json\")",
+    "if (!res || !KISSKH_RETRY_STATUSES.has(res.status)) break;",
+    "await kv.put(cacheKey, JSON.stringify({ v: data })",
+  ], "kisskhFetchJson");
+  assert.ok(
+    fetchJson.indexOf("kv.get(cacheKey") < fetchJson.indexOf("for (let attempt"),
+    "KV cache must be consulted before any retry loop"
+  );
+});
+
+await test("KissKH rebuilds a deterministic episode URL when the API is blocked", () => {
+  hasAll(providersSource, [
+    "Ep{ep}_",
+    "replace(/Ep\\d+_/i, \"Ep{ep}_\")",
+    "function kisskhPatternUrl(",
+    "String(template).replace(\"{ep}\", String(epNum))",
+    "/^\\s*#EXTM3U/.test(body)",
+    "kisskh_pattern_v1:",
+    "kisskh_subpattern_v1:",
+    "function kisskhPatternResult(",
+  ], "episode pattern fallback");
+  var fallback = providersSource.slice(
+    providersSource.indexOf("if (!drama || !Array.isArray(drama.episodes)"),
+    providersSource.indexOf("  const episode = drama.episodes.find(")
+  );
+  assert.ok(
+    fallback.includes("await kisskhPatternUrl("),
+    "a blocked drama API must still try the deterministic CDN path"
+  );
+});
+
+await test("a blocked KissKH API falls back to a sibling episode's CDN path", () => {
+  hasAll(indexSource, [
+    "async function seedKisskhPatternFromRecord(",
+    "async function seedKisskhPatternFromSibling(",
+    "KISSKH_EPISODE_URL_RE",
+    "prefix: `ma_status_v1:${showKey}/`",
+    "if (await seedKisskhPatternFromSibling(env, assetInfo)) {",
+    "await seedKisskhPatternFromRecord(env, finalRecord)",
+  ], "sibling pattern seeding");
+  var kisskhBranch = indexSource.slice(
+    indexSource.indexOf('if (id === "kisskh") {'),
+    indexSource.indexOf('if (id === "2vcdn") {')
+  );
+  assert.ok(
+    kisskhBranch.indexOf("const first = await tryResolve();") <
+      kisskhBranch.indexOf("seedKisskhPatternFromSibling(env, assetInfo)"),
+    "the fast path must run before any sibling KV walk"
+  );
+  // The failure path may only dispatch for Asian titles.
+  var sourceMiss = indexSource.slice(
+    indexSource.indexOf("Cold-start recovery for Asian dramas"),
+    indexSource.indexOf("Cold-start recovery for Asian dramas") + 1200
+  );
+  hasAll(sourceMiss, [
+    "isAsianContent(assetInfo, null)",
+    "dispatchMultiAudioResolution(env, multiAudioAssetKey(assetInfo))",
+    "ctx.waitUntil(dispatchPromise)",
+  ], "source miss dispatch");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

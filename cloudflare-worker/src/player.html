@@ -6169,6 +6169,28 @@
             }
 
             var remoteUrl = buildRemoteGatewayUrl(remote);
+
+            // Providers were checked and only the original audio exists. Stop
+            // polling without reloading the stream that is already playing.
+            if (payload.state === 'single') {
+              var singleTracks = payload.audioTracks || [];
+              var totalSingleAudio = singleTracks.length || (payload.audio || 1);
+              setClientResolveStatus({
+                remoteState: 'ready',
+                remoteError: '',
+                audioCount: totalSingleAudio
+              });
+              if (!currentStreamUrl) {
+                startInitialPlayback(remoteUrl);
+              }
+              return {
+                url: remoteUrl,
+                audioCount: totalSingleAudio,
+                audioTracks: singleTracks,
+                subtitles: payload.subtitles || null
+              };
+            }
+
             return verifyClientGateway(remoteUrl).then(function (result) {
               var tracks = (payload && payload.audioTracks) || (result && result.audioTracks) || [];
               var totalAudio = tracks.length > 0 ? tracks.length : (result ? result.audioCount : (payload ? payload.audio : 1));

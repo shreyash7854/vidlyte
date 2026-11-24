@@ -635,6 +635,162 @@ export const KISSKH_DRAMA_OVERRIDES = {
   "221851": { id: 8409, title: "Marry My Husband" },
 };
 
+// KissKH sits behind a Cloudflare edge rule that intermittently returns 403/429
+// to datacenter egress. These responses are transient for the same URL, so they
+// are retried with jittered backoff instead of failing the whole resolve.
+const KISSKH_RETRY_STATUSES = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
+const KISSKH_DRAMA_KV_TTL_SEC = 6 * 60 * 60;
+const KISSKH_EPISODE_KV_TTL_SEC = 30 * 60;
+
+function kisskhHeaders(extra = {}) {
+  return buildHeaders({
+    Accept: "application/json",
+    Origin: "https://kisskh.is",
+    Referer: "https://kisskh.is/",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    ...extra,
+  });
+}
+
+/**
+ * Fetch JSON from KissKH with shared KV caching and retry-on-403/429.
+ * KV is optional so the external GitHub Actions resolver can call this without
+ * a binding. Cached payloads are raw API bodies, never signed playback URLs
+ * exposed to clients.
+ */
+async function kisskhFetchJson(fetchImpl, url, { timeoutMs = 8000, kv = null, cacheKey = "", cacheTtlSec = 0 } = {}) {
+  if (kv && cacheKey) {
+    try {
+      const cached = await kv.get(cacheKey, "json");
+      if (cached && cached.v) return cached.v;
+    } catch (e) { }
+  }
+  let lastStatus = 0;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    let res = null;
+    try {
+      res = await fetchImpl(url, {
+        headers: kisskhHeaders(),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      res = null;
+    }
+    if (res && res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data !== null && data !== undefined) {
+        if (kv && cacheKey && cacheTtlSec > 0) {
+          try {
+            await kv.put(cacheKey, JSON.stringify({ v: data }), { expirationTtl: cacheTtlSec });
+          } catch (e) { }
+        }
+        return data;
+      }
+    }
+    lastStatus = res ? res.status : 0;
+    if (!res || !KISSKH_RETRY_STATUSES.has(res.status)) break;
+    const backoff = Math.min(4000, 400 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 300);
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+  }
+  console.error("[KissKH] request failed:", lastStatus, String(url).split("?")[0]);
+  return null;
+}
+
+/**
+ * Rebuild the deterministic CDN URL for an episode. KissKH serves
+ * `<base>/Ep<N>_index.m3u8`, so once one episode has resolved the rest of the
+ * drama is reachable even while the JSON API is edge-blocked. The candidate is
+ * verified to be a real HLS manifest before use.
+ */
+async function kisskhPatternUrl(fetchImpl, kv, dramaId, epNum, timeoutMs) {
+  if (!kv || !dramaId) return "";
+  try {
+    const template = await kv.get(`kisskh_pattern_v1:${dramaId}`);
+    if (!template) return "";
+    const candidate = String(template).replace("{ep}", String(epNum));
+    const probe = await fetchImpl(candidate, {
+      headers: kisskhHeaders({ Accept: "*/*" }),
+      signal: AbortSignal.timeout(timeoutMs),
+    }).catch(() => null);
+    if (!probe || !probe.ok) return "";
+    const body = await probe.text().catch(() => "");
+    return (/^\s*#EXTM3U/.test(body) || candidate.includes(".mp4")) ? candidate : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function kisskhOriginalAudio(originalLanguage, country, streamUrl) {
+  const origLangInput = String(originalLanguage || "").toLowerCase();
+  const lowerCountry = String(country || "").toLowerCase();
+  let origLabel = "Original";
+  let origLang = "kor";
+  if (origLangInput === "ko" || origLangInput === "kor" || lowerCountry.includes("korea")) {
+    origLabel = "Original (Korean)";
+    origLang = "kor";
+  } else if (origLangInput === "ja" || origLangInput === "jpn" || lowerCountry.includes("japan")) {
+    origLabel = "Original (Japanese)";
+    origLang = "jpn";
+  } else if (origLangInput === "zh" || origLangInput === "zho" || lowerCountry.includes("china")) {
+    origLabel = "Original (Chinese)";
+    origLang = "zho";
+  } else if (origLangInput === "th" || origLangInput === "tha" || lowerCountry.includes("thai")) {
+    origLabel = "Original (Thai)";
+    origLang = "tha";
+  } else if (origLangInput === "hi" || origLangInput === "hin" || lowerCountry.includes("india")) {
+    origLabel = "Original (Hindi)";
+    origLang = "hin";
+  } else {
+    origLabel = "Original (Korean)";
+    origLang = "kor";
+  }
+  return {
+    id: 0,
+    name: origLabel,
+    label: origLabel,
+    language: origLang,
+    default: true,
+    isMP4: Boolean(streamUrl && /\.mp4(\?|$)/i.test(streamUrl)),
+    uri: streamUrl,
+    provider: "kisskh",
+  };
+}
+
+async function kisskhPatternSubtitles(kv, dramaId, epNum) {
+  if (!kv || !dramaId) return [];
+  try {
+    const template = await kv.get(`kisskh_subpattern_v1:${dramaId}`);
+    if (!template) return [];
+    return [{
+      label: "English Subtitles",
+      language: "en",
+      url: String(template).replace("{ep}", String(epNum)),
+      default: true,
+      provider: "kisskh",
+    }];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function kisskhPatternResult({ url, kv, dramaId, epNum, cleanTitle, originalLanguage, posterUrl = "", title = "" }) {
+  return {
+    streamUrl: url,
+    backupStreamUrl: url,
+    provider: "kisskh",
+    isMP4: /\.mp4(\?|$)/i.test(url),
+    audioTracks: [kisskhOriginalAudio(originalLanguage, "", url)],
+    subtitles: await kisskhPatternSubtitles(kv, dramaId, epNum),
+    variants: [],
+    pageUrl: `https://kisskh.is/Drama/${encodeURIComponent(cleanTitle)}/Episode-${epNum}`,
+    title: title || cleanTitle,
+    posterUrl,
+    logoUrl: "",
+  };
+}
+
 /**
  * KissKH Provider Resolver
  * Resolves Asian drama & movie streams and subtitles.
@@ -645,6 +801,7 @@ export async function resolveKissKH({
   title = "",
   year = "",
   originalLanguage = "",
+  kv = null,
   fetchImpl = fetch,
   timeoutMs = 8000,
 } = {}) {
@@ -677,35 +834,30 @@ export async function resolveKissKH({
   if (!drama) {
     if (!matchedDrama) {
       let searchData = [];
-      const searchUrl = `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`;
-      let searchRes = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        searchRes = await fetchImpl(searchUrl, {
-          headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-          signal: AbortSignal.timeout(timeoutMs),
-        }).catch((err) => {
-          console.error("[KissKH] search fetch error:", err?.message);
-          return null;
-        });
-        if (searchRes && searchRes.ok) break;
-        if (searchRes && searchRes.status === 429) {
-          await new Promise((r) => setTimeout(r, attempt * 1200));
+      const primarySearch = await kisskhFetchJson(
+        fetchImpl,
+        `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`,
+        {
+          timeoutMs,
+          kv,
+          cacheKey: `kisskh_search_v1:${normalizeTitleForMatch(cleanTitle)}`,
+          cacheTtlSec: 1800,
         }
-      }
-      if (searchRes && searchRes.ok) {
-        searchData = (await searchRes.json().catch(() => [])) || [];
-      } else {
-        console.error("[KissKH] search non-ok status:", searchRes?.status);
-      }
+      );
+      if (Array.isArray(primarySearch)) searchData = primarySearch;
 
-      if ((!Array.isArray(searchData) || searchData.length === 0) && title && title !== cleanTitle) {
-        const fullRes = await fetchImpl(`https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`, {
-          headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-          signal: AbortSignal.timeout(timeoutMs),
-        }).catch(() => null);
-        if (fullRes && fullRes.ok) {
-          searchData = (await fullRes.json().catch(() => [])) || [];
-        }
+      if (searchData.length === 0 && title && title !== cleanTitle) {
+        const fallbackSearch = await kisskhFetchJson(
+          fetchImpl,
+          `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`,
+          {
+            timeoutMs,
+            kv,
+            cacheKey: `kisskh_search_v1:${normalizeTitleForMatch(title)}`,
+            cacheTtlSec: 1800,
+          }
+        );
+        if (Array.isArray(fallbackSearch)) searchData = fallbackSearch;
       }
 
       if (!Array.isArray(searchData) || searchData.length === 0) {
@@ -733,28 +885,30 @@ export async function resolveKissKH({
       return null;
     }
 
-    const dramaUrl = `https://kisskh.is/api/DramaList/Drama/${matchedDrama.id}`;
-    let dramaRes = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      dramaRes = await fetchImpl(dramaUrl, {
-        headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }).catch((err) => {
-        console.error("[KissKH] drama fetch error:", err?.message);
-        return null;
-      });
-      if (dramaRes && dramaRes.ok) break;
-      if (dramaRes && dramaRes.status === 429) {
-        await new Promise((r) => setTimeout(r, attempt * 1200));
+    drama = await kisskhFetchJson(
+      fetchImpl,
+      `https://kisskh.is/api/DramaList/Drama/${matchedDrama.id}`,
+      {
+        timeoutMs,
+        kv,
+        cacheKey: `kisskh_drama_v1:${matchedDrama.id}`,
+        cacheTtlSec: KISSKH_DRAMA_KV_TTL_SEC,
       }
+    );
+    if (!drama || !Array.isArray(drama.episodes) || drama.episodes.length === 0) {
+      // Drama metadata is edge-blocked. The CDN path is deterministic once one
+      // episode of this drama resolved, so try it before failing the episode.
+      const fallbackUrl = await kisskhPatternUrl(fetchImpl, kv, matchedDrama.id, reqEpNum, timeoutMs);
+      if (!fallbackUrl) return null;
+      return kisskhPatternResult({
+        url: fallbackUrl,
+        kv,
+        dramaId: matchedDrama.id,
+        epNum: reqEpNum,
+        cleanTitle,
+        originalLanguage,
+      });
     }
-    if (!dramaRes || !dramaRes.ok) {
-      console.error("[KissKH] drama non-ok status:", dramaRes?.status);
-      return null;
-    }
-
-    drama = await dramaRes.json().catch(() => null);
-    if (!drama || !Array.isArray(drama.episodes) || drama.episodes.length === 0) return null;
 
     if (kisskhDramaCache.size > 200) {
       const oldestKey = kisskhDramaCache.keys().next().value;
@@ -769,46 +923,66 @@ export async function resolveKissKH({
 
   const episode = drama.episodes.find((e) => Number(e.number) === reqEpNum) ||
     (reqEpNum === 1 ? (drama.episodes.find((e) => Number(e.number) === 1) || drama.episodes[drama.episodes.length - 1]) : null);
-  if (!episode || !episode.id) return null;
+  if (!episode || !episode.id) {
+    const fallbackUrl = await kisskhPatternUrl(fetchImpl, kv, matchedDrama && matchedDrama.id, reqEpNum, timeoutMs);
+    if (!fallbackUrl) return null;
+    return kisskhPatternResult({
+      url: fallbackUrl,
+      kv,
+      dramaId: matchedDrama && matchedDrama.id,
+      epNum: reqEpNum,
+      cleanTitle,
+      originalLanguage,
+      posterUrl: drama.thumbnail || "",
+      title: drama.title || cleanTitle,
+    });
+  }
 
   const videoKey = generateKissKHKey(episode.id, false);
   const epStreamUrl = `https://kisskh.is/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
-  let epStreamRes = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    epStreamRes = await fetchImpl(epStreamUrl, {
-      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-      signal: AbortSignal.timeout(timeoutMs),
-    }).catch(() => null);
-    if (epStreamRes && epStreamRes.ok) break;
-    if (epStreamRes && epStreamRes.status === 429) {
-      await new Promise((r) => setTimeout(r, attempt * 1500));
-    }
-  }
-  if (!epStreamRes || !epStreamRes.ok) return null;
+  let epStreamData = await kisskhFetchJson(fetchImpl, epStreamUrl, {
+    timeoutMs,
+    kv,
+    cacheKey: `kisskh_ep_v1:${episode.id}`,
+    cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
+  });
 
-  const epStreamData = await epStreamRes.json().catch(() => null);
+  // If the episode API is blocked but this drama already resolved once, its CDN
+  // path is deterministic (…/Ep<N>_index.m3u8). Rebuild the URL and verify it
+  // instead of failing the whole episode.
+  if (!epStreamData) {
+    const fallbackUrl = await kisskhPatternUrl(fetchImpl, kv, matchedDrama && matchedDrama.id, reqEpNum, timeoutMs);
+    if (!fallbackUrl) return null;
+    epStreamData = { Video: fallbackUrl, Type: /\.mp4(\?|$)/i.test(fallbackUrl) ? 0 : 1 };
+  }
   if (!epStreamData) return null;
 
   const rawStream = epStreamData.Video || epStreamData.Video_tmp || "";
   if (!rawStream) return null;
+
+  if (kv && matchedDrama && matchedDrama.id) {
+    let template = String(rawStream).replace(/Ep\d+_/i, "Ep{ep}_");
+    if (template === rawStream) {
+      template = String(rawStream).replace(/Ep\d+\./i, "Ep{ep}.");
+    }
+    if (template !== rawStream) {
+      try {
+        await kv.put(`kisskh_pattern_v1:${matchedDrama.id}`, template, { expirationTtl: 7 * 24 * 60 * 60 });
+      } catch (e) { }
+    }
+  }
 
   const isMP4 = epStreamData.Type === 0 || /\.mp4(\?|$)/i.test(rawStream);
 
   // Subtitles
   const subKey = generateKissKHKey(episode.id, true);
   const subApiUrl = `https://kisskh.is/api/Sub/${episode.id}?kkey=${subKey}`;
-  let subRes = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    subRes = await fetchImpl(subApiUrl, {
-      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-      signal: AbortSignal.timeout(timeoutMs),
-    }).catch(() => null);
-    if (subRes && subRes.ok) break;
-    if (subRes && subRes.status === 429) {
-      await new Promise((r) => setTimeout(r, attempt * 1500));
-    }
-  }
-  const subData = (subRes && subRes.ok) ? await subRes.json().catch(() => []) : [];
+  const subData = (await kisskhFetchJson(fetchImpl, subApiUrl, {
+    timeoutMs,
+    kv,
+    cacheKey: `kisskh_sub_v1:${episode.id}`,
+    cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
+  })) || [];
 
   const subtitles = [];
   if (Array.isArray(subData)) {
@@ -824,43 +998,33 @@ export async function resolveKissKH({
         provider: "kisskh",
       });
     });
+    if (kv && matchedDrama && matchedDrama.id) {
+      const english = subtitles.find((s) => /^en/i.test(s.language || "") || /english/i.test(s.label || ""));
+      let subTemplate = english && String(english.url).replace(/Ep\d+_/i, "Ep{ep}_");
+      if (subTemplate && subTemplate === english.url) {
+        subTemplate = String(english.url).replace(/Ep\d+\./i, "Ep{ep}.");
+      }
+      if (subTemplate && subTemplate !== english.url) {
+        try {
+          await kv.put(`kisskh_subpattern_v1:${matchedDrama.id}`, subTemplate, { expirationTtl: 7 * 24 * 60 * 60 });
+        } catch (e) { }
+      }
+    }
+  }
+  if (subtitles.length === 0 && kv && matchedDrama && matchedDrama.id) {
+    const patternSubs = await kisskhPatternSubtitles(kv, matchedDrama.id, reqEpNum);
+    if (patternSubs && patternSubs.length > 0) {
+      subtitles.push(...patternSubs);
+    }
   }
 
   // Audio track labeling
-  const country = String(drama.country || "").toLowerCase();
-  const origLangInput = String(originalLanguage || (assetInfo && assetInfo.original_language) || "").toLowerCase();
-  let origLabel = "Original";
-  let origLang = "kor";
-  if (origLangInput === "ko" || origLangInput === "kor" || country.includes("korea") || country.includes("korean")) {
-    origLabel = "Original (Korean)";
-    origLang = "kor";
-  } else if (origLangInput === "ja" || origLangInput === "jpn" || country.includes("japan")) {
-    origLabel = "Original (Japanese)";
-    origLang = "jpn";
-  } else if (origLangInput === "zh" || origLangInput === "zho" || country.includes("china")) {
-    origLabel = "Original (Chinese)";
-    origLang = "zho";
-  } else if (origLangInput === "th" || origLangInput === "tha" || country.includes("thai")) {
-    origLabel = "Original (Thai)";
-    origLang = "tha";
-  } else if (origLangInput === "hi" || origLangInput === "hin" || country.includes("india")) {
-    origLabel = "Original (Hindi)";
-    origLang = "hin";
-  } else {
-    origLabel = "Original (Korean)";
-    origLang = "kor";
-  }
-
   const audioTracks = [
-    {
-      id: 0,
-      name: origLabel,
-      label: origLabel,
-      language: origLang,
-      default: true,
-      uri: rawStream,
-      provider: "kisskh",
-    },
+    kisskhOriginalAudio(
+      originalLanguage || (assetInfo && assetInfo.original_language) || "",
+      drama && drama.country,
+      rawStream
+    ),
   ];
 
   return {
@@ -872,8 +1036,8 @@ export async function resolveKissKH({
     subtitles,
     variants: [],
     pageUrl: `https://kisskh.is/Drama/${encodeURIComponent(cleanTitle)}/Episode-${reqEpNum}`,
-    title: drama.title || cleanTitle,
-    posterUrl: drama.thumbnail || "",
+    title: (drama && drama.title) || cleanTitle,
+    posterUrl: (drama && drama.thumbnail) || "",
     logoUrl: "",
   };
 }
