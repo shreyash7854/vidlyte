@@ -313,8 +313,9 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
       } catch (e) {}
     }
 
+    const showName = data.name || data.title || data.original_name || data.original_title || (isTv ? (String(id) === "122206" ? "The Rational Life" : `TV Show #${id}`) : `Movie #${id}`);
     const title = isTv
-      ? (epData && epData.name ? `${data.name}: ${epData.name}` : (data.name || `TV Show #${id}`))
+      ? (epData && epData.name ? `${showName}: ${epData.name}` : (showName || `TV Show #${id}`))
       : (data.title || data.original_title || `Movie #${id}`);
 
     const year = (data.release_date || data.first_air_date || "").slice(0, 4);
@@ -334,7 +335,7 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
     const logoUrl = logoObj && logoObj.file_path ? `/tmdb-image/w500${logoObj.file_path}` : "";
 
     const imdbId = (data.external_ids && data.external_ids.imdb_id) || (data.imdb_id || "");
-    const meta = { title, seriesTitle: isTv ? data.name || "" : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl, originalLanguage: data.original_language || "", imdbId };
+    const meta = { title, seriesTitle: isTv ? (showName || "") : "", year, rating, genres, overview, backdropUrl, posterUrl, logoUrl, originalLanguage: data.original_language || "", imdbId };
     tmdbCache.set(cacheKey, meta, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
     return meta;
   } catch (e) {
@@ -1590,6 +1591,16 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
   return null;
 }
 
+function isAsianContent(assetInfo, tmdbMeta) {
+  if (assetInfo && String(assetInfo.id) === "122206") return true;
+  if (!tmdbMeta) return false;
+  const lang = String(tmdbMeta.originalLanguage || "").toLowerCase();
+  if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(lang)) return true;
+  if (Array.isArray(tmdbMeta.originCountry) && tmdbMeta.originCountry.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN", "PH"].includes(String(c).toUpperCase()))) return true;
+  if (Array.isArray(tmdbMeta.genres) && tmdbMeta.genres.some((g) => /asian|k-drama|c-drama|anime/i.test(String(g)))) return true;
+  return false;
+}
+
 function getProviderOrder(requestedProvider, tmdbMeta = null, assetInfo = null) {
   if (requestedProvider) return [normalizeProvider(requestedProvider)];
 
@@ -1615,15 +1626,19 @@ function getProviderOrder(requestedProvider, tmdbMeta = null, assetInfo = null) 
     return providerPriority(a) - providerPriority(b);
   });
 
-  // For Asian content, prioritize kisskh first (instant 1.5s resolution, 100% Asian drama coverage)
-  const isAsian = (tmdbMeta && ["zh", "ko", "ja", "th"].includes(tmdbMeta.originalLanguage)) ||
-                  (assetInfo && String(assetInfo.id) === "122206");
+  // For Asian dramas/content, enforce strict priority: kisskh -> vidrift (orion) -> asianflix -> all others
+  const isAsian = isAsianContent(assetInfo, tmdbMeta);
+
   if (isAsian) {
-    const kissIdx = sorted.indexOf("kisskh");
-    if (kissIdx > 0) {
-      sorted.splice(kissIdx, 1);
-      sorted.unshift("kisskh");
+    const asianPriority = ["kisskh", "orion", "asianflix"];
+    const asianSorted = [];
+    for (const p of asianPriority) {
+      if (sorted.includes(p)) asianSorted.push(p);
     }
+    for (const p of sorted) {
+      if (!asianSorted.includes(p)) asianSorted.push(p);
+    }
+    return asianSorted;
   }
 
   return sorted;
@@ -1631,13 +1646,13 @@ function getProviderOrder(requestedProvider, tmdbMeta = null, assetInfo = null) 
 
 async function verifyManifestPlayable(result, provider, env) {
   if (!result || !result.streamUrl) return false;
+  // Freshly resolved KissKH cryptographic signatures are guaranteed valid
+  if (provider === "kisskh") return true;
   if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) {
     try {
       const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
         extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
       }).toString();
-      // Freshly resolved KissKH cryptographic signatures are guaranteed valid
-      if (provider === "kisskh") return true;
       const target = new URL(safeUrl);
       const headers = getUpstreamHeaders(provider, target, null);
       headers.set("Range", "bytes=0-100");
@@ -1654,7 +1669,7 @@ async function verifyManifestPlayable(result, provider, env) {
       return false;
     }
   }
-  if (result.masterManifest) return true;
+  if (result.masterManifest && provider !== "orion") return true;
   try {
     const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
       extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
@@ -1711,7 +1726,7 @@ async function verifyManifestPlayable(result, provider, env) {
 
 async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
   const breakerKey = `provider:${provider}`;
-  if (!providerBreakers.canAttempt(breakerKey)) return null;
+  if (provider !== "kisskh" && !providerBreakers.canAttempt(breakerKey)) return null;
 
   const started = Date.now();
   try {
@@ -1784,9 +1799,10 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
   const cacheKey = `${baseCacheKey}:${requested || "auto"}`;
 
   if (!options.forceRefresh) {
-    if (String(assetInfo.id) === "122206") {
-      const existing = sourceStaleCache.get(cacheKey);
-      if (existing && existing.value && existing.value.provider === "orion") {
+    const existing = sourceStaleCache.get(cacheKey);
+    if (existing && existing.value) {
+      const isAsianShow = String(assetInfo.id) === "122206";
+      if (isAsianShow && existing.value.provider !== "kisskh" && existing.value.provider !== "asianflix") {
         sourceStaleCache.delete(cacheKey);
       }
     }
@@ -1795,12 +1811,12 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       cached &&
       cached.fresh &&
       cached.value &&
-      !(String(assetInfo.id) === "122206" && cached.value.provider === "orion") &&
-      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv")
+      !(String(assetInfo.id) === "122206" && cached.value.provider !== "kisskh" && cached.value.provider !== "asianflix") &&
+      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv" || cached.value.provider === "kisskh")
     ) {
       return cloneValue(cached.value);
     }
-    if (cached && cached.stale && !(String(assetInfo.id) === "122206" && cached.value && cached.value.provider === "orion")) {
+    if (cached && cached.stale && !(String(assetInfo.id) === "122206" && cached.value && cached.value.provider !== "kisskh")) {
       const refresh = resolveUpstreamSource(assetInfo, requestedProvider, {
         forceRefresh: true,
         waitUntil: null,
@@ -1849,8 +1865,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       const maRecord = await readMultiAudioRecord(options.env, asset);
       if (multiAudioRecordUsable(maRecord)) {
         const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4);
-        const isAsianTitle = (tmdbMeta && ["zh", "ko", "ja", "th"].includes(tmdbMeta.originalLanguage)) ||
-                             (assetInfo && String(assetInfo.id) === "122206");
+        const isAsianTitle = isAsianContent(assetInfo, tmdbMeta);
         if (!isAsianTitle || isKiss) {
           const recordProvider = maRecord.provider || (isKiss ? "kisskh" : "evion");
           if (!requested || requested === recordProvider) {
@@ -1890,7 +1905,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
 
     if (chosen && chosen.result) {
       applyResolvedProvider(result, chosen.result);
-      const isAsian = tmdbMeta && ["ko", "ja", "zh", "th"].includes(tmdbMeta.originalLanguage);
+      const isAsian = isAsianContent(assetInfo, tmdbMeta);
       const hasOriginal = (result.audioTracks || []).some((t) => /original|korean|chinese|japanese|thai/i.test(t.name || t.label || ""));
       const needsAudio = (!result.audioTracks || result.audioTracks.length <= 1) || (isAsian && !hasOriginal);
       const hasEnglishSub = (result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
@@ -1963,6 +1978,29 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       if (result.streamUrl && isStreamUrlUsable(result.streamUrl)) {
         sourceStaleCache.set(cacheKey, cloneValue(result), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
         cacheResolvedResult(cacheKey, baseCacheKey, result);
+        if (options.env && options.env.CONFIG_KV) {
+          const assetNorm = (assetInfo.type === "tv" || assetInfo.type === "series")
+            ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
+            : `movie/${assetInfo.id}`;
+          const isMP4 = Boolean(result.isMP4 || (result.streamUrl && result.streamUrl.toLowerCase().includes(".mp4")));
+          const kvRecord = {
+            ok: true,
+            url: result.streamUrl,
+            isMP4,
+            audio: (result.audioTracks && result.audioTracks.length) || 1,
+            provider: result.provider || "kisskh",
+            exp: Math.floor(Date.now() / 1000) + 86400 * 30,
+            checked_at: new Date().toISOString(),
+            audioTracks: result.audioTracks || [],
+            subtitles: result.subtitles || [],
+          };
+          const putPromise = options.env.CONFIG_KV.put(`ma_status_v1:${assetNorm}`, JSON.stringify(kvRecord), {
+            expirationTtl: 86400 * 30,
+          }).catch(() => {});
+          if (options.waitUntil && typeof options.waitUntil === "function") {
+            options.waitUntil(putPromise);
+          }
+        }
         return result;
       }
     }

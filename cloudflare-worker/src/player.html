@@ -125,6 +125,104 @@
       }
     }
 
+    /* Resolving & 10s Countdown HUD */
+    .resolving-hud {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: calc(14px * var(--ui));
+      background: rgba(11, 13, 19, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65), 0 0 24px rgba(56, 189, 248, 0.15);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      padding: calc(18px * var(--ui)) calc(24px * var(--ui));
+      border-radius: calc(16px * var(--ui));
+      z-index: 35;
+      pointer-events: auto;
+      transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .resolving-hud-content {
+      display: flex;
+      align-items: center;
+      gap: calc(16px * var(--ui));
+    }
+    .resolving-timer-box {
+      position: relative;
+      width: calc(52px * var(--ui));
+      height: calc(52px * var(--ui));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .resolving-svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+    .resolving-circle-bg {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.1);
+      stroke-width: 4;
+    }
+    .resolving-circle-progress {
+      fill: none;
+      stroke: #38bdf8;
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-dasharray: 175.9;
+      stroke-dashoffset: 0;
+      transition: stroke-dashoffset 1s linear, stroke 0.3s ease;
+    }
+    .resolving-counter-val {
+      position: absolute;
+      font-size: calc(18px * var(--ui));
+      font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #fff;
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    }
+    .resolving-details {
+      display: flex;
+      flex-direction: column;
+      gap: calc(4px * var(--ui));
+      text-align: left;
+    }
+    .resolving-title-text {
+      font-size: calc(14px * var(--ui));
+      font-weight: 600;
+      color: #f8fafc;
+      letter-spacing: -0.01em;
+    }
+    .resolving-subtitle-text {
+      font-size: calc(12px * var(--ui));
+      color: #94a3b8;
+      font-weight: 400;
+    }
+    .resolving-retry-btn {
+      display: none;
+      align-items: center;
+      gap: calc(6px * var(--ui));
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: calc(6px * var(--ui)) calc(14px * var(--ui));
+      border-radius: calc(8px * var(--ui));
+      font-size: calc(12px * var(--ui));
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .resolving-retry-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: scale(1.02);
+    }
+
     /* Premium Center Play Toggle */
     .center-play-btn {
       position: absolute;
@@ -2382,6 +2480,27 @@
   <div class="player-root controls-visible" id="player">
     <video id="video" playsinline webkit-playsinline crossorigin="anonymous"></video>
     <div class="spinner" id="spinner"></div>
+
+    <!-- Resolving & Stream Countdown HUD -->
+    <div class="resolving-hud" id="resolvingHud" style="display:none;">
+      <div class="resolving-hud-content">
+        <div class="resolving-timer-box">
+          <svg class="resolving-svg" viewBox="0 0 64 64">
+            <circle class="resolving-circle-bg" cx="32" cy="32" r="28"></circle>
+            <circle class="resolving-circle-progress" id="resolvingProgress" cx="32" cy="32" r="28"></circle>
+          </svg>
+          <div class="resolving-counter-val" id="resolvingTimer">10</div>
+        </div>
+        <div class="resolving-details">
+          <div class="resolving-title-text" id="resolvingTitle">Finding best stream…</div>
+          <div class="resolving-subtitle-text" id="resolvingSubtitle">Connecting to fast playback server</div>
+        </div>
+      </div>
+      <button class="resolving-retry-btn" id="resolvingRetryBtn" style="display:none;" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        <span>Retry Connection</span>
+      </button>
+    </div>
 
     <!-- Backdrop Poster Art -->
     <div class="backdrop-poster" id="posterArt"></div>
@@ -5277,6 +5396,7 @@
         var wasPlaying = !video.paused;
         currentStreamUrl = newUrl;
         spinner.style.display = 'block';
+        startResolvingCountdown(10);
 
         var isMP4 = forceMp4 === true || (newUrl.indexOf('.mp4') >= 0 && newUrl.indexOf('.m3u8') < 0) || (newUrl.indexOf('/stream/chunk/') >= 0 && newUrl.indexOf('.m3u8') < 0);
 
@@ -5287,6 +5407,7 @@
           }
           video.src = newUrl;
           video.addEventListener('loadedmetadata', function () {
+            stopResolvingCountdown();
             if (resumeTime > 0) {
               video.currentTime = resumeTime;
             }
@@ -5305,6 +5426,7 @@
 
           var onParsed = function (event, data) {
             hls.off(Hls.Events.MANIFEST_PARSED, onParsed);
+            stopResolvingCountdown();
             spinner.style.display = 'none';
             setupQualityLevels(data.levels);
             if (resumeTime > 0) {
@@ -5410,12 +5532,141 @@
 
 
 
+      // Resolving & 10s Countdown HUD Controller
+      var resolvingHud = document.getElementById('resolvingHud');
+      var resolvingTimer = document.getElementById('resolvingTimer');
+      var resolvingProgress = document.getElementById('resolvingProgress');
+      var resolvingTitle = document.getElementById('resolvingTitle');
+      var resolvingSubtitle = document.getElementById('resolvingSubtitle');
+      var resolvingRetryBtn = document.getElementById('resolvingRetryBtn');
+      var resolvingInterval = null;
+      var resolvingCountdownSec = 10;
+      var resolvingActive = false;
+
+      function startResolvingCountdown(initialSeconds) {
+        if (resolvingActive) return;
+        resolvingActive = true;
+        resolvingCountdownSec = typeof initialSeconds === 'number' ? initialSeconds : 10;
+        if (resolvingHud) {
+          resolvingHud.style.display = 'flex';
+          resolvingHud.style.opacity = '1';
+        }
+        if (resolvingRetryBtn) resolvingRetryBtn.style.display = 'none';
+        updateResolvingUI();
+
+        if (resolvingInterval) clearInterval(resolvingInterval);
+        resolvingInterval = setInterval(function () {
+          resolvingCountdownSec--;
+          if (resolvingCountdownSec <= 0) {
+            clearInterval(resolvingInterval);
+            resolvingInterval = null;
+            onResolvingTimeout();
+          } else {
+            updateResolvingUI();
+          }
+        }, 1000);
+      }
+
+      function updateResolvingUI() {
+        if (!resolvingActive) return;
+        if (resolvingTimer) resolvingTimer.textContent = String(resolvingCountdownSec);
+        if (resolvingProgress) {
+          var circumference = 175.9; // 2 * Math.PI * 28
+          var fraction = (10 - resolvingCountdownSec) / 10;
+          resolvingProgress.style.strokeDashoffset = String(circumference * fraction);
+          if (resolvingCountdownSec <= 3) {
+            resolvingProgress.style.stroke = '#f59e0b';
+          } else {
+            resolvingProgress.style.stroke = '#38bdf8';
+          }
+        }
+        if (resolvingTitle) {
+          if (resolvingCountdownSec >= 8) {
+            resolvingTitle.textContent = 'Resolving fast stream…';
+          } else if (resolvingCountdownSec >= 5) {
+            resolvingTitle.textContent = 'Connecting to best provider…';
+          } else if (resolvingCountdownSec >= 2) {
+            resolvingTitle.textContent = 'Verifying audio & subtitles…';
+          } else {
+            resolvingTitle.textContent = 'Finalizing stream buffer…';
+          }
+        }
+      }
+
+      function stopResolvingCountdown() {
+        resolvingActive = false;
+        if (resolvingInterval) {
+          clearInterval(resolvingInterval);
+          resolvingInterval = null;
+        }
+        if (resolvingHud) {
+          resolvingHud.style.opacity = '0';
+          setTimeout(function () {
+            if (!resolvingActive && resolvingHud) {
+              resolvingHud.style.display = 'none';
+            }
+          }, 300);
+        }
+      }
+
+      function onResolvingTimeout() {
+        if (resolvingTimer) resolvingTimer.textContent = '0';
+        if (resolvingTitle) resolvingTitle.textContent = 'Stream search taking longer…';
+        if (resolvingSubtitle) resolvingSubtitle.textContent = 'Click below to retry resolving from backup sources.';
+        if (resolvingRetryBtn) {
+          resolvingRetryBtn.style.display = 'inline-flex';
+          resolvingRetryBtn.onclick = function (e) {
+            e.stopPropagation();
+            fetchDynamicSourceAndPlay();
+          };
+        }
+      }
+
+      function fetchDynamicSourceAndPlay() {
+        startResolvingCountdown(10);
+        if (resolvingSubtitle) resolvingSubtitle.textContent = 'Searching all streaming providers…';
+        if (resolvingRetryBtn) resolvingRetryBtn.style.display = 'none';
+
+        var sourceApiUrl = '/api/source/' + encodeURIComponent(config.mediaType || 'tv') + '/' +
+          encodeURIComponent(config.tmdbId || '') +
+          (config.mediaType === 'tv' ? '/' + encodeURIComponent(config.season || 1) + '/' + encodeURIComponent(config.episode || 1) : '') +
+          '?token=' + encodeURIComponent(config.playbackToken || config.token || '');
+
+        fetchJson(sourceApiUrl, { credentials: 'omit', cache: 'no-store' }, 10000)
+          .then(function (res) {
+            if (res && res.success && res.stream_url) {
+              config.isMP4 = res.is_mp4 === true;
+              if (res.subtitles && Array.isArray(res.subtitles) && res.subtitles.length > 0) {
+                config.subtitles = res.subtitles;
+                setupSubtitleTracks();
+              }
+              if (res.audio_tracks && Array.isArray(res.audio_tracks) && res.audio_tracks.length > 0) {
+                config.audioTracks = res.audio_tracks;
+                setupAudioTracks();
+              }
+              startInitialPlayback(res.stream_url);
+            } else {
+              throw new Error((res && res.error) || 'Stream not found');
+            }
+          })
+          .catch(function (err) {
+            console.warn('[DynamicSource] failed:', err);
+            onResolvingTimeout();
+          });
+      }
+
       // Ultra-fast playback event bindings
       video.addEventListener('playing', function () {
+        stopResolvingCountdown();
         spinner.style.display = 'none';
         updatePlayState();
       });
       video.addEventListener('canplay', function () {
+        stopResolvingCountdown();
+        spinner.style.display = 'none';
+      });
+      video.addEventListener('loadeddata', function () {
+        stopResolvingCountdown();
         spinner.style.display = 'none';
       });
       video.addEventListener('pause', function () {
@@ -5432,6 +5683,7 @@
 
       function startInitialPlayback(playUrl) {
         if (!playUrl) {
+          stopResolvingCountdown();
           spinner.style.display = 'none';
           return;
         }
@@ -5445,6 +5697,7 @@
           hls.loadSource(playUrl);
 
           hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
+            stopResolvingCountdown();
             setupQualityLevels(data.levels);
             setupAudioTracks();
 
@@ -5454,6 +5707,7 @@
               var playPromise = video.play();
               if (playPromise !== undefined) {
                 playPromise.then(function () {
+                  stopResolvingCountdown();
                   spinner.style.display = 'none';
                   updatePlayState();
                   updateVolumeUI();
@@ -5461,9 +5715,11 @@
                   video.muted = true;
                   updateVolumeUI();
                   video.play().then(function () {
+                    stopResolvingCountdown();
                     spinner.style.display = 'none';
                     updatePlayState();
                   }).catch(function () {
+                    stopResolvingCountdown();
                     spinner.style.display = 'none';
                   });
 
@@ -5492,6 +5748,7 @@
                 });
               }
             } else {
+              stopResolvingCountdown();
               spinner.style.display = 'none';
             }
           });
@@ -5505,6 +5762,7 @@
           function onMp4Metadata() {
             if (mp4Loaded) return;
             mp4Loaded = true;
+            stopResolvingCountdown();
             spinner.style.display = 'none';
             setupQualityLevels([{ height: 1080 }]);
             setupAudioTracks();
@@ -5523,6 +5781,7 @@
           }
 
           video.addEventListener('error', function () {
+            stopResolvingCountdown();
             spinner.style.display = 'none';
             updatePlayState();
           }, { once: true });
@@ -5531,6 +5790,7 @@
             video.volume = 1;
             video.muted = startMuted;
             video.play().then(function () {
+              stopResolvingCountdown();
               spinner.style.display = 'none';
               updatePlayState();
               updateVolumeUI();
@@ -5538,9 +5798,11 @@
               video.muted = true;
               updateVolumeUI();
               video.play().then(function () {
+                stopResolvingCountdown();
                 spinner.style.display = 'none';
                 updatePlayState();
               }).catch(function () {
+                stopResolvingCountdown();
                 spinner.style.display = 'none';
                 updatePlayState();
               });
@@ -6089,27 +6351,14 @@
       var canUpgradeMultiAudio = Boolean(hasClientDirect || remote) && !config.isMP4;
 
       if (!canUpgradeMultiAudio) {
-        startInitialPlayback(streamUrl);
-      } else if (!streamUrl) {
-        // Nothing playable server-side: wait for the browser-assisted path or remote path.
-        spinner.style.display = 'block';
-        if (hasClientDirect) {
-          resolveClientStream().then(function (clientStream) {
-            if (clientStream && clientStream.url) {
-              startInitialPlayback(clientStream.url);
-            } else if (remote) {
-              return resolveRemoteMultiAudio(false).then(function (remoteStream) {
-                startInitialPlayback(remoteStream && remoteStream.url ? remoteStream.url : '');
-              });
-            } else {
-              startInitialPlayback('');
-            }
-          });
-        } else if (remote) {
-          resolveRemoteMultiAudio(false).then(function (remoteStream) {
-            startInitialPlayback(remoteStream && remoteStream.url ? remoteStream.url : '');
-          });
+        if (streamUrl) {
+          startInitialPlayback(streamUrl);
+        } else {
+          fetchDynamicSourceAndPlay();
         }
+      } else if (!streamUrl) {
+        // Nothing playable server-side: resolve dynamically with 10s countdown UX.
+        fetchDynamicSourceAndPlay();
       } else {
         // Start instantly with the server stream, then upgrade to a multi-audio
         // rendition in the background when one is available.

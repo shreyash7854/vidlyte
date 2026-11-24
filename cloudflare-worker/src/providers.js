@@ -722,13 +722,20 @@ export async function resolveKissKH({
     }
 
     const dramaUrl = `https://kisskh.is/api/DramaList/Drama/${matchedDrama.id}`;
-    const dramaRes = await fetchImpl(dramaUrl, {
-      headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
-      signal: AbortSignal.timeout(timeoutMs),
-    }).catch((err) => {
-      console.error("[KissKH] drama fetch error:", err?.message);
-      return null;
-    });
+    let dramaRes = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      dramaRes = await fetchImpl(dramaUrl, {
+        headers: buildHeaders({ Accept: "application/json", Referer: "https://kisskh.is/" }),
+        signal: AbortSignal.timeout(timeoutMs),
+      }).catch((err) => {
+        console.error("[KissKH] drama fetch error:", err?.message);
+        return null;
+      });
+      if (dramaRes && dramaRes.ok) break;
+      if (dramaRes && dramaRes.status === 429) {
+        await new Promise((r) => setTimeout(r, attempt * 1200));
+      }
+    }
     if (!dramaRes || !dramaRes.ok) {
       console.error("[KissKH] drama non-ok status:", dramaRes?.status);
       return null;
