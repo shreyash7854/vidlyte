@@ -5572,6 +5572,10 @@
             updateQualityPillText();
           }, { once: true });
         } else {
+          try {
+            video.removeAttribute('src');
+            video.load();
+          } catch (e) { }
           initHlsPlayer();
           hls.loadSource(newUrl);
 
@@ -5842,10 +5846,13 @@
           (config.mediaType === 'tv' ? '/' + encodeURIComponent(config.season || 1) + '/' + encodeURIComponent(config.episode || 1) : '') +
           '?token=' + encodeURIComponent(config.playbackToken || config.token || '');
 
-        fetchJson(sourceApiUrl, { credentials: 'omit', cache: 'no-store' }, 15000)
+        fetchJson(sourceApiUrl, { credentials: 'omit', cache: 'no-store' }, 10000)
           .then(function (res) {
             if (res && res.success && res.stream_url) {
               config.isMP4 = res.is_mp4 === true;
+              if (res.variants && Array.isArray(res.variants) && res.variants.length > 0) {
+                config.variants = res.variants;
+              }
               if (res.subtitles && Array.isArray(res.subtitles) && res.subtitles.length > 0) {
                 config.subtitles = res.subtitles;
                 setupSubtitleTracks();
@@ -6306,8 +6313,8 @@
       // block, extension, m3u8 sniffer), the Worker dispatches a GitHub Actions
       // run that resolves the signed BigBang URL from outside the block. The
       // result lives in KV and is handed back here as a gateway URL.
-      var REMOTE_POLL_INTERVAL_MS = 4000;
-      var REMOTE_POLL_MAX = 24;
+      var REMOTE_POLL_INTERVAL_MS = 1500;
+      var REMOTE_POLL_MAX = 36;
       var remoteResolvePending = null;
 
       function remoteResolverConfig() {
@@ -6425,7 +6432,8 @@
                 url: remoteUrl,
                 audioCount: totalAudio,
                 audioTracks: tracks,
-                subtitles: (payload && payload.subtitles) || null
+                subtitles: (payload && payload.subtitles) || null,
+                variants: (payload && payload.variants) || null
               };
 
               if (!currentStreamUrl) {
@@ -6445,7 +6453,8 @@
                   url: remoteUrl,
                   audioCount: totalAudio,
                   audioTracks: tracks,
-                  subtitles: payload.subtitles || null
+                  subtitles: payload.subtitles || null,
+                  variants: payload.variants || null
                 };
                 if (!currentStreamUrl) {
                   startInitialPlayback(remoteUrl);
@@ -6483,6 +6492,12 @@
           return true;
         }
 
+        // Merge quality variants when upgraded from a multi-quality server
+        if (clientStream.variants && Array.isArray(clientStream.variants) && clientStream.variants.length > 1) {
+          config.variants = clientStream.variants;
+          setupQualityLevels(hls && hls.levels ? hls.levels : []);
+        }
+
         // Seamlessly attach upgraded subtitles if the initial stream lacked them or merge extra subtitles
         if (clientStream.subtitles && clientStream.subtitles.length > 0) {
           var curSubs = config.subtitles || [];
@@ -6499,7 +6514,7 @@
           });
           if (addedSub || curSubs.length === 0) {
             config.subtitles = curSubs;
-            buildSubtitlesList();
+            setupSubtitleTracks();
           }
         }
 
@@ -6705,26 +6720,33 @@
         }
       }
 
-      // Populate Subtitle Tracks from config
-      if (config.subtitles && config.subtitles.length > 0) {
-        config.subtitles.forEach(function (s, idx) {
-          var track = document.createElement('track');
-          track.kind = 'subtitles';
-          track.label = s.label || s.language;
-          track.srclang = s.language || 'en';
-          track.src = s.proxied_uri || s.proxiedUri || s.uri;
-          video.appendChild(track);
-          if (track.track) track.track.mode = 'hidden';
-        });
+      // Populate Subtitle Tracks from config and default to English when available
+      function setupSubtitleTracks() {
+        var existingTracks = video.querySelectorAll('track[kind="subtitles"]');
+        for (var ti = 0; ti < existingTracks.length; ti++) {
+          existingTracks[ti].remove();
+        }
+        if (config.subtitles && config.subtitles.length > 0) {
+          config.subtitles.forEach(function (s) {
+            var track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = s.label || s.language;
+            track.srclang = s.language || 'en';
+            track.src = s.proxied_uri || s.proxiedUri || s.uri;
+            video.appendChild(track);
+            if (track.track) track.track.mode = 'hidden';
+          });
 
-        // Default to the English track when one exists, otherwise the first track.
-        var englishIdx = findEnglishSubtitleIndex(config.subtitles);
-        var defaultTrack = config.subtitles[englishIdx >= 0 ? englishIdx : 0];
-        currentSub = cleanSubtitleLabel(defaultTrack.label || defaultTrack.language || 'English');
-        loadSubtitle(defaultTrack, true);
-        applyCueCustomization();
-        buildSubtitlesList();
+          // Default to the English track when one exists, otherwise the first track.
+          var englishIdx = findEnglishSubtitleIndex(config.subtitles);
+          var defaultTrack = config.subtitles[englishIdx >= 0 ? englishIdx : 0];
+          currentSub = cleanSubtitleLabel(defaultTrack.label || defaultTrack.language || 'English');
+          loadSubtitle(defaultTrack, true);
+          applyCueCustomization();
+          buildSubtitlesList();
+        }
       }
+      setupSubtitleTracks();
 
       function setupQualityLevels(levels) {
         if (!qualityLevelsList) return;
@@ -6750,8 +6772,8 @@
         var seenResLabels = new Set();
         seenResLabels.add('auto');
 
-        // Check if levels from HLS exist and have heights
-        if (levels && levels.length > 0) {
+        // 1. Multi-level HLS master (e.g. Orion / FrameX multi-variant)
+        if (hls && levels && levels.length > 1) {
           var sortedLevels = levels.map(function (lvl, idx) { return { lvl: lvl, origIdx: idx }; });
           sortedLevels.sort(function (a, b) { return (b.lvl.height || 0) - (a.lvl.height || 0); });
 
@@ -6780,43 +6802,12 @@
             };
             qualityLevelsList.appendChild(item);
           });
-
-          // Ensure standard quality tiers [1080P, 720P, 480P, 360P] are always available
-          var standardTiers = ['1080P', '720P', '480P', '360P'];
-          standardTiers.forEach(function (tier) {
-            if (!seenResLabels.has(tier.toLowerCase())) {
-              seenResLabels.add(tier.toLowerCase());
-              var tItem = document.createElement('div');
-              var isAct = (!isAutoActive && currentQualityName === tier);
-              tItem.className = 'pop-item' + (isAct ? ' active' : '');
-              tItem.innerHTML = '<span>' + tier + '</span><svg class="pop-check" viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg>';
-              tItem.onclick = function (e) {
-                e.stopPropagation();
-                if (hls && levels && levels.length > 0) {
-                  var targetH = parseInt(tier, 10);
-                  var bestIdx = 0;
-                  var minD = Infinity;
-                  levels.forEach(function (l, i) {
-                    var diff = Math.abs((l.height || 720) - targetH);
-                    if (diff < minD) { minD = diff; bestIdx = i; }
-                  });
-                  hls.currentLevel = bestIdx;
-                }
-                Array.from(qualityLevelsList.children).forEach(function (c) { c.classList.remove('active'); });
-                tItem.classList.add('active');
-                currentQualityName = tier;
-                updateQualityPillText();
-                closePopovers();
-              };
-              qualityLevelsList.appendChild(tItem);
-            }
-          });
           return;
         }
 
-        // Fallback to bootstrap variants if manifest only reported 1 or 0 levels
-        if (config.variants && config.variants.length > 0) {
-          config.variants.forEach(function (v, vIdx) {
+        // 2. Single-level stream (e.g. KissKH) with switchable multi-quality backup variants
+        if (config.variants && config.variants.length > 1) {
+          config.variants.forEach(function (v) {
             var rawRes = v.resolution ? v.resolution.trim() : '';
             if (!rawRes) return;
             var resLower = rawRes.toLowerCase();
@@ -6835,12 +6826,35 @@
               currentQualityName = displayLabel;
               updateQualityPillText();
               closePopovers();
-              if (v.proxiedUri || v.playlistUri) {
-                changeStreamSource(v.proxiedUri || v.playlistUri);
+              var varUri = v.proxiedUri || v.playlistUri;
+              if (varUri && varUri !== currentStreamUrl) {
+                loadNewStream(varUri, false);
               }
             };
             qualityLevelsList.appendChild(item);
           });
+          return;
+        }
+
+        // 3. Genuine single-quality stream: show real resolution without fake tiers
+        if (levels && levels.length === 1) {
+          var singleLbl = levels[0].height ? (levels[0].height + 'P') : (levels[0].name ? String(levels[0].name).toUpperCase() : '1080P');
+          if (!seenResLabels.has(singleLbl.toLowerCase())) {
+            var sItem = document.createElement('div');
+            var sAct = (!isAutoActive && currentQualityName === singleLbl);
+            sItem.className = 'pop-item' + (sAct ? ' active' : '');
+            sItem.innerHTML = '<span>' + singleLbl + '</span><svg class="pop-check" viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg>';
+            sItem.onclick = function (e) {
+              e.stopPropagation();
+              if (hls) hls.currentLevel = 0;
+              Array.from(qualityLevelsList.children).forEach(function (c) { c.classList.remove('active'); });
+              sItem.classList.add('active');
+              currentQualityName = singleLbl;
+              updateQualityPillText();
+              closePopovers();
+            };
+            qualityLevelsList.appendChild(sItem);
+          }
         }
       }
 
@@ -7507,19 +7521,49 @@
       function renderMobileQualityList() {
         var el = document.getElementById('sheetQualityList');
         if (!el) return;
-        var levels = ['Auto', '1080p', '720p', '480p', '360p'];
-        var html = '';
-        levels.forEach(function (lvl) {
-          var isAct = currentQualityName.toUpperCase() === lvl.toUpperCase();
-          html += '<div class="sheet-item ' + (isAct ? 'active' : '') + '" onclick="selectMobileQuality(\'' + lvl + '\')">' +
-            '<span>' + lvl + '</span>' +
-            (isAct ? '<span class="active-check">✓</span>' : '') + '</div>';
+        el.innerHTML = '';
+        var opts = [{ label: 'Auto', levelIdx: -1, uri: '' }];
+        var seenQ = new Set(['auto']);
+        if (hls && hls.levels && hls.levels.length > 1) {
+          hls.levels.forEach(function (lvl, idx) {
+            var l = lvl.height ? (lvl.height + 'p') : (lvl.name || '');
+            if (!l || seenQ.has(l.toLowerCase())) return;
+            seenQ.add(l.toLowerCase());
+            opts.push({ label: l.toUpperCase(), levelIdx: idx, uri: '' });
+          });
+        } else if (config.variants && config.variants.length > 1) {
+          config.variants.forEach(function (v) {
+            var l = (v.resolution || '').trim();
+            if (!l || seenQ.has(l.toLowerCase())) return;
+            seenQ.add(l.toLowerCase());
+            opts.push({ label: l.toUpperCase(), levelIdx: null, uri: v.proxiedUri || v.playlistUri });
+          });
+        } else if (hls && hls.levels && hls.levels.length === 1) {
+          var l = hls.levels[0].height ? (hls.levels[0].height + 'P') : '1080P';
+          opts.push({ label: l, levelIdx: 0, uri: '' });
+        }
+        opts.forEach(function (opt) {
+          var isAct = currentQualityName.toUpperCase() === opt.label.toUpperCase();
+          var div = document.createElement('div');
+          div.className = 'sheet-item' + (isAct ? ' active' : '');
+          div.innerHTML = '<span>' + opt.label + '</span>' + (isAct ? '<span class="active-check">✓</span>' : '');
+          div.onclick = function () {
+            if (hls && opt.levelIdx !== null && opt.levelIdx !== undefined) {
+              hls.currentLevel = opt.levelIdx;
+            } else if (opt.uri && opt.uri !== currentStreamUrl) {
+              loadNewStream(opt.uri, false);
+            }
+            currentQualityName = opt.label.toUpperCase();
+            updateQualityPillText();
+            if (sheetQualityValue) sheetQualityValue.textContent = opt.label;
+            openSheet(sheetSettingsView);
+          };
+          el.appendChild(div);
         });
-        el.innerHTML = html;
       }
 
       window.selectMobileQuality = function (lvl) {
-        currentQualityName = lvl.toUpperCase();
+        currentQualityName = String(lvl || 'AUTO').toUpperCase();
         updateQualityPillText();
         if (sheetQualityValue) sheetQualityValue.textContent = lvl;
         openSheet(sheetSettingsView);

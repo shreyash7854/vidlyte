@@ -366,13 +366,18 @@ export async function findAsianFlixPage({ title, year, pageOverrides = [], fetch
     }
   }
 
-  for (const url of candidates) {
-    const html = await fetchText(url, { fetchImpl, timeoutMs });
-    if (!html) continue;
+  const probePage = async (url) => {
+    const html = await fetchText(url, { fetchImpl, timeoutMs: Math.min(timeoutMs, 3500) });
+    if (!html) throw new Error("empty");
     const config = extractAsianFlixConfig(html);
-    if (config && config.blogIds.length > 0) {
-      return { url, html, config };
-    }
+    if (config && config.blogIds.length > 0) return { url, html, config };
+    throw new Error("no_config");
+  };
+
+  if (candidates.length > 0) {
+    try {
+      return await Promise.any(candidates.map(probePage));
+    } catch (e) { }
   }
 
   if (!title) return null;
@@ -641,7 +646,7 @@ export const KISSKH_DRAMA_OVERRIDES = {
 const KISSKH_RETRY_STATUSES = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
 const KISSKH_DRAMA_KV_TTL_SEC = 6 * 60 * 60;
 const KISSKH_EPISODE_KV_TTL_SEC = 30 * 60;
-export const KISSKH_DOMAINS = ["kisskh.is", "kisskh.cx", "kisskh.ovh", "kisskh.do"];
+export const KISSKH_DOMAINS = ["kisskh.is", "kisskh.co", "kisskh.do", "kisskh.ovh", "kisskh.cx"];
 let activeKisskhDomain = "kisskh.is";
 
 function kisskhHeaders(extra = {}, domain = activeKisskhDomain) {
@@ -720,7 +725,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
     kv: null, // KV already checked above; only write on success below
     cacheKey: "",
     domain: primary,
-    timeoutMs: Math.min(timeoutMs, 2200),
+    timeoutMs: Math.min(timeoutMs, 1800),
     maxAttempts: 1,
   });
   if (primaryData !== null && primaryData !== undefined) {
@@ -733,7 +738,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
     return primaryData;
   }
 
-  // Primary failed: race remaining mirrors (.cx, .ovh, .do) in parallel to stay under budget
+  // Primary failed: race remaining mirrors in parallel with a tight cap
   const fallbacks = ordered.slice(1);
   if (fallbacks.length > 0) {
     try {
@@ -744,7 +749,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
             kv: null,
             cacheKey: "",
             domain,
-            timeoutMs: Math.min(timeoutMs, 2500),
+            timeoutMs: Math.min(timeoutMs, 1500),
             maxAttempts: 1,
           });
           if (data === null || data === undefined) throw new Error(`mirror_${domain}_null`);
@@ -830,6 +835,8 @@ function kisskhOriginalAudio(originalLanguage, country, streamUrl) {
 async function kisskhPatternSubtitles(kv, dramaId, epNum) {
   if (!kv || !dramaId) return [];
   try {
+    const cachedSubs = await kv.get(`kisskh_ep_subs_v1:${dramaId}:${epNum}`, "json").catch(() => null);
+    if (Array.isArray(cachedSubs) && cachedSubs.length > 0) return cachedSubs;
     const template = await kv.get(`kisskh_subpattern_v1:${dramaId}`);
     if (!template) return [];
     return [{
@@ -1017,10 +1024,21 @@ async function kisskhTemplateFastPath(fetchImpl, kv, assetInfo, title, year, epN
     try {
       const template = await kv.get(key);
       if (template) {
-        const candidate = String(template).replace("{ep}", String(epNum));
-        if (await kisskhProbePlaylist(fetchImpl, candidate, Math.min(timeoutMs, 2600))) {
-          return candidate;
+        const rawTemplate = String(template);
+        const candidates = [rawTemplate.replace("{ep}", String(epNum))];
+        const versionless = rawTemplate.replace(/\.v\d+(?=[_./-]|$)/i, "");
+        if (versionless !== rawTemplate) {
+          candidates.push(versionless.replace("{ep}", String(epNum)));
         }
+        try {
+          const hit = await Promise.any(
+            candidates.map(async (cand) => {
+              if (await kisskhProbePlaylist(fetchImpl, cand, Math.min(timeoutMs, 2200))) return cand;
+              throw new Error("miss");
+            })
+          );
+          if (hit) return hit;
+        } catch (e) { }
       }
     } catch (e) { }
   }
@@ -1070,15 +1088,61 @@ export async function resolveKissKH({
     originalLanguage
   );
   if (fastUrl) {
-    return kisskhPatternResult({
+    let fastDramaId = (String(fastUrl).match(/\/(?:hls\d+|tmp)\/(\d+)\//i) || [])[1] || (override ? String(override.id) : "");
+    if (!fastDramaId && kv) {
+      try {
+        const tmplKey = kisskhTemplateKey(assetInfo);
+        if (tmplKey) fastDramaId = (await kv.get(`kisskh_dramaid_v1:${tmplKey}`)) || "";
+      } catch (e) { }
+    }
+    const fastRes = await kisskhPatternResult({
       url: fastUrl,
-      kv: null,
-      dramaId: "",
+      kv,
+      dramaId: fastDramaId,
       epNum: reqEpNum,
       cleanTitle,
       originalLanguage,
       title: cleanTitle,
     });
+    // If subtitles weren't cached under pattern/sub_cache yet, and we know dramaId,
+    // check cached drama metadata in KV to fetch Sub/{epId} once without Search!
+    if (fastRes && (!fastRes.subtitles || fastRes.subtitles.length === 0) && kv && fastDramaId) {
+      try {
+        const cachedDrama = await kv.get(`kisskh_drama_v1:${fastDramaId}`, "json");
+        const dramaObj = cachedDrama && cachedDrama.v ? cachedDrama.v : cachedDrama;
+        const epObj = dramaObj && Array.isArray(dramaObj.episodes)
+          ? dramaObj.episodes.find((e) => Number(e.number) === reqEpNum)
+          : null;
+        if (epObj && epObj.id) {
+          const sKey = generateKissKHKey(epObj.id, true);
+          const sData = await kisskhFetchApi(fetchImpl, `/api/Sub/${epObj.id}?kkey=${sKey}`, {
+            timeoutMs: Math.min(timeoutMs, 2200),
+            kv,
+            cacheKey: `kisskh_sub_v1:${epObj.id}`,
+            cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
+          });
+          if (Array.isArray(sData) && sData.length > 0) {
+            fastRes.subtitles = sData
+              .filter((s) => s && s.src)
+              .map((s) => {
+                const label = s.label || s.land || "Subtitles";
+                const isEn = String(label).toLowerCase().includes("english") || s.land === "en";
+                return {
+                  label: `${label} Subtitles`,
+                  language: s.land || (isEn ? "en" : "und"),
+                  url: s.src,
+                  default: isEn || Boolean(s.default),
+                  provider: "kisskh",
+                };
+              });
+            try {
+              await kv.put(`kisskh_ep_subs_v1:${fastDramaId}:${reqEpNum}`, JSON.stringify(fastRes.subtitles), { expirationTtl: KISSKH_EPISODE_KV_TTL_SEC });
+            } catch (e) { }
+          }
+        }
+      } catch (e) { }
+    }
+    return fastRes;
   }
 
   let drama = null;
@@ -1202,12 +1266,23 @@ export async function resolveKissKH({
 
   const videoKey = generateKissKHKey(episode.id, false);
   const epStreamPath = `/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
-  let epStreamData = await kisskhFetchApi(fetchImpl, epStreamPath, {
-    timeoutMs,
-    kv,
-    cacheKey: `kisskh_ep_v1:${episode.id}`,
-    cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
-  });
+  const subKey = generateKissKHKey(episode.id, true);
+  const subApiPath = `/api/Sub/${episode.id}?kkey=${subKey}`;
+
+  let [epStreamData, subData] = await Promise.all([
+    kisskhFetchApi(fetchImpl, epStreamPath, {
+      timeoutMs,
+      kv,
+      cacheKey: `kisskh_ep_v1:${episode.id}`,
+      cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
+    }),
+    kisskhFetchApi(fetchImpl, subApiPath, {
+      timeoutMs,
+      kv,
+      cacheKey: `kisskh_sub_v1:${episode.id}`,
+      cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
+    }).catch(() => null),
+  ]);
 
   // If the episode API is blocked but this drama already resolved once, its CDN
   // path is deterministic (…/Ep<N>_index.m3u8). Rebuild the URL and verify it
@@ -1223,6 +1298,12 @@ export async function resolveKissKH({
   if (!rawStream) return null;
 
   if (kv && matchedDrama && matchedDrama.id) {
+    const tmplKey = kisskhTemplateKey(assetInfo);
+    if (tmplKey) {
+      try {
+        await kv.put(`kisskh_dramaid_v1:${tmplKey}`, String(matchedDrama.id), { expirationTtl: KISSKH_TMPL_TTL_SEC });
+      } catch (e) { }
+    }
     const template = kisskhTemplateFromUrl(rawStream, reqEpNum);
     if (template) {
       try {
@@ -1241,16 +1322,7 @@ export async function resolveKissKH({
   }
 
   const isMP4 = epStreamData.Type === 0 || /\.mp4(\?|$)/i.test(rawStream);
-
-  // Subtitles
-  const subKey = generateKissKHKey(episode.id, true);
-  const subApiPath = `/api/Sub/${episode.id}?kkey=${subKey}`;
-  const subData = (await kisskhFetchApi(fetchImpl, subApiPath, {
-    timeoutMs,
-    kv,
-    cacheKey: `kisskh_sub_v1:${episode.id}`,
-    cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
-  })) || [];
+  subData = subData || [];
 
   const subtitles = [];
   if (Array.isArray(subData)) {
@@ -1267,6 +1339,11 @@ export async function resolveKissKH({
       });
     });
     if (kv && matchedDrama && matchedDrama.id) {
+      if (subtitles.length > 0) {
+        try {
+          await kv.put(`kisskh_ep_subs_v1:${matchedDrama.id}:${reqEpNum}`, JSON.stringify(subtitles), { expirationTtl: KISSKH_EPISODE_KV_TTL_SEC });
+        } catch (e) { }
+      }
       const english = subtitles.find((s) => /^en/i.test(s.language || "") || /english/i.test(s.label || ""));
       let subTemplate = english && String(english.url).replace(/Ep\d+_/i, "Ep{ep}_");
       if (subTemplate && subTemplate === english.url) {

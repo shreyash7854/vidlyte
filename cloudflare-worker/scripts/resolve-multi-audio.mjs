@@ -452,17 +452,18 @@ async function enrichWithVidrift(candidate, target) {
             });
             if (!alreadyHas) {
               const fullStreamUrl = s.url.startsWith("http") ? s.url : `${host}${s.url}`;
+              const isMp4Track = s.type === "mp4" || /\.mp4(\?|$)/i.test(fullStreamUrl);
               currentTracks.push({
                 id: currentTracks.length,
                 name: cleanName,
                 label: cleanName,
                 language: langCode,
                 default: false,
+                isMP4: isMp4Track,
                 uri: fullStreamUrl,
                 proxiedUri: fullStreamUrl,
                 proxied_uri: fullStreamUrl,
                 provider: "orion",
-                isMP4: false,
               });
             }
           });
@@ -766,7 +767,8 @@ export async function resolveAsset(target) {
     orionStreams.forEach((s, idx) => {
       const cleanName = s.name ? s.name.replace(/^Orion\s*[·•-]\s*/i, "").trim() : `Audio Track ${idx + 1}`;
       const fullStreamUrl = s.url.startsWith("http") ? s.url : `${base}${s.url}`;
-      const audioUri = fullStreamUrl.replace(/master\.m3u8$/i, defaultAudioFilename);
+      const isMp4Track = s.type === "mp4" || /\.mp4(\?|$)/i.test(fullStreamUrl);
+      const trackUri = fullStreamUrl;
       const langKey = cleanName.toLowerCase();
       const langCode = langMap[langKey] || "und";
       audioTracks.push({
@@ -775,9 +777,10 @@ export async function resolveAsset(target) {
         label: cleanName,
         language: langCode,
         default: idx === 0,
-        uri: audioUri,
-        proxiedUri: audioUri,
-        proxied_uri: audioUri,
+        isMP4: isMp4Track,
+        uri: trackUri,
+        proxiedUri: trackUri,
+        proxied_uri: trackUri,
         provider: "orion",
       });
     });
@@ -826,26 +829,69 @@ export async function resolveAsset(target) {
       "Origin": "https://embed.vidrift.net",
     };
 
-    const warmItems = [
-      ...variants.map((v) => ({ uri: v.playlistUri, m: v.playlistUri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) })),
-      ...audioTracks.map((a) => ({ uri: a.uri, m: a.uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) })),
-    ].filter((item) => item.m);
+    const warmUrls = new Set();
+    variants.forEach((v) => warmUrls.add(v.playlistUri));
+    orionStreams.forEach((s) => {
+      if (!s || !s.url) return;
+      const fullUrl = s.url.startsWith("http") ? s.url : `${base}${s.url}`;
+      if (s.type === "mp4" || /\.mp4(\?|$)/i.test(fullUrl)) return;
+      warmUrls.add(fullUrl);
+      warmUrls.add(fullUrl.replace(/master\.m3u8$/i, defaultAudioFilename));
+      warmUrls.add(fullUrl.replace(/master\.m3u8$/i, "v0.m3u8"));
+      warmUrls.add(fullUrl.replace(/master\.m3u8$/i, "v1.m3u8"));
+      warmUrls.add(fullUrl.replace(/master\.m3u8$/i, "v2.m3u8"));
+    });
+
+    const warmItems = Array.from(warmUrls)
+      .map((uri) => ({ uri, m: uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) }))
+      .filter((item) => item.m);
 
     await Promise.allSettled(
       warmItems.map(async (item) => {
         try {
           const res = await fetchWithTimeout(item.uri, {
             headers: fetchHeaders,
-            signal: AbortSignal.timeout(1800),
+            signal: AbortSignal.timeout(2200),
           });
           if (res && res.ok) {
-            const mapped = mapOrionPlaylist(await res.text());
+            const text = await res.text();
+            if (!text || !text.includes("#EXTM3U")) return;
+            const mapped = mapOrionPlaylist(text);
             subManifests[`${item.m[1]}:${item.m[2]}`] = mapped;
             subManifestsGz[`${item.m[1]}:${item.m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
           }
         } catch (e) {}
       })
     );
+
+    const orionSubtitles = [];
+    if (orionStreams[0] && orionStreams[0].subtitleListUrl) {
+      try {
+        const subListUrl = orionStreams[0].subtitleListUrl.startsWith("http")
+          ? orionStreams[0].subtitleListUrl
+          : `${base}${orionStreams[0].subtitleListUrl}`;
+        const subRes = await fetchWithTimeout(subListUrl, {
+          headers: fetchHeaders,
+          signal: AbortSignal.timeout(2200),
+        });
+        if (subRes && subRes.ok) {
+          const subJson = await subRes.json().catch(() => null);
+          if (subJson && Array.isArray(subJson.tracks)) {
+            for (const t of subJson.tracks) {
+              if (!t || !t.url) continue;
+              const u = t.url.startsWith("http") ? t.url : `${base}${t.url}`;
+              orionSubtitles.push({
+                label: String(t.label || t.lang || "Subtitles").replace(/\s*[·•-]\s*Orion/i, "").trim(),
+                language: t.lang || "en",
+                url: u,
+                uri: u,
+                provider: "orion",
+              });
+            }
+          }
+        }
+      } catch (e) {}
+    }
 
     orionCandidate = {
       ok: true,
@@ -856,6 +902,7 @@ export async function resolveAsset(target) {
       masterManifest,
       audioTracks,
       variants,
+      subtitles: orionSubtitles.length > 0 ? orionSubtitles : undefined,
       subManifests: Object.keys(subManifests).length > 0 ? subManifests : undefined,
       subManifestsGz: Object.keys(subManifestsGz).length > 0 ? subManifestsGz : undefined,
       via,
@@ -887,6 +934,14 @@ export async function resolveAsset(target) {
       }
       directKiss.audioTracks = merged;
       directKiss.audio = merged.length;
+      if (chosen.subManifests) directKiss.subManifests = chosen.subManifests;
+      if (chosen.subManifestsGz) directKiss.subManifestsGz = chosen.subManifestsGz;
+      if ((!directKiss.variants || directKiss.variants.length === 0) && Array.isArray(chosen.variants) && chosen.variants.length > 0) {
+        directKiss.variants = chosen.variants;
+      }
+      if ((!directKiss.subtitles || directKiss.subtitles.length === 0) && Array.isArray(chosen.subtitles) && chosen.subtitles.length > 0) {
+        directKiss.subtitles = chosen.subtitles;
+      }
       return directKiss;
     }
     chosen = await enrichWithKissKH(chosen, target, started);

@@ -540,7 +540,7 @@ export function normalizeSwarmNodeUrl(rawUrl, options = {}) {
 }
 
 /**
- * True when a signed upstream URL has a usable `exp` query parameter.
+ * True when a signed upstream URL has a usable `exp` / `Expires` query parameter.
  * A five-minute safety margin avoids handing out URLs that expire mid-play.
  */
 export function isStreamUrlUsable(rawUrl, marginSec = 300) {
@@ -548,7 +548,10 @@ export function isStreamUrlUsable(rawUrl, marginSec = 300) {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-    const expRaw = parsed.searchParams.get("exp");
+    const expRaw =
+      parsed.searchParams.get("exp") ||
+      parsed.searchParams.get("Expires") ||
+      parsed.searchParams.get("expires");
     if (!expRaw) return true;
     const exp = parseInt(expRaw, 10);
     if (!Number.isFinite(exp) || exp <= 0) return true;

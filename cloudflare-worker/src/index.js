@@ -8,6 +8,31 @@
 import playerTemplate from "./player.html";
 import adminTemplate from "./admin.html";
 import portalTemplate from "./portal.html";
+function mapOrionPlaylist(text) {
+  const firstChunkMatch = String(text || "").match(/https:\/\/[^\r\n]+\.m4s[^\r\n]*/);
+  if (firstChunkMatch) {
+    const firstChunk = firstChunkMatch[0];
+    return String(text || "").replace(/#EXT-X-MAP:URI="init-stream(\d+)\.m4s"/g, (m, streamIdx) => {
+      const initUrl = firstChunk.replace(/chunk-stream\d+-\d+\.m4s/, `init-stream${streamIdx}.m4s`);
+      return `#EXT-X-MAP:URI="${initUrl}"`;
+    });
+  }
+  return String(text || "");
+}
+
+function hasOrionSubForUri(record, uri) {
+  const u = String(uri || "");
+  if (!u || !/\/api\/orion\//i.test(u)) return true;
+  if (/\.mp4(\?|$)/i.test(u)) return true;
+  if (rawManifestCache.has(u)) return true;
+  const m = u.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+  if (!m) return false;
+  const subs = record && record.subManifests;
+  if (!subs || typeof subs !== "object") return false;
+  if (subs[`${m[1]}:${m[2]}`]) return true;
+  return Object.keys(subs).some((k) => k.startsWith(`${m[1]}:`));
+}
+
 async function decompressGzipBase64(b64) {
   try {
     const binary = atob(String(b64 || ""));
@@ -839,6 +864,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     }
 
     let orionCandidate = null;
+    const orionSubManifests = {};
     if (meta.orionStreams && Array.isArray(meta.orionStreams) && meta.orionStreams.length > 0) {
       let defaultAudioFilename = "a3.m3u8";
       let warmMasterManifest = "";
@@ -851,18 +877,27 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             manifestText = await decompressGzipBase64(wmVal.gz);
           }
           if (manifestText && manifestText.includes("#EXTM3U")) {
+            const mappedText = mapOrionPlaylist(manifestText);
             const fullWarmUrl = `https://embed.vidrift.net${wmPath}`;
-            rawManifestCache.set(fullWarmUrl, { body: manifestText, expiresAt: Date.now() + 3600 * 1000 });
-          }
-          if (wmPath.endsWith("master.m3u8") && manifestText) {
-            warmMasterManifest = manifestText;
-            const m = manifestText.match(/TYPE=AUDIO[^\n]+URI="([^"]+)"/i);
-            if (m && m[1]) {
-              defaultAudioFilename = m[1];
+            rawManifestCache.set(fullWarmUrl, { body: mappedText, expiresAt: Date.now() + 3600 * 1000 });
+            const wmMatch = wmPath.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+            if (wmMatch) {
+              const subKey = `${wmMatch[1]}:${wmMatch[2]}`;
+              orionSubManifests[subKey] = mappedText;
+              if (env && env.CONFIG_KV) {
+                env.CONFIG_KV.put(`orion_sub:${subKey}`, mappedText, { expirationTtl: 14400 }).catch(() => { });
+              }
             }
-          }
-          if (/\/a\d+\.m3u8$/i.test(wmPath)) {
-            defaultAudioFilename = wmPath.split("/").pop();
+            if (wmPath.endsWith("master.m3u8")) {
+              warmMasterManifest = mappedText;
+              const m = mappedText.match(/TYPE=AUDIO[^\n]+URI="([^"]+)"/i);
+              if (m && m[1]) {
+                defaultAudioFilename = m[1];
+              }
+            }
+            if (/\/a\d+\.m3u8$/i.test(wmPath)) {
+              defaultAudioFilename = wmPath.split("/").pop();
+            }
           }
         }
       }
@@ -872,7 +907,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
       meta.orionStreams.forEach((s, idx) => {
         const cleanName = s.name ? s.name.replace(/^Orion\s*[·•-]\s*/i, "").trim() : `Audio Track ${idx + 1}`;
         const fullStreamUrl = s.url.startsWith("http") ? s.url : `https://embed.vidrift.net${s.url}`;
-        const audioUri = fullStreamUrl.replace(/master\.m3u8$/i, defaultAudioFilename);
+        const isMp4Track = s.type === "mp4" || /\.mp4(\?|$)/i.test(fullStreamUrl);
         const langCode = languageCodeForLabel(cleanName);
 
         oAudio.push({
@@ -881,9 +916,10 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           label: cleanName || "Original",
           language: langCode,
           default: idx === 0,
-          uri: audioUri,
-          proxied_uri: audioUri,
-          proxiedUri: audioUri,
+          isMP4: isMp4Track,
+          uri: fullStreamUrl,
+          proxied_uri: fullStreamUrl,
+          proxiedUri: fullStreamUrl,
           provider: "orion",
         });
       });
@@ -911,6 +947,32 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           { resolution: "480p", bandwidth: 650000, playlistUri: `${primaryBase}v2.m3u8`, provider: "orion" }
         );
       }
+      // If boot only provided warmManifests for a subset of rungs (e.g. v2.m3u8 + a3.m3u8)
+      // and other rungs aren't warmed yet, prune dead unwarmed variants in master so Hls starts clean.
+      if (warmMasterManifest && Object.keys(orionSubManifests).length > 0) {
+        const primaryHashMatch = oMasterUrl.match(/\/api\/orion\/([a-zA-Z0-9]+)\//);
+        const pHash = primaryHashMatch ? primaryHashMatch[1] : "";
+        if (pHash) {
+          const hasAnyWarmVideo = Object.keys(orionSubManifests).some((k) => k.startsWith(`${pHash}:v`));
+          if (hasAnyWarmVideo) {
+            const mLines = warmMasterManifest.split(/\r?\n/);
+            const filtered = [];
+            for (let i = 0; i < mLines.length; i++) {
+              const ln = mLines[i];
+              const nextLn = mLines[i + 1] || "";
+              if (ln.startsWith("#EXT-X-STREAM-INF") && /^v\d+\.m3u8/i.test(nextLn.trim())) {
+                const vf = nextLn.trim();
+                if (!orionSubManifests[`${pHash}:${vf}`]) {
+                  i++;
+                  continue;
+                }
+              }
+              filtered.push(ln);
+            }
+            warmMasterManifest = filtered.join("\n");
+          }
+        }
+      }
       orionCandidate = {
         streamUrl: oMasterUrl,
         backupStreamUrl: oMasterUrl,
@@ -919,6 +981,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         audioTracks: oAudio,
         variants: oVariants,
         subtitles: [],
+        subManifests: Object.keys(orionSubManifests).length > 0 ? orionSubManifests : undefined,
+        hasStoredSubManifests: Object.keys(orionSubManifests).length > 0,
       };
     }
 
@@ -1283,6 +1347,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
       audioTracks: audioTracks,
       subtitles: subtitles,
       variants: variants,
+      subManifests: (chosenCandidate && chosenCandidate.subManifests) || (Object.keys(orionSubManifests).length > 0 ? orionSubManifests : undefined),
+      hasStoredSubManifests: Boolean((chosenCandidate && chosenCandidate.hasStoredSubManifests) || Object.keys(orionSubManifests).length > 0),
     };
 
     if (env && env.CONFIG_KV && masterUrl) {
@@ -1424,6 +1490,7 @@ function applyResolvedProvider(result, providerResult) {
   result.streamUrl = providerResult.streamUrl;
   if (providerResult.backupStreamUrl) result.backupStreamUrl = providerResult.backupStreamUrl;
   if (providerResult.masterManifest) result.masterManifest = providerResult.masterManifest;
+  if (providerResult.subManifests) result.subManifests = providerResult.subManifests;
   result.provider = providerResult.provider || result.provider;
   result.isMP4 = Boolean(providerResult.isMP4);
   if (providerResult.title) result.title = providerResult.title;
@@ -1509,41 +1576,69 @@ async function resolveFrameX(assetInfo, tmdbMeta = null) {
     "https://api.framextv.tech",
   ];
 
-  for (const host of cluster) {
+  const fetchClusterHost = async (host) => {
+    let endpoint = `${host}/api/stream?type=movie&id=${encodeURIComponent(assetInfo.id)}`;
+    if (assetInfo.type === "series" || assetInfo.type === "tv") {
+      endpoint = `${host}/api/stream?type=tv&id=${encodeURIComponent(assetInfo.id)}&season=${assetInfo.season || 1}&episode=${assetInfo.episode || 1}`;
+    }
+    const resp = await fetch(endpoint, {
+      signal: AbortSignal.timeout(2200),
+      headers: {
+        Referer: "https://framextv.cc/",
+        Origin: "https://framextv.cc",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+    });
+    if (!resp.ok) throw new Error(`framex_http_${resp.status}`);
+    const data = await resp.json();
+    return { resp, data };
+  };
+
+  let data = null;
+  try {
+    const primary = await fetchClusterHost(cluster[0]);
+    if (primary && primary.data) {
+      // Definitive miss from FrameX backend; no need to stall on DNS mirrors
+      if (!primary.data.success || !Array.isArray(primary.data.sources) || primary.data.sources.length === 0) {
+        return null;
+      }
+      data = primary.data;
+    }
+  } catch (e) {
     try {
-      let endpoint = `${host}/api/stream?type=movie&id=${encodeURIComponent(assetInfo.id)}`;
-      if (assetInfo.type === "series" || assetInfo.type === "tv") {
-        endpoint = `${host}/api/stream?type=tv&id=${encodeURIComponent(assetInfo.id)}&season=${assetInfo.season || 1}&episode=${assetInfo.episode || 1}`;
-      }
-
-      const resp = await fetch(endpoint, {
-        signal: AbortSignal.timeout(2600),
-        headers: {
-          Referer: "https://framextv.cc/",
-          Origin: "https://framextv.cc",
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        },
-      });
-      if (!resp.ok) continue;
-
-      const data = await resp.json();
-      if (!data.success || !Array.isArray(data.sources) || data.sources.length === 0) continue;
-
-      const hlsSource = data.sources.find(
-        (source) => source.type === "hls" || (source.url && source.url.toLowerCase().includes(".m3u8"))
+      const mirror = await Promise.any(
+        cluster.slice(1).map(async (host) => {
+          const res = await fetchClusterHost(host);
+          if (!res || !res.data || !res.data.success || !Array.isArray(res.data.sources) || res.data.sources.length === 0) {
+            throw new Error("empty");
+          }
+          return res.data;
+        })
       );
-      const bestSource = hlsSource || data.sources[0];
-      if (!bestSource || !bestSource.url) continue;
+      data = mirror;
+    } catch (me) {
+      return null;
+    }
+  }
 
-      // Reject mismatched media type (e.g. FrameX returning a movie when TV series was requested)
-      const decodedUrl = (() => { try { return decodeURIComponent(bestSource.url).toLowerCase(); } catch (e) { return bestSource.url.toLowerCase(); } })();
-      if ((assetInfo.type === "series" || assetInfo.type === "tv") && (decodedUrl.includes("/movie/") || decodedUrl.includes("%2fmovie%2f"))) {
-        continue;
-      }
-      if (assetInfo.type === "movie" && (decodedUrl.includes("/series/") || decodedUrl.includes("/tv/"))) {
-        continue;
-      }
+  if (!data || !data.success || !Array.isArray(data.sources) || data.sources.length === 0) return null;
+
+  try {
+    const hlsSource = data.sources.find(
+      (source) => source.type === "hls" || (source.url && source.url.toLowerCase().includes(".m3u8"))
+    );
+    const bestSource = hlsSource || data.sources[0];
+    if (!bestSource || !bestSource.url) return null;
+
+    // Reject mismatched media type (e.g. FrameX returning a movie when TV series was requested)
+    const decodedUrl = (() => { try { return decodeURIComponent(bestSource.url).toLowerCase(); } catch (e) { return bestSource.url.toLowerCase(); } })();
+    if ((assetInfo.type === "series" || assetInfo.type === "tv") && (decodedUrl.includes("/movie/") || decodedUrl.includes("%2fmovie%2f"))) {
+      return null;
+    }
+    if (assetInfo.type === "movie" && (decodedUrl.includes("/series/") || decodedUrl.includes("/tv/"))) {
+      return null;
+    }
 
       const subtitles = [];
       if (Array.isArray(data.subtitles)) {
@@ -1669,12 +1764,9 @@ async function resolveFrameX(assetInfo, tmdbMeta = null) {
         variants,
         audioTracks,
       };
-    } catch (e) {
-      // Try the next cluster host.
-    }
+  } catch (e) {
+    return null;
   }
-
-  return null;
 }
 
 async function resolve2EmbedSource(assetInfo) {
@@ -1926,7 +2018,13 @@ async function verifyManifestPlayable(result, provider, env) {
       const mLine = result.masterManifest.split(/\r?\n/).find((l) => /^https?:\/\//i.test(l.trim()) || /URI="([^"]+)"/i.test(l));
       const uriMatch = mLine && mLine.match(/URI="([^"]+)"/i);
       const testSub = uriMatch ? uriMatch[1] : (mLine ? mLine.trim() : "");
-      if (testSub && /\/api\/orion\//i.test(testSub) && !result.hasStoredSubManifests) {
+      const hasWarmSub = Boolean(
+        result.hasStoredSubManifests ||
+        (result.subManifests && Object.keys(result.subManifests).length > 0) ||
+        (testSub && rawManifestCache.has(testSub)) ||
+        hasOrionSubForUri(result, testSub)
+      );
+      if (testSub && /\/api\/orion\//i.test(testSub) && !hasWarmSub) {
         try {
           const probe = await fetch(testSub, {
             headers: { Origin: "https://embed.vidrift.net", Referer: "https://embed.vidrift.net/" },
@@ -1939,6 +2037,9 @@ async function verifyManifestPlayable(result, provider, env) {
       }
     }
     if (provider !== "orion") return true;
+    if (result.hasStoredSubManifests || (result.subManifests && Object.keys(result.subManifests).length > 0)) {
+      return true;
+    }
   }
   try {
     const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
@@ -2241,8 +2342,13 @@ function isOriginalLikeAudio(track) {
   return /^(original(\s+audio)?|original\s*\/\s*dual\s*audio|orig|multi[\s-]?audio|default)$/i.test(name) || ["orig", "und", "original"].includes(lang);
 }
 
+const dubTrackProbeCache = new Map();
+
 function mergeAudioTrackLists(baseTracks, extraTracks) {
-  const merged = Array.isArray(baseTracks) ? baseTracks.slice() : [];
+  const merged = (Array.isArray(baseTracks) ? baseTracks : []).filter((t) => {
+    const u = t && (t.uri || t.url);
+    return u && isStreamUrlUsable(u);
+  });
   const seen = new Set(merged.map(audioTrackKey));
   const seenNames = new Set(
     merged.map((t) => String((t && (t.name || t.label)) || "").toLowerCase().replace(/\s+/g, " ").trim()).filter(Boolean)
@@ -2252,6 +2358,7 @@ function mergeAudioTrackLists(baseTracks, extraTracks) {
   );
   for (const track of Array.isArray(extraTracks) ? extraTracks : []) {
     if (!track || !(track.uri || track.url)) continue;
+    if (!isStreamUrlUsable(track.uri || track.url)) continue;
     // The KissKH original already covers the authentic original language.
     if (isOriginalLikeAudio(track)) continue;
     const normName = String(track.name || track.label || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -2526,9 +2633,11 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
           if (typeof options.waitUntil === "function") options.waitUntil(seedTask);
         }
         const rawTracks = Array.isArray(maRecord.audioTracks) ? maRecord.audioTracks : [];
-        const usableTracks = hasStoredOrionSubs
-          ? rawTracks
-          : rawTracks.filter((t) => t && !/\/api\/orion\//i.test(String(t.uri || t.url || "")));
+        const usableTracks = rawTracks.filter((t) => {
+          if (!t) return false;
+          const u = String(t.uri || t.url || "");
+          return hasOrionSubForUri(maRecord, u);
+        });
         const salvagedPrimary = usableTracks.find((t) => t && (t.uri || t.url) && isStreamUrlUsable(t.uri || t.url));
         if (!recordNeedsBlockedOrion || salvagedPrimary) {
           const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4) || (salvagedPrimary && salvagedPrimary.provider === "kisskh");
@@ -2547,6 +2656,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
                   streamUrl: effUrl,
                   backupStreamUrl: effUrl,
                   masterManifest: recordNeedsBlockedOrion ? "" : (maRecord.masterManifest || ""),
+                  subManifests: maRecord.subManifests,
                   provider: recordProvider,
                   isMP4,
                   audioTracks: usableTracks,
@@ -2563,16 +2673,84 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       }
     }
 
+    const withRaceBudget = (promise, ms) => Promise.race([
+      promise,
+      new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+    ]).catch(() => null);
+
+    const mergeSecondaryTrackData = (secondary) => {
+      if (!chosen || !chosen.result || !secondary) return;
+      if (Array.isArray(secondary.audioTracks) && secondary.audioTracks.length > 0) {
+        chosen.result.audioTracks = mergeAudioTrackLists(chosen.result.audioTracks, secondary.audioTracks);
+      }
+      if (Array.isArray(secondary.subtitles) && secondary.subtitles.length > 0) {
+        chosen.result.subtitles = mergeSubtitleLists(chosen.result.subtitles, secondary.subtitles);
+      }
+      if ((!chosen.result.variants || chosen.result.variants.length <= 1) && Array.isArray(secondary.variants) && secondary.variants.length > 1) {
+        chosen.result.variants = secondary.variants;
+      }
+    };
+
     if (!chosen && requested) {
       const providerResult = await attemptProvider(requested, assetInfo, tmdbMeta, options.env);
       if (providerResult) chosen = { provider: requested, result: providerResult };
     } else if (!chosen) {
-      // Attempt providers sequentially according to configured priority order
-      for (const provider of order) {
-        const providerResult = await attemptProvider(provider, assetInfo, tmdbMeta, options.env);
-        if (providerResult && providerResult.streamUrl && isStreamUrlUsable(providerResult.streamUrl)) {
-          chosen = { provider, result: providerResult };
-          break;
+      // Parallel priority racing: run top providers concurrently with tight budgets
+      // so cold misses resolve in ~1.5-4.5s instead of stalling sequentially for 15s+.
+      const inFlight = new Map();
+      const settledResults = new Map();
+      const fastPool = isAsianShow
+        ? order.filter((p) => p !== "2vcdn").slice(0, 4)
+        : order.slice(0, 4);
+
+      for (const provider of fastPool) {
+        const capMs = provider === "kisskh" ? 4200 : 4000;
+        const p = withRaceBudget(attemptProvider(provider, assetInfo, tmdbMeta, options.env), capMs)
+          .then((res) => {
+            const valid = (res && res.streamUrl && isStreamUrlUsable(res.streamUrl)) ? res : null;
+            settledResults.set(provider, valid);
+            return valid;
+          });
+        inFlight.set(provider, p);
+      }
+
+      if (isAsianShow && inFlight.has("kisskh")) {
+        const kissRes = await inFlight.get("kisskh");
+        if (kissRes) {
+          chosen = { provider: "kisskh", result: kissRes };
+          // Brief grace window for parallel Orion/FrameX dubs & multi-quality variants
+          const dubTasks = ["orion", "framextv"].filter((p) => inFlight.has(p)).map((p) => inFlight.get(p));
+          if (dubTasks.length > 0) {
+            await withRaceBudget(Promise.allSettled(dubTasks), 350);
+          }
+          for (const dubProv of ["orion", "framextv"]) {
+            const dubRes = settledResults.get(dubProv);
+            if (dubRes) mergeSecondaryTrackData(dubRes);
+          }
+        }
+      }
+
+      if (!chosen) {
+        for (const provider of fastPool) {
+          const p = inFlight.get(provider);
+          if (!p) continue;
+          const res = await p;
+          if (res) {
+            chosen = { provider, result: res };
+            break;
+          }
+        }
+      }
+
+      // Final fallback walk only if the parallel pool missed everything
+      if (!chosen) {
+        for (const provider of order) {
+          if (inFlight.has(provider)) continue;
+          const providerResult = await withRaceBudget(attemptProvider(provider, assetInfo, tmdbMeta, options.env), 3500);
+          if (providerResult && providerResult.streamUrl && isStreamUrlUsable(providerResult.streamUrl)) {
+            chosen = { provider, result: providerResult };
+            break;
+          }
         }
       }
     }
@@ -2650,7 +2828,54 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         if (chosen.provider === "kisskh" || result.provider === "kisskh") {
           const dubCheckedAt = Number(maRecord && maRecord.dubCheckedAt) || 0;
           const needsDubCheck = !dubCheckedAt || (Date.now() - dubCheckedAt * 1000) > asianDubRecheckMs(maRecord);
-          if (needsDubCheck) {
+          if (needsDubCheck && (!result.audioTracks || result.audioTracks.length <= 1)) {
+            scheduleAsianDubEnrichment(assetInfo, tmdbMeta, result, options);
+          }
+        }
+        // Keep only playable, unexpired tracks (never hand 403/expired dubs to the player)
+        if (Array.isArray(result.audioTracks) && result.audioTracks.length > 1) {
+          let filtered = result.audioTracks.filter((t) => {
+            const u = t && (t.uri || t.url);
+            return u && isStreamUrlUsable(u) && hasOrionSubForUri(maRecord || result, u);
+          });
+          const toProbe = filtered.slice(1).filter((t) => {
+            const u = t && (t.uri || t.url);
+            if (!u || t.provider === "kisskh" || /cdnvideo|videocdndelivery/i.test(u)) return false;
+            const hit = dubTrackProbeCache.get(u);
+            return !(hit && Date.now() < hit.expiresAt);
+          });
+          if (toProbe.length > 0) {
+            await Promise.race([
+              Promise.allSettled(
+                toProbe.slice(0, 6).map(async (t) => {
+                  const u = t.uri || t.url;
+                  try {
+                    const hdrs = getUpstreamHeaders(t.provider || "framextv", new URL(u), null);
+                    if (t.isMP4 || /\.mp4(\?|$)/i.test(u)) hdrs.set("Range", "bytes=0-128");
+                    const pr = await fetch(u, { headers: hdrs, signal: AbortSignal.timeout(450) });
+                    const dead = pr && (pr.status === 403 || pr.status === 404 || pr.status === 410);
+                    try { await pr?.body?.cancel(); } catch (e) { }
+                    if (dubTrackProbeCache.size > 1000) dubTrackProbeCache.clear();
+                    dubTrackProbeCache.set(u, { alive: !dead, expiresAt: Date.now() + 10 * 60 * 1000 });
+                  } catch (e) { }
+                })
+              ),
+              new Promise((r) => setTimeout(r, 480)),
+            ]);
+          }
+          let prunedDead = false;
+          filtered = filtered.filter((t, idx) => {
+            if (idx === 0) return true;
+            const u = t && (t.uri || t.url);
+            const hit = dubTrackProbeCache.get(u);
+            if (hit && Date.now() < hit.expiresAt && hit.alive === false) {
+              prunedDead = true;
+              return false;
+            }
+            return true;
+          });
+          if (filtered.length > 0) result.audioTracks = filtered;
+          if (prunedDead) {
             scheduleAsianDubEnrichment(assetInfo, tmdbMeta, result, options);
           }
         }
@@ -4548,13 +4773,6 @@ function multiAudioRecordUsable(record) {
       return false;
     }
   }
-  if (record.audioTracks && Array.isArray(record.audioTracks)) {
-    const hasInvalidAudio = record.audioTracks.some((t) => {
-      const u = String(t.uri || t.url || "").toLowerCase();
-      return u.includes(".mp4") && !u.includes(".m3u8");
-    });
-    if (hasInvalidAudio && !record.isMP4 && record.provider !== "kisskh") return false;
-  }
   return true;
 }
 
@@ -5074,7 +5292,6 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         if (!playbackToken) {
           playbackToken = await wasmIssueToken(assetHyphenId, clientIP, 10800, secretSpec);
         }
-        const hasStoredOrionSubs = Boolean(record.subManifests && Object.keys(record.subManifests).length > 0);
         const rawTracks = Array.isArray(record.audioTracks) ? record.audioTracks : [];
         const hasSpecificOriginal = rawTracks.some((t) => t && /^original\s*\([^)]+\)/i.test(String(t.name || t.label || "").trim()));
         const seenNames = new Set();
@@ -5083,7 +5300,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         const sanitizedTracks = rawTracks.map((trk, idx) => {
           if (!trk) return null;
           const rawTrackUri = trk.uri || trk.url || "";
-          if (!hasStoredOrionSubs && /\/api\/orion\//i.test(String(rawTrackUri))) {
+          if (!hasOrionSubForUri(record, rawTrackUri)) {
             return null;
           }
           let safeUri = "";
@@ -5152,6 +5369,28 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           };
         }).filter(Boolean);
 
+        const sanitizedVariants = (Array.isArray(record.variants) ? record.variants : [])
+          .filter((v) => v && (v.playlistUri || v.uri || v.url))
+          .map((v) => {
+            const rawVar = v.playlistUri || v.uri || v.url || "";
+            if (!hasOrionSubForUri(record, rawVar)) return null;
+            let safeVar = "";
+            try {
+              safeVar = assertSafeUpstreamUrl(rawVar, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+            } catch (e) {
+              return null;
+            }
+            const proxiedVar = `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${codec.encode(safeVar, v.provider || record.provider || "orion")}?token=${encodeURIComponent(playbackToken)}`;
+            return {
+              resolution: String(v.resolution || "Auto").slice(0, 24),
+              bandwidth: Number(v.bandwidth) || 0,
+              playlistUri: proxiedVar,
+              proxiedUri: proxiedVar,
+              provider: "vidlyte",
+            };
+          })
+          .filter(Boolean);
+
         const recordAudio = Number(record.audio) || sanitizedTracks.length || 1;
         if (recordAudio <= 1) {
           let dubPending = false;
@@ -5179,6 +5418,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             exp: Number(record.exp) || 0,
             audioTracks: sanitizedTracks,
             subtitles: sanitizedSubs,
+            variants: sanitizedVariants,
             checked_at: record.checked_at || "",
           }), {
             status: 200,
@@ -5195,6 +5435,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           exp: Number(record.exp) || 0,
           audioTracks: sanitizedTracks,
           subtitles: sanitizedSubs,
+          variants: sanitizedVariants,
           checked_at: record.checked_at || "",
         }), {
           status: 200,
@@ -7015,7 +7256,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             throw fetchErr;
           }
         }
-      } else if (resolved.provider !== "orion") {
+      } else {
         rawM3U8 = await pruneDeadMasterVariants(rawM3U8, effectiveBaseUrl, resolved.provider, env);
       }
       const rewrittenM3U8 = rewriteManifest(rawM3U8, {
@@ -7178,6 +7419,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     const sanitizedAudio = rawAudioList
       .map((trk, index) => {
         if (!trk) return null;
+        if (!hasOrionSubForUri(resolved, trk.uri || trk.url)) return null;
         let trackUri = "";
         let safeUri = "";
         if (trk.uri) {
@@ -7436,7 +7678,31 @@ async function pruneDeadMasterVariants(body, baseUrl, provider, env) {
 
   const health = await Promise.all(
     pairs.map(async (pair) => {
-      if (/\/api\/orion\//i.test(pair.varUrl)) return true;
+      if (/\/api\/orion\//i.test(pair.varUrl)) {
+        const mem = rawManifestCache.get(pair.varUrl);
+        if (mem && mem.body && mem.body.includes("#EXTM3U")) return true;
+        const m = pair.varUrl.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/);
+        if (m && env && env.CONFIG_KV) {
+          try {
+            const kvVal = await env.CONFIG_KV.get(`orion_sub:${m[1]}:${m[2]}`);
+            if (kvVal && kvVal.includes("#EXTM3U")) return true;
+          } catch (e) { }
+        }
+        try {
+          const safeVar = assertSafeUpstreamUrl(pair.varUrl, { extraAllowlist: env && env.UPSTREAM_ALLOWLIST });
+          const varHeaders = getUpstreamHeaders(provider, safeVar, null);
+          const vRes = await fetchWithSwarmFallback(
+            safeVar.toString(),
+            { headers: varHeaders, signal: AbortSignal.timeout(1500) },
+            env
+          );
+          if (vRes && vRes.ok) {
+            const txt = await vRes.text();
+            return txt.includes("#EXTM3U");
+          }
+        } catch (e) { }
+        return false;
+      }
       try {
         const safeVar = assertSafeUpstreamUrl(pair.varUrl, { extraAllowlist: env && env.UPSTREAM_ALLOWLIST });
         const varHeaders = getUpstreamHeaders(provider, safeVar, null);
@@ -7583,7 +7849,8 @@ async function fetchRawManifest(upstreamUrl, provider, request, env) {
   hostBreakers.recordSuccess(hostKey, Date.now() - startedAt);
 
   const rawBody = await response.text();
-  const body = await pruneDeadMasterVariants(rawBody, safeUrl, provider, env);
+  const normalizedBody = (orionMatch || /\/api\/orion\//i.test(safeUrl)) ? mapOrionPlaylist(rawBody) : rawBody;
+  const body = await pruneDeadMasterVariants(normalizedBody, safeUrl, provider, env);
   rawManifestCache.set(safeUrl, { body, expiresAt: now + RAW_MANIFEST_TTL_MS });
 
   if (cache) {

@@ -23,7 +23,7 @@ import {
   seedKisskhTemplateFromUrl,
 } from "./src/providers.js";
 import { decryptKisskhSubtitle, convertSubtitleToVtt, toVttFromBytes } from "./src/subtitles.js";
-import { assertSafeUpstreamUrl, createOpaqueCodec, issuePlaybackToken, verifyPlaybackToken, parseSecretKeys } from "./src/security.js";
+import { assertSafeUpstreamUrl, createOpaqueCodec, issuePlaybackToken, verifyPlaybackToken, parseSecretKeys, isStreamUrlUsable } from "./src/security.js";
 import { TTLCache } from "./src/resilience.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -449,6 +449,41 @@ await test("player.html has zero pendingUpgradedStream refs, syncs audio state, 
   const idx = readSrc("src/index.js");
   assert.ok(idx.includes("pruneDeadMasterVariants"), "edge must prune dead/hung HLS variants so player never stalls");
   assert.ok(player.includes("levelFailures"), "player must auto-failover between HLS levels on chunk timeouts");
+  assert.ok(player.includes("function setupSubtitleTracks()"), "setupSubtitleTracks must be defined (called on dynamic source & upgrades)");
+  assert.ok(!player.includes("changeStreamSource("), "undefined changeStreamSource reference must not exist");
+  assert.ok(player.includes("REMOTE_POLL_INTERVAL_MS = 1500"), "remote multi-audio poll interval must be responsive");
+  assert.ok(idx.includes("function mapOrionPlaylist("), "index.js must map Orion init-stream URLs for warmManifests");
+  assert.ok(idx.includes("hasOrionSubForUri("), "Orion filter must preserve .mp4 dubs while skipping unbacked HLS dubs");
+  assert.ok(idx.includes("withRaceBudget"), "resolveUpstreamSource must race providers within a bounded budget");
+});
+
+await test("KissKH fast path preserves cached subtitles and probes versionless sibling CDN URLs", async () => {
+  const kv = makeMockKv({
+    "kisskh_tmpl_v1:tv/305551/s1": "https://hls08.cdnvideo11.shop/hls08/13793/Ep{ep}.v675_index.m3u8",
+    "kisskh_subpattern_v1:13793": "https://sub.cdnvideo11.shop/auto-upload/13793/Ep{ep}.en.srt",
+  });
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    if (url === "https://hls08.cdnvideo11.shop/hls08/13793/Ep8_index.m3u8") {
+      return new Response("#EXTM3U\n#EXTINF:4,\nseg.ts\n", { status: 200 });
+    }
+    return new Response("missing", { status: 404 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "305551", season: 1, episode: 8 },
+    title: "Merry Berry Love",
+    year: "2026",
+    originalLanguage: "ja",
+    kv,
+    fetchImpl,
+    timeoutMs: 1500,
+  });
+
+  assert.ok(res, "versionless CDN fallback must resolve when .vXXX changes across episodes");
+  assert.equal(res.streamUrl, "https://hls08.cdnvideo11.shop/hls08/13793/Ep8_index.m3u8");
+  assert.ok(res.subtitles && res.subtitles.length > 0, "fast path must preserve KissKH subtitles when dramaId is present");
 });
 
 console.log("\n[edge] Security adversarial inputs");
@@ -472,6 +507,12 @@ await test("assertSafeUpstreamUrl blocks SSRF vectors and opaque codec rejects t
   const pbTok = await issuePlaybackToken("tv-303745-1-7", "1.2.3.4", 60, secretSpec);
   assert.equal(await verifyPlaybackToken("tv-303745-1-7", "1.2.3.4", pbTok, secretSpec), true);
   assert.equal(await verifyPlaybackToken("tv-303745-1-10", "1.2.3.4", pbTok, secretSpec), false);
+
+  const pastUnix = Math.floor(Date.now() / 1000) - 600;
+  const futureUnix = Math.floor(Date.now() / 1000) + 7200;
+  assert.equal(isStreamUrlUsable(`https://img1.fcxmb.com/hls/720/index.m3u8?Expires=${pastUnix}`), false, "expired Expires= must be rejected");
+  assert.equal(isStreamUrlUsable(`https://img1.fcxmb.com/hls/720/index.m3u8?Expires=${futureUnix}`), true, "future Expires= must be accepted");
+  assert.equal(isStreamUrlUsable(`https://cdn.example.com/a.m3u8?exp=${pastUnix}`), false, "expired exp= must be rejected");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
