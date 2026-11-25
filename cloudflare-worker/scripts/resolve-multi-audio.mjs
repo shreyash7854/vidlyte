@@ -431,12 +431,12 @@ export async function resolveAsset(target) {
     } catch (e) {}
   }
 
+  let directKiss = null;
   if (isAsianTitle) {
-    const directKiss = await fallbackToKissKH(target, started, failures);
+    directKiss = await fallbackToKissKH(target, started, failures);
     if (directKiss && directKiss.url) {
       await enrichWithFrameX(directKiss, target);
       await enrichWithVidrift(directKiss, target);
-      return directKiss;
     }
   }
 
@@ -488,6 +488,7 @@ export async function resolveAsset(target) {
   }
 
   if (!boot) {
+    if (directKiss) return directKiss;
     const kissFallback = await fallbackToKissKH(target, started, failures);
     if (kissFallback) return kissFallback;
     return { ok: false, error: "boot_http_403", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
@@ -808,10 +809,44 @@ export async function resolveAsset(target) {
 
   const streams = (source && Array.isArray(source.streams) && source.streams) || [];
   if (streams.length === 0) {
+    if (directKiss) return directKiss;
     const kissFallback = await fallbackToKissKH(target, started, failures);
     if (kissFallback) return kissFallback;
     return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
+
+  const mergeIntoDirectKiss = (extraTracks = [], extraSubs = []) => {
+    if (!directKiss) return null;
+    const merged = Array.isArray(directKiss.audioTracks) ? directKiss.audioTracks.slice() : [];
+    for (const tr of extraTracks) {
+      if (!tr || !tr.uri) continue;
+      const trName = String(tr.name || tr.label || "").toLowerCase().trim();
+      const trLang = String(tr.language || "").toLowerCase().trim();
+      if (/^original/i.test(trName) && merged.some((m) => /original/i.test(m.name || m.label || ""))) continue;
+      const dup = merged.some((m) => {
+        const mName = String(m.name || m.label || "").toLowerCase().trim();
+        const mLang = String(m.language || "").toLowerCase().trim();
+        return (trName && mName === trName) || (trLang && trLang !== "und" && mLang === trLang);
+      });
+      if (!dup) {
+        merged.push({ ...tr, id: merged.length, default: false });
+      }
+    }
+    directKiss.audioTracks = merged;
+    directKiss.audio = merged.length;
+    if (Array.isArray(extraSubs) && extraSubs.length > 0) {
+      const subs = Array.isArray(directKiss.subtitles) ? directKiss.subtitles.slice() : [];
+      for (const s of extraSubs) {
+        if (!s || !(s.url || s.uri)) continue;
+        const sLbl = String(s.label || s.language || "").toLowerCase();
+        if (!subs.some((e) => String(e.label || e.language || "").toLowerCase() === sLbl)) {
+          subs.push(s);
+        }
+      }
+      directKiss.subtitles = subs;
+    }
+    return directKiss;
+  };
 
   // Check if provider returned multiple streams representing different audio dubs (e.g. Titan, FrameX multi-stream)
   const hasMultipleNamedStreams = streams.length >= 2 && streams.some((s) => s && (s.name || (s.label && s.label.includes(" · "))));
@@ -896,6 +931,10 @@ export async function resolveAsset(target) {
         }
       } catch (error) {}
 
+      if (directKiss) {
+        return mergeIntoDirectKiss(audioTracks, subs);
+      }
+
       return await enrichWithKissKH({
         ok: true,
         url: defaultTrack.uri,
@@ -915,6 +954,7 @@ export async function resolveAsset(target) {
   const stream = streams.find((item) => item && /bigbang\.cymru/i.test(String(item.url || item.proxyUrl || ""))) || streams[0];
   const streamUrl = (stream && (stream.url || stream.proxyUrl)) || "";
   if (!stream || !streamUrl) {
+    if (directKiss) return directKiss;
     const kissFallback = await fallbackToKissKH(target, started, failures);
     if (kissFallback) return kissFallback;
     return { ok: false, error: "no_stream", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
@@ -936,12 +976,14 @@ export async function resolveAsset(target) {
     }
   }
   if (!master.startsWith("#EXTM3U")) {
+    if (directKiss) return directKiss;
     const kissFallback = await fallbackToKissKH(target, started, failures);
     if (kissFallback) return kissFallback;
     return { ok: false, error: "master_not_m3u8", boot_failures: failures.slice(0, 8).join(","), latency_ms: Date.now() - started };
   }
   const audio = (master.match(/#EXT-X-MEDIA:TYPE=AUDIO/g) || []).length;
   if (audio < 2) {
+    if (directKiss) return directKiss;
     const kissFallback = await fallbackToKissKH(target, started, failures);
     if (kissFallback) {
       await enrichWithFrameX(kissFallback, target);
@@ -949,6 +991,30 @@ export async function resolveAsset(target) {
       return kissFallback;
     }
     return { ok: false, error: `single_audio_${audio}`, latency_ms: Date.now() - started };
+  }
+
+  if (directKiss) {
+    const bbTracks = [];
+    for (const line of master.split(/\r?\n/)) {
+      if (!line.includes("TYPE=AUDIO")) continue;
+      const nameMatch = line.match(/NAME="([^"]+)"/);
+      const langMatch = line.match(/LANGUAGE="([^"]+)"/);
+      const uriMatch = line.match(/URI="([^"]+)"/);
+      const name = (nameMatch ? nameMatch[1] : "").replace(/^\d+\.\s*/, "").trim();
+      const uri = uriMatch ? new URL(uriMatch[1], streamUrl).href : streamUrl;
+      if (!name) continue;
+      bbTracks.push({
+        name,
+        label: name,
+        language: (langMatch ? langMatch[1] : langMap[name.toLowerCase()] || "und").toLowerCase(),
+        uri,
+        proxiedUri: uri,
+        proxied_uri: uri,
+        provider: chosenProvider || "evion",
+        isMP4: false,
+      });
+    }
+    return mergeIntoDirectKiss(bbTracks, []);
   }
 
   let exp = 0;

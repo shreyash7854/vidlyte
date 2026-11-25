@@ -714,7 +714,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
     } catch (e) { }
   }
   const ordered = [activeKisskhDomain, ...KISSKH_DOMAINS.filter((d) => d !== activeKisskhDomain)];
-  const perDomainTimeout = Math.min(timeoutMs, 5000);
+  const perDomainTimeout = Math.min(timeoutMs, 3500);
   for (const domain of ordered) {
     const url = `https://${domain}${apiPath}`;
     const data = await kisskhFetchJson(fetchImpl, url, {
@@ -723,7 +723,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
       cacheKey: "", // already checked KV above; only write on success below
       domain,
       timeoutMs: perDomainTimeout,
-      maxAttempts: domain === ordered[0] ? 3 : 1,
+      maxAttempts: 1,
     });
     if (data !== null && data !== undefined) {
       activeKisskhDomain = domain;
