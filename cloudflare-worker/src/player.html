@@ -5742,7 +5742,7 @@
           (config.mediaType === 'tv' ? '/' + encodeURIComponent(config.season || 1) + '/' + encodeURIComponent(config.episode || 1) : '') +
           '?token=' + encodeURIComponent(config.playbackToken || config.token || '');
 
-        fetchJson(sourceApiUrl, { credentials: 'omit', cache: 'no-store' }, 10000)
+        fetchJson(sourceApiUrl, { credentials: 'omit', cache: 'no-store' }, 15000)
           .then(function (res) {
             if (res && res.success && res.stream_url) {
               config.isMP4 = res.is_mp4 === true;
@@ -5755,13 +5755,32 @@
                 setupAudioTracks();
               }
               startInitialPlayback(res.stream_url);
-            } else {
-              throw new Error((res && res.error) || 'Stream not found');
+              return true;
+            }
+            return false;
+          })
+          .catch(function () {
+            return false;
+          })
+          .then(function (started) {
+            if (started) return true;
+            if (resolvingSubtitle) resolvingSubtitle.textContent = 'Checking client & backup resolvers…';
+            return resolveClientStream({ force: true })
+              .then(function (clientStream) {
+                if (applyClientUpgrade(clientStream, false)) return true;
+                return resolveRemoteMultiAudio(false).then(function (remoteStream) {
+                  return applyClientUpgrade(remoteStream, false);
+                });
+              });
+          })
+          .then(function (started) {
+            if (!started && !currentStreamUrl) {
+              onResolvingTimeout();
             }
           })
           .catch(function (err) {
             console.warn('[DynamicSource] failed:', err);
-            onResolvingTimeout();
+            if (!currentStreamUrl) onResolvingTimeout();
           });
       }
 
