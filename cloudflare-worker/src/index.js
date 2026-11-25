@@ -6846,6 +6846,8 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             throw fetchErr;
           }
         }
+      } else if (resolved.provider !== "orion") {
+        rawM3U8 = await pruneDeadMasterVariants(rawM3U8, effectiveBaseUrl, resolved.provider, env);
       }
       const rewrittenM3U8 = rewriteManifest(rawM3U8, {
         baseUrl: effectiveBaseUrl,
@@ -7273,7 +7275,7 @@ async function fetchRawManifest(upstreamUrl, provider, request, env) {
     } catch (e) { }
   }
 
-  const cacheKeyUrl = `${safeUrl}::manifest`;
+  const cacheKeyUrl = `${safeUrl}::manifest_v2`;
   let cache = null;
   try {
     cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
