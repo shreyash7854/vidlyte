@@ -7152,19 +7152,30 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
   }
 
   const p = safeTarget.pathname.toLowerCase();
+  const h = safeTarget.hostname.toLowerCase();
+  const isKnownMediaExt =
+    p.endsWith(".mp4") ||
+    p.endsWith(".m4s") ||
+    p.endsWith(".m4v") ||
+    p.endsWith(".ts") ||
+    p.endsWith(".m3u8") ||
+    p.endsWith(".webm") ||
+    p.endsWith(".mkv") ||
+    p.endsWith(".aac") ||
+    p.endsWith(".mp3");
   const isSubtitle =
-    safeTarget.hostname.includes("strem.io") ||
-    provider === "kisskh" ||
-    safeTarget.hostname.includes("kisskh") ||
-    safeTarget.hostname.includes("cdnvideo") ||
-    safeTarget.hostname.includes("videocdndelivery") ||
-    p.includes("/subtitles/") ||
-    p.includes("/subtitle/") ||
-    p.includes("/sub/") ||
-    p.endsWith(".srt") ||
-    p.endsWith(".vtt") ||
-    p.endsWith(".ass") ||
-    p.endsWith(".ssa");
+    !isKnownMediaExt && (
+      h.includes("strem.io") ||
+      h.startsWith("sub.") ||
+      p.includes("/subtitles/") ||
+      p.includes("/subtitle/") ||
+      p.includes("/sub/") ||
+      p.endsWith(".srt") ||
+      p.endsWith(".vtt") ||
+      p.endsWith(".ass") ||
+      p.endsWith(".ssa") ||
+      (p.endsWith(".txt") && (provider === "kisskh" || h.includes("kisskh") || h.includes("cdnvideo") || h.includes("videocdndelivery")))
+    );
 
   const cache = (() => {
     try {
