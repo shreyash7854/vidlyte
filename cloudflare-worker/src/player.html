@@ -5475,14 +5475,6 @@
           }
         }
 
-        // 1b. If an upgraded multi-audio master was deferred in the background, switch to it now
-        if (pendingUpgradedStream && pendingUpgradedStream.url && currentStreamUrl !== pendingUpgradedStream.url) {
-          window.__PENDING_AUDIO_TRACK_IDX__ = idx;
-          loadNewStream(pendingUpgradedStream.url);
-          updateAudioTrackUI(idx);
-          return;
-        }
-
         // 2. Separate stream URL / Multi-Audio Master URL fallback
         if (config.audioTracks && config.audioTracks[idx]) {
           var targetTrack = config.audioTracks[idx];
