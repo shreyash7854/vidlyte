@@ -15,7 +15,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveKissKH, KISSKH_DOMAINS } from "./src/providers.js";
+import {
+  resolveKissKH,
+  KISSKH_DOMAINS,
+  kisskhTemplateFromUrl,
+  kisskhTemplateKeyFromAsset,
+  seedKisskhTemplateFromUrl,
+} from "./src/providers.js";
 import { decryptKisskhSubtitle, convertSubtitleToVtt, toVttFromBytes } from "./src/subtitles.js";
 import { assertSafeUpstreamUrl, createOpaqueCodec, issuePlaybackToken, verifyPlaybackToken, parseSecretKeys } from "./src/security.js";
 import { TTLCache } from "./src/resilience.js";
@@ -149,6 +155,216 @@ await test("MP4 KissKH result sets isMP4=true properly", async () => {
   });
   assert.equal(res.isMP4, true);
   assert.equal(res.audioTracks[0].language, "tha");
+});
+
+console.log("\n[edge] KissKH CDN template fast path (API edge-blocked)");
+
+function makeMockKv(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  return {
+    store,
+    async get(k, type) {
+      const v = store.get(k);
+      if (v === undefined) return null;
+      return type === "json" ? JSON.parse(v) : v;
+    },
+    async put(k, v) { store.set(k, String(v)); },
+    async delete(k) { store.delete(k); },
+  };
+}
+
+await test("derives a CDN template from both KissKH URL shapes", () => {
+  assert.equal(
+    kisskhTemplateFromUrl("https://hls07.cdnvideo11.shop/hls07/8409/Ep5_index.m3u8", 5),
+    "https://hls07.cdnvideo11.shop/hls07/8409/Ep{ep}_index.m3u8"
+  );
+  assert.equal(
+    kisskhTemplateFromUrl("https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep4/index.m3u8?v=abc", 4),
+    "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep{ep}/index.m3u8"
+  );
+  assert.equal(kisskhTemplateFromUrl("https://cdn.example.com/no-episode/index.m3u8", 3), "");
+  assert.equal(kisskhTemplateFromUrl("https://tmp.cdnvideo11.shop/tmp/Show-Ep10/index.m3u8", 1), "");
+});
+
+await test("maps assets to per-show season templates", () => {
+  assert.equal(kisskhTemplateKeyFromAsset("tv/341436/1/4"), "kisskh_tmpl_v1:tv/341436/s1");
+  assert.equal(kisskhTemplateKeyFromAsset("tv/341436/2/1"), "kisskh_tmpl_v1:tv/341436/s2");
+  assert.equal(kisskhTemplateKeyFromAsset("movie/550"), "kisskh_tmpl_v1:movie/550");
+  assert.equal(kisskhTemplateKeyFromAsset("bogus"), "");
+});
+
+await test("seeds and reuses the per-asset template without touching the API", async () => {
+  const kv = makeMockKv();
+  const seeded = await seedKisskhTemplateFromUrl(
+    kv,
+    "tv/341436/1/4",
+    "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep4/index.m3u8?v=uuid",
+    4
+  );
+  assert.equal(seeded, true);
+  assert.equal(
+    kv.store.get("kisskh_tmpl_v1:tv/341436/s1"),
+    "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep{ep}/index.m3u8"
+  );
+  assert.equal(await seedKisskhTemplateFromUrl(kv, "bogus", "https://x/Ep1_index.m3u8", 1), false);
+});
+
+await test("cold miss guesses the tmp CDN slug from the TMDB title (API blocked)", async () => {
+  const kv = makeMockKv();
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    if (url === "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep4/index.m3u8") {
+      return new Response("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6,\nseg0.ts\n", { status: 200 });
+    }
+    return new Response("forbidden", { status: 403 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "341436", season: 1, episode: 4 },
+    title: "Vow of Autumn (2026)",
+    year: "2026",
+    originalLanguage: "zh",
+    kv,
+    fetchImpl,
+    timeoutMs: 1500,
+  });
+
+  assert.ok(res, "the CDN guess must resolve without the JSON API");
+  assert.equal(res.provider, "kisskh");
+  assert.equal(res.streamUrl, "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep4/index.m3u8");
+  assert.equal(res.isMP4, false);
+  assert.equal(res.audioTracks[0].language, "zho");
+  assert.ok(!probed.some((u) => u.includes("kisskh.is")), "no API call should be made when the CDN guess hits");
+  assert.equal(
+    kv.store.get("kisskh_tmpl_v1:tv/341436/s1"),
+    "https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep{ep}/index.m3u8",
+    "a successful guess must persist the template for the next episode"
+  );
+});
+
+await test("known template resolves a new episode with one probe and zero API calls", async () => {
+  const kv = makeMockKv({
+    "kisskh_tmpl_v1:tv/341707/s1":
+      "https://tmp.cdnvideo11.shop/tmp/Rise-of-the-Underdog-2026-Ep{ep}/index.m3u8",
+  });
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    if (url === "https://tmp.cdnvideo11.shop/tmp/Rise-of-the-Underdog-2026-Ep3/index.m3u8") {
+      return new Response("#EXTM3U\n#EXTINF:4,\nseg.ts\n", { status: 200 });
+    }
+    return new Response("blocked", { status: 403 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "341707", season: 1, episode: 3 },
+    title: "Rise of the Underdog (2026)",
+    year: "2026",
+    originalLanguage: "zh",
+    kv,
+    fetchImpl,
+    timeoutMs: 1500,
+  });
+
+  assert.equal(res.streamUrl, "https://tmp.cdnvideo11.shop/tmp/Rise-of-the-Underdog-2026-Ep3/index.m3u8");
+  assert.equal(probed.length, 1, "a cached template must cost exactly one probe");
+  assert.ok(!probed[0].includes("kisskh."), "the template path must not hit the JSON API");
+});
+
+await test("stale template that 404s falls back to the API instead of failing", async () => {
+  const kv = makeMockKv({
+    "kisskh_tmpl_v1:tv/55555/s1": "https://tmp.cdnvideo11.shop/tmp/Dead-Show-2020-Ep{ep}/index.m3u8",
+  });
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    if (url.includes("tmp.cdnvideo11.shop")) return new Response("gone", { status: 404 });
+    if (url.includes("/Search")) {
+      return new Response(JSON.stringify([{ id: 55555, title: "Dead Show (2020)" }]), { status: 200 });
+    }
+    if (url.includes("/Drama/")) {
+      return new Response(JSON.stringify({
+        id: 55555,
+        title: "Dead Show",
+        episodes: [{ id: 9001, number: 2 }],
+      }), { status: 200 });
+    }
+    if (url.includes("/Episode/9001")) {
+      return new Response(JSON.stringify({ Video: "https://hls1.cdnvideo11.shop/hls/55555/Ep2_index.m3u8", Type: 1 }), { status: 200 });
+    }
+    return new Response(JSON.stringify([]), { status: 200 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "55555", season: 1, episode: 2 },
+    title: "Dead Show (2020)",
+    year: "2020",
+    originalLanguage: "ko",
+    kv,
+    fetchImpl,
+    timeoutMs: 1500,
+  });
+
+  assert.ok(res, "a stale template must not poison resolution");
+  assert.equal(res.streamUrl, "https://hls1.cdnvideo11.shop/hls/55555/Ep2_index.m3u8");
+});
+
+await test("non-Asian titles never spend probes on the KissKH CDN guess", async () => {
+  const kv = makeMockKv();
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    if (url.includes("/Search")) {
+      return new Response(JSON.stringify([{ id: 42, title: "Breaking Bad" }]), { status: 200 });
+    }
+    if (url.includes("/Drama/")) {
+      return new Response(JSON.stringify({ id: 42, title: "Breaking Bad", episodes: [{ id: 7, number: 1 }] }), { status: 200 });
+    }
+    if (url.includes("/Episode/7")) {
+      return new Response(JSON.stringify({ Video: "https://hls1.cdnvideo11.shop/hls/42/Ep1_index.m3u8", Type: 1 }), { status: 200 });
+    }
+    return new Response(JSON.stringify([]), { status: 200 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "1396", season: 1, episode: 1 },
+    title: "Breaking Bad",
+    year: "2008",
+    originalLanguage: "en",
+    kv,
+    fetchImpl,
+    timeoutMs: 1500,
+  });
+
+  assert.ok(res);
+  assert.ok(
+    !probed.some((u) => u.includes("tmp.cdnvideo11.shop")),
+    "a known non-Asian title must skip CDN slug guessing"
+  );
+});
+
+await test("template fast path stays safe for movies and bad episode numbers", async () => {
+  const kv = makeMockKv({
+    "kisskh_tmpl_v1:movie/550": "https://tmp.cdnvideo11.shop/tmp/Movie-Ep{ep}/index.m3u8",
+  });
+  const probed = [];
+  const fetchImpl = async (url) => {
+    probed.push(url);
+    return new Response("blocked", { status: 403 });
+  };
+  const res = await resolveKissKH({
+    assetInfo: { type: "movie", id: "550" },
+    title: "Fight Club",
+    year: "1999",
+    originalLanguage: "en",
+    kv,
+    fetchImpl,
+    timeoutMs: 800,
+  });
+  assert.equal(res, null);
+  assert.ok(probed.length > 0);
+  assert.ok(!probed.some((u) => u.includes("EpNaN") || u.includes("Ep0/")), "episode numbers must be sane");
 });
 
 console.log("\n[edge] Subtitles decryption & malformed inputs");

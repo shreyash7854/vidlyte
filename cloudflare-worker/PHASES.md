@@ -276,6 +276,31 @@ The resolver needs the title to match a page and a Blogger post.
 
 ---
 
+## 5a. KissKH immediacy triage
+
+KissKH resolves from its CDN first, so a blocked JSON API must not delay play.
+
+1. Inspect the per-asset template:
+   ```powershell
+   npx wrangler kv key get "kisskh_tmpl_v1:tv/341436/s1" --binding=CONFIG_KV --remote
+   ```
+   A value such as
+   `https://tmp.cdnvideo11.shop/tmp/Vow-of-Autumn-2026-Ep{ep}/index.m3u8`
+   means every episode of that season resolves with one probe.
+2. If the key is missing, the next `/api/source` request scans the show's
+   `ma_status_v1:tv/<id>/*` records and re-seeds the template from any resolved
+   sibling episode. A resolver publish also seeds it. No manual action needed.
+3. Verify the next episode directly:
+   ```powershell
+   curl.exe -sS "https://vid.lyte.workers.dev/api/source/tv/341436/1/5"
+   ```
+4. The slug guess uses the TMDB title plus year. Titles that KissKH renames
+   need the resolver to publish once; after that the template covers the season.
+5. A stale template that 404s falls through to the API by design. Do not delete
+   templates to "reset" playback; they self-refresh on the next API success.
+
+---
+
 ## 6. Scheduled maintenance
 
 `wrangler.toml` registers one cron trigger:

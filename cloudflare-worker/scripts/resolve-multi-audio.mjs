@@ -239,9 +239,113 @@ async function enrichWithKissKH(candidate, target, started) {
   return candidate;
 }
 
+const AUDIO_LANG_DISPLAY = {
+  eng: "English", hin: "Hindi", kor: "Korean", zho: "Chinese", jpn: "Japanese",
+  tha: "Thai", tam: "Tamil", tel: "Telugu", spa: "Spanish", fra: "French",
+  deu: "German", ita: "Italian", por: "Portuguese", rus: "Russian",
+  tur: "Turkish", ara: "Arabic", ind: "Indonesian", vie: "Vietnamese",
+  fil: "Filipino", may: "Malay", msa: "Malay", khm: "Khmer", mya: "Burmese",
+  nep: "Nepali", sin: "Sinhala", ben: "Bengali", urd: "Urdu", mal: "Malayalam",
+  kan: "Kannada", mar: "Marathi", pan: "Punjabi", guj: "Gujarati",
+};
+
+const AUDIO_LANG_ALIASES = {
+  en: "eng", english: "eng",
+  hi: "hin", hindi: "hin",
+  fr: "fra", fre: "fra", french: "fra",
+  es: "spa", spanish: "spa",
+  pt: "por", portuguese: "por",
+  de: "deu", ger: "deu", german: "deu",
+  it: "ita", italian: "ita",
+  ja: "jpn", japanese: "jpn",
+  ko: "kor", korean: "kor",
+  zh: "zho", chi: "zho", chinese: "zho", mandarin: "zho", cantonese: "zho",
+  th: "tha", thai: "tha",
+  ta: "tam", tamil: "tam",
+  te: "tel", telugu: "tel",
+  ru: "rus", russian: "rus",
+  tr: "tur", turkish: "tur",
+  ar: "ara", arabic: "ara",
+  id: "ind", indonesian: "ind",
+  vi: "vie", vietnamese: "vie",
+  tl: "fil", filipino: "fil", tagalog: "fil",
+  ms: "msa", may: "msa", malay: "msa",
+  km: "khm", khmer: "khm",
+  my: "mya", burmese: "mya",
+  ne: "nep", nepali: "nep",
+  si: "sin", sinhala: "sin",
+  bn: "ben", bengali: "ben",
+  ur: "urd", urdu: "urd",
+  ml: "mal", malayalam: "mal",
+  kn: "kan", kannada: "kan",
+  mr: "mar", marathi: "mar",
+  pa: "pan", punjabi: "pan",
+  gu: "guj", gujarati: "guj",
+};
+
+function normalizeAudioLang(lang, name = "") {
+  const raw = String(lang || "").toLowerCase().trim();
+  if (AUDIO_LANG_ALIASES[raw]) return AUDIO_LANG_ALIASES[raw];
+  if (raw) return raw;
+  const n = String(name || "").toLowerCase().trim();
+  return AUDIO_LANG_ALIASES[n] || "";
+}
+
+/**
+ * FrameX mixes metadata shapes: structured `audioTracks`, a parenthetical
+ * language on `server` ("Bowler XVIII · Citadel (Korean)"), and a coarse
+ * `audio` flag ("sub"/"dub"/"multi"). Never assume Hindi — a source is only a
+ * dub when its language is explicit and differs from the title's original.
+ */
+function framexAudioInfo(source, originalIso) {
+  const src = source && typeof source === "object" ? source : {};
+  const track = Array.isArray(src.audioTracks)
+    ? src.audioTracks.find((t) => t && (t.language || t.name || t.label))
+    : null;
+  const paren = String(src.server || "").match(/\(([^)]{2,40})\)\s*$/);
+  const raw = [
+    track && (track.language || track.label || track.name),
+    paren && paren[1],
+    typeof src.audio === "string" && !/^(sub|subbed|dub|dubbed|multi|original|orig|default)$/i.test(src.audio)
+      ? src.audio
+      : "",
+    src.language,
+  ].map((v) => String(v || "").trim()).find(Boolean) || "";
+  const iso = normalizeAudioLang(raw, raw);
+  const display = AUDIO_LANG_DISPLAY[iso] || (raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "");
+  const audioFlag = String(src.audio || "").toLowerCase();
+  const isDub = Boolean(
+    display &&
+    audioFlag !== "sub" &&
+    !/^(original(\s+audio)?|orig|multi[\s-]?audio|default)$/i.test(display) &&
+    (originalIso ? iso !== originalIso : false)
+  );
+  return { language: iso || "und", label: display, isDub };
+}
+
+const tmdbLangCache = new Map();
+async function fetchOriginalLanguage(target) {
+  const key = `${target.type}:${target.id}`;
+  if (tmdbLangCache.has(key)) return tmdbLangCache.get(key);
+  let lang = "";
+  try {
+    const res = await fetchWithTimeout(
+      `https://api.tmdb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
+      { signal: AbortSignal.timeout(3000) }
+    ).catch(() => null);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data) lang = normalizeAudioLang(String(data.original_language || "").toLowerCase(), "");
+    }
+  } catch (e) {}
+  tmdbLangCache.set(key, lang);
+  return lang;
+}
+
 async function enrichWithFrameX(candidate, target) {
   if (!candidate || !candidate.ok) return candidate;
   try {
+    const originalIso = await fetchOriginalLanguage(target);
     const cluster = [
       "https://api.framextv.xyz",
       "https://api.framextv.cc",
@@ -263,25 +367,38 @@ async function enrichWithFrameX(candidate, target) {
         if (!resp || !resp.ok) continue;
         const data = await resp.json().catch(() => null);
         if (!data || !data.success || !Array.isArray(data.sources) || data.sources.length === 0) continue;
-        const hls = data.sources.find((s) => s.type === "hls" || s.url?.includes(".m3u8")) || data.sources[0];
-        if (!hls || !hls.url) continue;
 
-        const hasHindi = (candidate.audioTracks || []).some((t) => /hindi|hin/i.test(t.name || t.label || t.language || ""));
-        if (!hasHindi) {
-          const hindiTrack = {
-            id: (candidate.audioTracks || []).length,
-            name: "Hindi",
-            label: "Hindi",
-            language: "hin",
+        // Add one real track per distinct language. Only explicit, different
+        // languages count as dubs; never append a mislabeled stream.
+        const tracks = candidate.audioTracks || [];
+        const knownLang = new Set(
+          tracks.map((t) => normalizeAudioLang(t.language, t.name || t.label)).filter(Boolean)
+        );
+        let added = 0;
+        for (const source of data.sources) {
+          if (!source || !source.url) continue;
+          const info = framexAudioInfo(source, originalIso);
+          if (!info.isDub || !info.label) continue;
+          if (knownLang.has(info.language)) continue;
+          const track = {
+            id: tracks.length,
+            name: info.label,
+            label: info.label,
+            language: info.language,
             default: false,
-            uri: hls.url,
-            proxiedUri: hls.url,
-            proxied_uri: hls.url,
+            uri: source.url,
+            proxiedUri: source.url,
+            proxied_uri: source.url,
             provider: "framextv",
-            isMP4: hls.type === "mp4" || /\.mp4(\?|$)/i.test(hls.url),
+            isMP4: source.type === "mp4" || /\.mp4(\?|$)/i.test(source.url),
           };
-          candidate.audioTracks = [...(candidate.audioTracks || []), hindiTrack];
-          candidate.audio = candidate.audioTracks.length;
+          tracks.push(track);
+          knownLang.add(info.language);
+          added++;
+        }
+        if (added > 0) {
+          candidate.audioTracks = tracks;
+          candidate.audio = tracks.length;
         }
 
         if (Array.isArray(data.subtitles) && data.subtitles.length > 0) {

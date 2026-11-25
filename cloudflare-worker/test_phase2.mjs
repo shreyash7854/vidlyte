@@ -541,7 +541,9 @@ await test("Asian content merges the KissKH original with background dub enrichm
   assert.ok(indexSource.includes("function mergeAudioTrackLists("));
   assert.ok(indexSource.includes("function scheduleAsianDubEnrichment("));
   assert.ok(indexSource.includes("function buildMultiAudioRecord("));
-  assert.ok(indexSource.includes('language: res.provider === "framextv" ? "hin" : "und"'));
+  // Dubs are labeled from real provider metadata, never assumed Hindi.
+  assert.ok(indexSource.includes("function framexAudioInfo("));
+  assert.ok(!indexSource.includes('const audioName = isAsian ? "Hindi" : "Original Audio";'));
   // The authentic original must survive every merge.
   assert.ok(indexSource.includes("if (isOriginalLikeAudio(track)) continue;"));
 });

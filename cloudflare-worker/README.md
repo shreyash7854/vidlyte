@@ -234,6 +234,29 @@ Some titles do not follow the `/<slug>-<year>/` convention. Add an override thro
 
 `page_url_template` supports `{id}`, `{season}` and `{episode}` placeholders.
 
+### KissKH CDN template fast path
+
+KissKH's JSON API is intermittently edge-blocked for datacenter egress, while its
+CDN stays reachable. Episode manifests are deterministic in two shapes:
+
+```
+https://hls07.cdnvideo11.shop/hls07/<dramaId>/Ep<N>_index.m3u8
+https://tmp.cdnvideo11.shop/tmp/<Title-slug>-<year>-Ep<N>/index.m3u8
+```
+
+`resolveKissKH` tries the CDN before the API:
+
+1. `kisskh_tmpl_v1:tv/<id>/s<season>` (or `movie/<id>`) — a per-asset template
+   seeded from any resolved episode or published resolver record. One KV read
+   plus one manifest probe resolves every later episode.
+2. Slug guess from the TMDB title/year for a cold cache (Asian originals only;
+   known non-Asian titles skip the probe).
+3. The legacy `kisskh_pattern_v1:<dramaId>` drama-id pattern when derivable.
+
+Templates live 30 days and are refreshed by every successful API resolve or
+resolver publish. A stale template that 404s falls through to the API, so a
+shape change degrades to the old behaviour instead of failing.
+
 ## 8. Phase 3 — Observability, Abuse Control & Security Headers
 
 * **Rate limiting**: per-IP fixed-window limits per route class (`admin`, `api`, `media`, `general`). Rejections return `429` with `Retry-After` and `X-RateLimit-*`. Approximate per isolate, which is sufficient for single-source floods without a Durable Object.

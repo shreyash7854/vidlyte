@@ -719,7 +719,7 @@ await test("single-audio records are not treated as a final multi-audio result",
     "multiAudioRecordUsable(existing) && existingAudio > 1",
     'state: "single"',
     "scheduleAsianDubEnrichment",
-    "ASIAN_DUB_RECHECK_MS",
+    "asianDubRecheckMs(existing)",
   ], "resolve route");
   assert.ok(
     resolveRoute.indexOf("existingAudio > 1") < resolveRoute.indexOf('state: "single"'),
@@ -851,16 +851,16 @@ await test("a blocked KissKH API falls back to a sibling episode's CDN path", ()
     "KISSKH_EPISODE_URL_RE",
     "prefix: `ma_status_v1:${showKey}/`",
     "if (await seedKisskhPatternFromSibling(env, assetInfo)) {",
-    "await seedKisskhPatternFromRecord(env, finalRecord)",
+    "await seedKisskhPatternFromRecord(env, finalRecord, asset)",
   ], "sibling pattern seeding");
   var kisskhBranch = indexSource.slice(
     indexSource.indexOf('if (id === "kisskh") {'),
     indexSource.indexOf('if (id === "2vcdn") {')
   );
   assert.ok(
-    kisskhBranch.indexOf("const first = await tryResolve();") <
-      kisskhBranch.indexOf("seedKisskhPatternFromSibling(env, assetInfo)"),
-    "the fast path must run before any sibling KV walk"
+    kisskhBranch.indexOf("seedKisskhPatternFromSibling(env, assetInfo)") <
+      kisskhBranch.indexOf("const first = await tryResolve();"),
+    "the CDN template must be seeded from siblings before the first attempt"
   );
   // The failure path may only dispatch for Asian titles.
   var sourceMiss = indexSource.slice(
@@ -872,6 +872,52 @@ await test("a blocked KissKH API falls back to a sibling episode's CDN path", ()
     "dispatchMultiAudioResolution(env, multiAudioAssetKey(assetInfo))",
     "ctx.waitUntil(dispatchPromise)",
   ], "source miss dispatch");
+});
+
+await test("FrameX audio labels come from source metadata, never a guessed Hindi", () => {
+  var framex = indexSource.slice(
+    indexSource.indexOf("function framexAudioInfo("),
+    indexSource.indexOf("async function resolveFrameX(")
+  );
+  hasAll(framex, [
+    "src.audioTracks",
+    "src.server",
+    "src.audio",
+    "AUDIO_LANG_DISPLAY",
+    "isDub",
+  ], "framexAudioInfo");
+  assert.ok(
+    !/name:\s*"Hindi"/.test(indexSource),
+    "index.js must not hard-code a Hindi audio label"
+  );
+  hasAll(indexSource, [
+    "const [primaryEntry] = entries.splice(primaryIndex, 1)",
+    "const streamUrl = primaryEntry.source.url",
+    "default: entry.key === defaultKey",
+  ], "framex track ordering");
+  var resolverFramex = resolverScript.slice(
+    resolverScript.indexOf("function framexAudioInfo("),
+    resolverScript.indexOf("async function enrichWithVidrift(")
+  );
+  hasAll(resolverFramex, [
+    "fetchOriginalLanguage(target)",
+    "info.isDub",
+    "knownLang.has(info.language)",
+  ], "resolver frameX enrichment");
+  assert.ok(
+    !resolverScript.includes('name: "Hindi"'),
+    "the resolver must not invent a Hindi dub track"
+  );
+});
+
+await test("single-audio Asian records are rechecked quickly, not frozen for hours", () => {
+  hasAll(indexSource, [
+    "ASIAN_DUB_RECHECK_SINGLE_MS = 30 * 60 * 1000",
+    "function asianDubRecheckMs(",
+    "tracks.length <= 1 ? ASIAN_DUB_RECHECK_SINGLE_MS : ASIAN_DUB_RECHECK_MS",
+    "asianDubRecheckMs(record)",
+    "asianDubRecheckMs(existing)",
+  ], "dub recheck cadence");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

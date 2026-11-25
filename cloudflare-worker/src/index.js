@@ -69,6 +69,7 @@ import {
   providerLabel,
   resolveAsianFlix,
   resolveKissKH,
+  seedKisskhTemplateFromUrl,
   KISSKH_DRAMA_OVERRIDES,
 } from "./providers.js";
 import {
@@ -1448,6 +1449,56 @@ function applyResolvedProvider(result, providerResult) {
   return result;
 }
 
+const AUDIO_LANG_DISPLAY = {
+  eng: "English", hin: "Hindi", kor: "Korean", zho: "Chinese", jpn: "Japanese",
+  tha: "Thai", tam: "Tamil", tel: "Telugu", spa: "Spanish", fra: "French",
+  deu: "German", ita: "Italian", por: "Portuguese", rus: "Russian",
+  tur: "Turkish", ara: "Arabic", ind: "Indonesian", vie: "Vietnamese",
+  fil: "Filipino", may: "Malay", msa: "Malay", khm: "Khmer", mya: "Burmese",
+  nep: "Nepali", sin: "Sinhala", ben: "Bengali", urd: "Urdu", mal: "Malayalam",
+  kan: "Kannada", mar: "Marathi", pan: "Punjabi", guj: "Gujarati",
+};
+
+/**
+ * Derive a viewer-facing audio label from FrameX source metadata. FrameX mixes
+ * shapes: structured `audioTracks`, a parenthetical language on `server`
+ * ("Bowler XVIII · Citadel (Korean)"), and a coarse `audio` flag
+ * ("sub"/"dub"/"multi"). Never assume Hindi: a source is only a dub when its
+ * language is explicit and differs from the title's original language.
+ */
+function framexAudioInfo(source, tmdbMeta, fallbackLanguage = "") {
+  const src = source && typeof source === "object" ? source : {};
+  const track = Array.isArray(src.audioTracks)
+    ? src.audioTracks.find((t) => t && (t.language || t.name || t.label))
+    : null;
+  const paren = String(src.server || "").match(/\(([^)]{2,40})\)\s*$/);
+  const raw = [
+    track && (track.language || track.label || track.name),
+    paren && paren[1],
+    typeof src.audio === "string" && !/^(sub|subbed|dub|dubbed|multi|original|orig|default)$/i.test(src.audio)
+      ? src.audio
+      : "",
+    src.language,
+  ].map((v) => String(v || "").trim()).find(Boolean) || "";
+
+  const iso = normalizeAudioLang(raw, raw) ||
+    (fallbackLanguage ? normalizeAudioLang(fallbackLanguage, "") : "");
+  const display = AUDIO_LANG_DISPLAY[iso] ||
+    (raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "");
+  const audioFlag = String(src.audio || "").toLowerCase();
+  const originalIso = normalizeAudioLang(
+    String((tmdbMeta && (tmdbMeta.originalLanguage || tmdbMeta.original_language)) || ""),
+    ""
+  );
+  const isDub = Boolean(
+    display &&
+    audioFlag !== "sub" &&
+    !/^(original(\s+audio)?|orig|multi[\s-]?audio|default)$/i.test(display) &&
+    (originalIso ? iso !== originalIso : false)
+  );
+  return { language: iso || "orig", label: display, isDub };
+}
+
 /**
  * FrameX failover cluster. Each host is attempted once with a hard 2.6s cap.
  */
@@ -1511,17 +1562,73 @@ async function resolveFrameX(assetInfo, tmdbMeta = null) {
         });
       }
 
+      // Build one track per distinct language. FrameX ships each language as a
+      // full manifest, so these become real, switchable audio tracks. The
+      // default is the track whose language matches the title's original
+      // language; otherwise the best source stays the default.
+      const primaryInfo = framexAudioInfo(bestSource, tmdbMeta);
+      const originalIso = normalizeAudioLang(
+        String((tmdbMeta && (tmdbMeta.originalLanguage || tmdbMeta.original_language)) || ""),
+        ""
+      ) || (!primaryInfo.isDub ? primaryInfo.language : "");
+      const entries = [];
+      const seenAudioKeys = new Set();
+      for (const source of data.sources) {
+        if (!source || !source.url) continue;
+        const info = framexAudioInfo(source, tmdbMeta);
+        const known = Boolean(info.label);
+        const isOriginal = known
+          ? (originalIso ? info.language === originalIso : false)
+          : false;
+        const key = isOriginal || (!known && !info.isDub) ? "orig" : (info.language || "und");
+        if (seenAudioKeys.has(key)) continue;
+        seenAudioKeys.add(key);
+        const label = isOriginal || (!known && !info.isDub)
+          ? (known ? `Original (${info.label})` : "Original Audio")
+          : (info.label || "Dub");
+        entries.push({
+          source,
+          key,
+          label,
+          language: key === "orig" ? "orig" : (info.language || "und"),
+          isDub: key !== "orig",
+          isPrimary: source === bestSource,
+        });
+      }
+      if (entries.length === 0) {
+        entries.push({
+          source: bestSource,
+          key: "orig",
+          label: "Original Audio",
+          language: "orig",
+          isDub: false,
+          isPrimary: true,
+        });
+      }
+      const defaultKey = entries.find((e) => e.key === "orig")?.key || entries[0].key;
+      // The default track must be the one actually playing, so anchor playback
+      // on the original-language source and put it first.
+      const primaryIndex = Math.max(0, entries.findIndex((e) => e.key === defaultKey));
+      const [primaryEntry] = entries.splice(primaryIndex, 1);
+      entries.unshift(primaryEntry);
+      // Quality variants must stay in the selected audio language; otherwise a
+      // quality switch would silently change the soundtrack.
       const variants = [];
       const seenRes = new Set();
-      data.sources.forEach((source) => {
-        if (!source || !source.url) return;
+      for (const source of data.sources) {
+        if (!source || !source.url) continue;
+        const info = framexAudioInfo(source, tmdbMeta);
+        const sameLanguage = primaryEntry.language === "orig"
+          ? (!info.label || (originalIso ? info.language === originalIso : !info.isDub))
+          : info.language === primaryEntry.language;
+        if (!sameLanguage) continue;
         let resolution = String(source.quality || "").trim();
         if (!resolution || resolution.toLowerCase() === "auto") {
-          if (variants.length > 0) return;
+          if (variants.length > 0) continue;
           resolution = "Auto";
         }
         const key = resolution.toLowerCase();
-        if (seenRes.has(key)) return;
+        if (seenRes.has(key)) continue;
         seenRes.add(key);
         variants.push({
           resolution,
@@ -1533,28 +1640,34 @@ async function resolveFrameX(assetInfo, tmdbMeta = null) {
               : 1000000,
           provider: "framextv",
         });
-      });
-
-      const isAsian = isAsianContent(assetInfo, tmdbMeta);
-      const audioName = isAsian ? "Hindi" : "Original Audio";
-      const audioLang = isAsian ? "hin" : "eng";
+      }
+      if (variants.length === 0) {
+        variants.push({
+          resolution: String(primaryEntry.source.quality || "Auto").trim() || "Auto",
+          playlistUri: primaryEntry.source.url,
+          bandwidth: 1800000,
+          provider: "framextv",
+        });
+      }
+      const audioTracks = entries.map((entry, index) => ({
+        id: index,
+        name: entry.label,
+        label: entry.label,
+        language: entry.language,
+        default: entry.key === defaultKey,
+        uri: entry.source.url,
+        provider: "framextv",
+        isMP4: entry.source.type === "mp4" || /\.mp4(\?|$)/i.test(entry.source.url),
+      }));
+      const streamUrl = primaryEntry.source.url || bestSource.url;
 
       return {
-        streamUrl: bestSource.url,
+        streamUrl,
         provider: "framextv",
-        isMP4: bestSource.type === "mp4" || /\.mp4(\?|$)/i.test(bestSource.url),
+        isMP4: primaryEntry.source.type === "mp4" || /\.mp4(\?|$)/i.test(streamUrl),
         subtitles,
         variants,
-        audioTracks: [
-          {
-            name: audioName,
-            label: audioName,
-            language: audioLang,
-            default: !isAsian,
-            uri: bestSource.url,
-            provider: "framextv",
-          },
-        ],
+        audioTracks,
       };
     } catch (e) {
       // Try the next cluster host.
@@ -1662,11 +1775,16 @@ async function resolveProviderSource(provider, assetInfo, tmdbMeta, env = null) 
       kv: env && env.CONFIG_KV,
       timeoutMs: 8000,
     });
+    // Seed the CDN template from a sibling record BEFORE the first attempt.
+    // The template key is per show+season, so one known episode makes the
+    // resolver's fast path hit immediately for every other episode — no failed
+    // API round trip on first view. Cached per isolate, so this is a one-off.
+    await seedKisskhPatternFromSibling(env, assetInfo);
     const first = await tryResolve();
     if (first) return first;
     // KissKH's JSON API is intermittently edge-blocked for datacenter egress.
-    // A previously resolved episode of the same drama proves the deterministic
-    // CDN path, so seed the pattern from a sibling record and retry once.
+    // If the eager seed could not run (e.g. no records yet), retry once more
+    // after a fresh sibling scan.
     if (await seedKisskhPatternFromSibling(env, assetInfo)) {
       return tryResolve();
     }
@@ -1976,6 +2094,14 @@ async function raceFirstProvider(providers, assetInfo, tmdbMeta) {
 const ASIAN_DUB_MARKER_PREFIX = "ma_dub_v1:";
 const ASIAN_DUB_MARKER_TTL_SEC = 900;
 const ASIAN_DUB_RECHECK_MS = 6 * 60 * 60 * 1000;
+// A single-audio record is never final: dubs can appear minutes after an
+// episode airs, and a transient probe failure must not freeze it for hours.
+const ASIAN_DUB_RECHECK_SINGLE_MS = 30 * 60 * 1000;
+
+function asianDubRecheckMs(record) {
+  const tracks = Array.isArray(record && record.audioTracks) ? record.audioTracks : [];
+  return tracks.length <= 1 ? ASIAN_DUB_RECHECK_SINGLE_MS : ASIAN_DUB_RECHECK_MS;
+}
 
 function multiAudioAssetKey(assetInfo) {
   return assetInfo.type === "tv" || assetInfo.type === "series"
@@ -1987,17 +2113,50 @@ function multiAudioDubMarkerKey(asset) {
   return `${ASIAN_DUB_MARKER_PREFIX}${asset}`;
 }
 
-// KissKH episode CDN URLs are deterministic: hlsNN.cdnvideoNN.shop/hlsNN/<dramaId>/Ep<N>_index.m3u8.
-// Once one episode of a drama is known, every sibling episode is reachable even
-// while the JSON API is edge-blocked. The cache below avoids repeat KV lists.
+// KissKH episode CDN URLs are deterministic, in two shapes:
+//   hlsNN.cdnvideoNN.shop/hlsNN/<dramaId>/Ep<N>_index.m3u8
+//   tmp.cdnvideoNN.shop/tmp/<Title-slug>-<year>-Ep<N>/index.m3u8
+// Once one episode of a title is known, every sibling episode is reachable even
+// while the JSON API is edge-blocked. The per-asset template is the reliable
+// path (the tmp shape carries no numeric drama id); the drama-id pattern is
+// still seeded when derivable so other titles sharing the drama id benefit.
 const kisskhSiblingSeedAttempts = new Set();
+const kisskhTemplateSeedSeen = new Set();
 const KISSKH_EPISODE_URL_RE = /^https?:\/\/[^/]+\/(?:[^/]+\/)?(\d+)\/.*(?:Ep\d+|Episode-\d+)/i;
 
-async function seedKisskhPatternFromRecord(env, record) {
+// Seeding on every record reuse would add a KV read to the hot path. Once a
+// given asset+URL has been seeded in this isolate, skip it entirely.
+function shouldAttemptKisskhTemplateSeed(asset, url) {
+  const key = `${asset}|${url}`;
+  if (kisskhTemplateSeedSeen.has(key)) return false;
+  if (kisskhTemplateSeedSeen.size > 1000) kisskhTemplateSeedSeen.clear();
+  kisskhTemplateSeedSeen.add(key);
+  return true;
+}
+
+function kisskhEpisodeNumberFromUrl(url) {
+  const m = String(url || "").match(/(?:Ep|Episode-)(\d+)(?=[_\-./?]|$)/i);
+  const n = m ? Number(m[1]) : 0;
+  return n > 0 ? n : 0;
+}
+
+async function seedKisskhPatternFromRecord(env, record, asset) {
   if (!env || !env.CONFIG_KV || !record) return false;
   const url = String(record.url || "");
+  if (!url) return false;
+  const epNum = kisskhEpisodeNumberFromUrl(url) || Number(record.episode) || 1;
+  let seeded = false;
+
+  // Per-asset CDN template works for both shapes and is what the resolver's
+  // fast path reads, so it is seeded even without a numeric drama id.
+  if (asset) {
+    try {
+      if (await seedKisskhTemplateFromUrl(env.CONFIG_KV, asset, url, epNum)) seeded = true;
+    } catch (e) { }
+  }
+
   const match = url.match(KISSKH_EPISODE_URL_RE);
-  if (!match) return false;
+  if (!match) return seeded;
   const dramaId = match[1];
   const patternKey = `kisskh_pattern_v1:${dramaId}`;
   const subPattern = String(
@@ -2019,7 +2178,7 @@ async function seedKisskhPatternFromRecord(env, record) {
     }
     return true;
   } catch (e) {
-    return false;
+    return seeded;
   }
 }
 
@@ -2035,7 +2194,7 @@ async function seedKisskhPatternFromSibling(env, assetInfo) {
     for (const entry of (listing.keys || []).slice(0, 8)) {
       const asset = String(entry.name || "").replace(/^ma_status_v1:/, "");
       const record = await readMultiAudioRecord(env, asset);
-      if (await seedKisskhPatternFromRecord(env, record)) return true;
+      if (await seedKisskhPatternFromRecord(env, record, asset)) return true;
     }
   } catch (e) { }
   return false;
@@ -2138,9 +2297,9 @@ async function enrichAsianDubs(assetInfo, tmdbMeta, baseResult, env) {
       ? res.audioTracks
       : (res.streamUrl
         ? [{
-          name: res.provider === "framextv" ? "Hindi" : "Dub",
-          label: res.provider === "framextv" ? "Hindi" : "Dub",
-          language: res.provider === "framextv" ? "hin" : "und",
+          name: "Dub",
+          label: "Dub",
+          language: "und",
           uri: res.streamUrl,
           provider: res.provider,
         }]
@@ -2261,7 +2420,7 @@ async function shouldRecheckAsianDubs(env, asset) {
   try {
     const record = await readMultiAudioRecord(env, asset);
     const checkedAt = Number(record && record.dubCheckedAt) || 0;
-    return !checkedAt || (Date.now() - checkedAt * 1000) > ASIAN_DUB_RECHECK_MS;
+    return !checkedAt || (Date.now() - checkedAt * 1000) > asianDubRecheckMs(record);
   } catch (e) {
     return true;
   }
@@ -2356,6 +2515,16 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
           /\/api\/orion\//i.test(String(maRecord.masterManifest || "")))
       );
       if (multiAudioRecordUsable(maRecord)) {
+        // Reusing a resolved KissKH record is a free opportunity to persist the
+        // CDN template, so sibling episodes skip the (often edge-blocked) API.
+        if (
+          (maRecord.provider === "kisskh" || maRecord.via === "kisskh") &&
+          maRecord.url &&
+          shouldAttemptKisskhTemplateSeed(asset, maRecord.url)
+        ) {
+          const seedTask = seedKisskhPatternFromRecord(options.env, maRecord, asset).catch(() => false);
+          if (typeof options.waitUntil === "function") options.waitUntil(seedTask);
+        }
         const rawTracks = Array.isArray(maRecord.audioTracks) ? maRecord.audioTracks : [];
         const usableTracks = hasStoredOrionSubs
           ? rawTracks
@@ -2480,7 +2649,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
 
         if (chosen.provider === "kisskh" || result.provider === "kisskh") {
           const dubCheckedAt = Number(maRecord && maRecord.dubCheckedAt) || 0;
-          const needsDubCheck = !dubCheckedAt || (Date.now() - dubCheckedAt * 1000) > ASIAN_DUB_RECHECK_MS;
+          const needsDubCheck = !dubCheckedAt || (Date.now() - dubCheckedAt * 1000) > asianDubRecheckMs(maRecord);
           if (needsDubCheck) {
             scheduleAsianDubEnrichment(assetInfo, tmdbMeta, result, options);
           }
@@ -4836,7 +5005,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     let asianBgEnrichScheduled = false;
     if (force || (multiAudioRecordUsable(existing) && existingAudio <= 1)) {
       const checkedAt = Number(existing && existing.dubCheckedAt) || 0;
-      if (!force && checkedAt && (Date.now() - checkedAt * 1000) < ASIAN_DUB_RECHECK_MS) {
+      if (!force && checkedAt && (Date.now() - checkedAt * 1000) < asianDubRecheckMs(existing)) {
         return new Response(JSON.stringify({
           ok: true,
           state: "single",
@@ -5129,7 +5298,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     }
     const persisted = await writeMultiAudioRecord(env, asset, finalRecord);
     if (finalRecord && finalRecord.ok) {
-      await seedKisskhPatternFromRecord(env, finalRecord);
+      await seedKisskhPatternFromRecord(env, finalRecord, asset);
     }
     if (env && env.CONFIG_KV) {
       try {

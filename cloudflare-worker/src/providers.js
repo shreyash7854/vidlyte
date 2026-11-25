@@ -860,6 +860,174 @@ async function kisskhPatternResult({ url, kv, dramaId, epNum, cleanTitle, origin
   };
 }
 
+/* ---------------------------------------------------------------------------
+ * KissKH CDN template fast path
+ * ---------------------------------------------------------------------------
+ * KissKH episode manifests are deterministic per drama. Two shapes are in use:
+ *
+ *   https://hls07.cdnvideo11.shop/hls07/<drama>/Ep<N>_index.m3u8
+ *   https://tmp.cdnvideo11.shop/tmp/<Title-slug>-<year>-Ep<N>/index.m3u8
+ *
+ * KissKH's JSON API is intermittently blocked for datacenter egress, while the
+ * CDN itself is reachable. Persisting the template per TMDB asset means every
+ * later episode resolves with one KV read and one manifest probe, with zero
+ * dependency on the API. The slug shape can even be guessed from the TMDB title
+ * on a cold cache, so the first play does not have to wait for a resolver run.
+ * ------------------------------------------------------------------------ */
+
+const KISSKH_TMPL_TTL_SEC = 30 * 24 * 60 * 60;
+const KISSKH_TMP_BASES = ["https://tmp.cdnvideo11.shop/tmp"];
+
+export function kisskhTemplateFromUrl(url, epNum) {
+  const raw = String(url || "").split("?")[0];
+  const n = Number(epNum) || 1;
+  if (!raw || n <= 0) return "";
+  const re = new RegExp(`Ep0*${n}(?=[_\\-./]|$)`, "i");
+  if (!re.test(raw)) return "";
+  return raw.replace(re, "Ep{ep}");
+}
+
+export function kisskhTemplateKeyFromAsset(asset) {
+  const parts = String(asset || "").trim().split("/");
+  if (parts.length >= 3 && (parts[0] === "tv" || parts[0] === "series")) {
+    return `kisskh_tmpl_v1:tv/${parts[1]}/s${Number(parts[2]) || 1}`;
+  }
+  if (parts.length >= 2 && parts[0] === "movie") {
+    return `kisskh_tmpl_v1:movie/${parts[1]}`;
+  }
+  return "";
+}
+
+function kisskhTemplateKey(assetInfo) {
+  return kisskhTemplateKeyFromAsset(
+    assetInfo.type === "tv" || assetInfo.type === "series"
+      ? `tv/${assetInfo.id}/${assetInfo.season || 1}`
+      : `movie/${assetInfo.id}`
+  );
+}
+
+/**
+ * Persist a CDN template derived from an already-resolved episode URL. Used by
+ * the worker when it salvages a sibling record or receives a resolver publish,
+ * so a single success unlocks the whole drama.
+ */
+export async function seedKisskhTemplateFromUrl(kv, asset, url, epNum) {
+  const key = kisskhTemplateKeyFromAsset(asset);
+  const template = kisskhTemplateFromUrl(url, epNum);
+  if (!kv || !key || !template) return false;
+  try {
+    const existing = await kv.get(key);
+    if (existing === template) return true;
+    await kv.put(key, template, { expirationTtl: KISSKH_TMPL_TTL_SEC });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function kisskhSlugify(text) {
+  return String(text || "")
+    .replace(/\s*\((?:19|20)\d{2}\)\s*$/, "")
+    .replace(/\s*:\s*.*$/, "")
+    .replace(/\b(?:season|part)\s*\d+\b/gi, "")
+    .replace(/['’]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function kisskhSlugCandidates(title, year, epNum) {
+  const slug = kisskhSlugify(title);
+  if (!slug) return [];
+  const explicitYear = String(year || "").match(/(?:19|20)\d{2}/)?.[0] ||
+    String(title || "").match(/(?:19|20)\d{2}/)?.[0] || "";
+  const bases = [];
+  if (explicitYear && !slug.endsWith(explicitYear)) bases.push(`${slug}-${explicitYear}`);
+  bases.push(slug);
+  const urls = [];
+  const seen = new Set();
+  for (const base of bases) {
+    for (const root of KISSKH_TMP_BASES) {
+      const url = `${root}/${base}-Ep${Number(epNum) || 1}/index.m3u8`;
+      if (!seen.has(url)) {
+        seen.add(url);
+        urls.push(url);
+      }
+    }
+  }
+  return urls;
+}
+
+async function kisskhProbePlaylist(fetchImpl, url, timeoutMs = 2200) {
+  try {
+    const res = await fetchImpl(url, {
+      headers: kisskhHeaders({ Accept: "*/*" }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res || !res.ok) return false;
+    const body = await res.text().catch(() => "");
+    return /^\s*#EXTM3U/.test(body);
+  } catch (e) {
+    return false;
+  }
+}
+
+const KISSKH_ASIAN_LANGS = new Set([
+  "zh", "ko", "ja", "th", "vi", "tl", "fil", "id", "ms", "my", "km", "lo",
+  "hi", "ta", "te", "bn", "ur", "ml", "kn", "mr", "pa", "gu", "ne", "si",
+  "cn", "tw", "hk", "kr", "jp",
+]);
+
+async function kisskhGuessFromTitle(fetchImpl, kv, assetInfo, title, year, epNum, timeoutMs, originalLanguage = "") {
+  if (assetInfo.type !== "tv" && assetInfo.type !== "series") return "";
+  // Only guess the CDN slug for Asian titles. A known non-Asian language means
+  // KissKH will never carry the title, so skip the extra probes entirely.
+  const lang = String(originalLanguage || "").toLowerCase().trim();
+  if (lang && !KISSKH_ASIAN_LANGS.has(lang)) return "";
+  const urls = kisskhSlugCandidates(title, year, epNum);
+  if (urls.length === 0) return "";
+  try {
+    const winner = await Promise.any(
+      urls.map(async (url) => {
+        const ok = await kisskhProbePlaylist(fetchImpl, url, Math.min(timeoutMs, 2200));
+        if (!ok) throw new Error("miss");
+        return url;
+      })
+    );
+    if (winner) {
+      const template = kisskhTemplateFromUrl(winner, epNum);
+      if (kv && template) {
+        const key = kisskhTemplateKey(assetInfo);
+        if (key) {
+          try {
+            await kv.put(key, template, { expirationTtl: KISSKH_TMPL_TTL_SEC });
+          } catch (e) { }
+        }
+      }
+      return winner;
+    }
+  } catch (e) {
+    // every candidate missed
+  }
+  return "";
+}
+
+async function kisskhTemplateFastPath(fetchImpl, kv, assetInfo, title, year, epNum, timeoutMs, originalLanguage = "") {
+  const key = kisskhTemplateKey(assetInfo);
+  if (kv && key) {
+    try {
+      const template = await kv.get(key);
+      if (template) {
+        const candidate = String(template).replace("{ep}", String(epNum));
+        if (await kisskhProbePlaylist(fetchImpl, candidate, Math.min(timeoutMs, 2600))) {
+          return candidate;
+        }
+      }
+    } catch (e) { }
+  }
+  return kisskhGuessFromTitle(fetchImpl, kv, assetInfo, title, year, epNum, timeoutMs, originalLanguage);
+}
+
+
 /**
  * KissKH Provider Resolver
  * Resolves Asian drama & movie streams and subtitles.
@@ -887,6 +1055,31 @@ export async function resolveKissKH({
   const isTv = assetInfo.type === "tv" || assetInfo.type === "series";
   const reqEpNum = isTv ? (Number(assetInfo.episode) || 1) : 1;
   const cacheKey = override ? `override_${override.id}` : cleanTitle.toLowerCase();
+
+  // CDN fast path first: one KV read plus one manifest probe. This is the only
+  // path that works while KissKH's JSON API is edge-blocked, and it is also the
+  // fastest when the template is already known.
+  const fastUrl = await kisskhTemplateFastPath(
+    fetchImpl,
+    kv,
+    assetInfo,
+    title || cleanTitle,
+    year,
+    reqEpNum,
+    timeoutMs,
+    originalLanguage
+  );
+  if (fastUrl) {
+    return kisskhPatternResult({
+      url: fastUrl,
+      kv: null,
+      dramaId: "",
+      epNum: reqEpNum,
+      cleanTitle,
+      originalLanguage,
+      title: cleanTitle,
+    });
+  }
 
   let drama = null;
   let matchedDrama = override ? { id: override.id, title: override.title } : null;
@@ -1030,13 +1223,19 @@ export async function resolveKissKH({
   if (!rawStream) return null;
 
   if (kv && matchedDrama && matchedDrama.id) {
-    let template = String(rawStream).replace(/Ep\d+_/i, "Ep{ep}_");
-    if (template === rawStream) {
-      template = String(rawStream).replace(/Ep\d+\./i, "Ep{ep}.");
-    }
-    if (template !== rawStream) {
+    const template = kisskhTemplateFromUrl(rawStream, reqEpNum);
+    if (template) {
       try {
         await kv.put(`kisskh_pattern_v1:${matchedDrama.id}`, template, { expirationTtl: 7 * 24 * 60 * 60 });
+      } catch (e) { }
+    }
+  }
+  if (kv) {
+    const tmplKey = kisskhTemplateKey(assetInfo);
+    const tmpl = kisskhTemplateFromUrl(rawStream, reqEpNum);
+    if (tmplKey && tmpl) {
+      try {
+        await kv.put(tmplKey, tmpl, { expirationTtl: KISSKH_TMPL_TTL_SEC });
       } catch (e) { }
     }
   }
