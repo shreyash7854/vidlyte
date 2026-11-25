@@ -233,13 +233,27 @@ function sanitizeText(value, max = 400) {
     .slice(0, max);
 }
 
+const TMDB_API_HOSTS = ["https://api.tmdb.org", "https://api.themoviedb.org"];
+
+async function tmdbFetchJson(pathAndQuery, timeoutMs = 4000) {
+  let lastErr = null;
+  for (const host of TMDB_API_HOSTS) {
+    try {
+      const response = await fetch(`${host}${pathAndQuery}`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (response.ok) return response.json();
+      lastErr = new Error(`tmdb_http_${response.status}`);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("tmdb_failed");
+}
+
 async function tmdbRequest(path, params = {}, timeoutMs = 5000) {
   const query = new URLSearchParams({ api_key: TMDB_API_KEY, ...params });
-  const response = await fetch(`https://api.tmdb.org/3/${path}?${query.toString()}`, {
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) throw new Error(`tmdb_http_${response.status}`);
-  return response.json();
+  return tmdbFetchJson(`/3/${path}?${query.toString()}`, timeoutMs);
 }
 
 function mapTmdbSearchResult(item, fallbackType = "movie") {
@@ -269,52 +283,68 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
   const isTv = type === "tv" || type === "series";
   const cacheKey = `tmdb_meta_${type}_${id}_${season}_${episode}`;
   const hit = tmdbCache.get(cacheKey);
-  if (hit) return hit;
+  if (hit && hit.value) return hit.value;
 
   const showCacheKey = `tmdb_show_${type}_${id}`;
-  let data = tmdbCache.get(showCacheKey);
-  if (!data && env && env.CONFIG_KV) {
+  const epKvKey = isTv && season && episode ? `tmdb_ep_v1_${type}_${id}_${season}_${episode}` : "";
+  const showHit = tmdbCache.get(showCacheKey);
+  let data = showHit && showHit.value ? showHit.value : null;
+  let epData = null;
+  if (epKvKey) {
+    const epHit = tmdbCache.get(epKvKey);
+    if (epHit && epHit.value) epData = epHit.value;
+  }
+
+  if (env && env.CONFIG_KV && (!data || (epKvKey && !epData))) {
     try {
-      data = await env.CONFIG_KV.get(showCacheKey, "json");
-      if (data) tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      const [kvShow, kvEp] = await Promise.all([
+        !data ? env.CONFIG_KV.get(showCacheKey, "json").catch(() => null) : Promise.resolve(data),
+        epKvKey && !epData ? env.CONFIG_KV.get(epKvKey, "json").catch(() => null) : Promise.resolve(epData),
+      ]);
+      if (!data && kvShow) {
+        data = kvShow;
+        tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      }
+      if (epKvKey && !epData && kvEp) {
+        epData = kvEp;
+        tmdbCache.set(epKvKey, epData, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      }
     } catch (e) { }
   }
   const apiKey = TMDB_API_KEY;
 
   try {
-    if (!data) {
-      const url = isTv
-        ? `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
-        : `https://api.tmdb.org/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
+    const showPath = isTv
+      ? `/3/tv/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`
+      : `/3/movie/${encodeURIComponent(id)}?api_key=${apiKey}&append_to_response=images,external_ids&include_image_language=en,null,de,fr,es,it,pt,ja,ko,hi`;
+    const epPath = epKvKey
+      ? `/3/tv/${encodeURIComponent(id)}/season/${season}/episode/${episode}?api_key=${apiKey}`
+      : "";
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        data = await res.json();
-      }
-      if (data) {
-        tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
-        if (env && env.CONFIG_KV) {
-          try {
-            await env.CONFIG_KV.put(showCacheKey, JSON.stringify(data), { expirationTtl: 86400 * 7 });
-          } catch (e) { }
-        }
+    const [showRes, epRes] = await Promise.allSettled([
+      !data ? tmdbFetchJson(showPath, 3500) : Promise.resolve(data),
+      epPath && !epData ? tmdbFetchJson(epPath, 2200) : Promise.resolve(epData),
+    ]);
+
+    if (!data && showRes.status === "fulfilled" && showRes.value) {
+      data = showRes.value;
+      tmdbCache.set(showCacheKey, data, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      if (env && env.CONFIG_KV) {
+        env.CONFIG_KV.put(showCacheKey, JSON.stringify(data), { expirationTtl: 86400 * 7 }).catch(() => { });
       }
     }
+    if (epKvKey && !epData && epRes.status === "fulfilled" && epRes.value) {
+      epData = epRes.value;
+      tmdbCache.set(epKvKey, epData, 60 * 60 * 1000, 24 * 60 * 60 * 1000);
+      if (env && env.CONFIG_KV) {
+        env.CONFIG_KV.put(epKvKey, JSON.stringify(epData), { expirationTtl: 86400 }).catch(() => { });
+      }
+    }
+
     if (!data && String(id) === "122206") {
       data = { name: "The Rational Life", original_language: "zh", first_air_date: "2021" };
     }
     if (!data) return null;
-
-    let epData = null;
-    if (isTv && season && episode) {
-      try {
-        const epRes = await fetch(
-          `https://api.tmdb.org/3/tv/${encodeURIComponent(id)}/season/${season}/episode/${episode}?api_key=${apiKey}`,
-          { signal: AbortSignal.timeout(4000) }
-        );
-        if (epRes.ok) epData = await epRes.json();
-      } catch (e) { }
-    }
 
     const showName = data.name || data.title || data.original_name || data.original_title || (isTv ? (String(id) === "122206" ? "The Rational Life" : `TV Show #${id}`) : `Movie #${id}`);
     const title = isTv
@@ -1633,7 +1663,8 @@ function isAsianContent(assetInfo, tmdbMeta) {
   if (idStr === "122206" || idStr === "93846" || idStr === "303745" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[idStr])) return true;
   if (!tmdbMeta) {
     const showCacheKey = `tmdb_show_${assetInfo?.type || "tv"}_${idStr}`;
-    const cachedShow = tmdbCache.get(showCacheKey);
+    const showHit = tmdbCache.get(showCacheKey);
+    const cachedShow = showHit && showHit.value ? showHit.value : null;
     if (cachedShow) {
       const l = String(cachedShow.original_language || "").toLowerCase();
       if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(l)) return true;
@@ -1706,8 +1737,27 @@ function getProviderOrder(requestedProvider, tmdbMeta = null, assetInfo = null) 
 
 async function verifyManifestPlayable(result, provider, env) {
   if (!result || !result.streamUrl) return false;
-  // Freshly resolved KissKH cryptographic signatures are guaranteed valid
-  if (provider === "kisskh") return true;
+  if (provider === "kisskh") {
+    try {
+      const safeKissUrl = assertSafeUpstreamUrl(result.streamUrl, {
+        extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
+      });
+      const kissHeaders = getUpstreamHeaders("kisskh", safeKissUrl, null);
+      if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) {
+        kissHeaders.set("Range", "bytes=0-255");
+      }
+      const res = await fetch(safeKissUrl.toString(), {
+        headers: kissHeaders,
+        signal: AbortSignal.timeout(1800),
+      });
+      if (res && (res.status === 404 || res.status === 410)) {
+        return false;
+      }
+    } catch (e) {
+      // Allow timeout/network edge quirks to fall through to player proxy retry.
+    }
+    return true;
+  }
   if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) {
     try {
       const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
@@ -2149,14 +2199,14 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
   const baseCacheKey = `${assetInfo.type}:${assetInfo.id}:${assetInfo.season || 0}:${assetInfo.episode || 0}`;
   const cacheKey = `${baseCacheKey}:${requested || "auto"}`;
 
-  const tmdbMeta = await fetchTMDBMetadata(
+  const initialTmdbMeta = await fetchTMDBMetadata(
     assetInfo.type,
     assetInfo.id,
     assetInfo.season || 1,
     assetInfo.episode || 1,
     options.env
   );
-  const isAsianShow = isAsianContent(assetInfo, tmdbMeta);
+  const isAsianShow = isAsianContent(assetInfo, initialTmdbMeta);
 
   if (!options.forceRefresh) {
     const existing = sourceStaleCache.get(cacheKey);
@@ -2198,7 +2248,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
   return coalesceSource(cacheKey, async () => {
     const result = createBaseResult(assetInfo, requested);
 
-    const tmdbMeta = await fetchTMDBMetadata(
+    const tmdbMeta = initialTmdbMeta || await fetchTMDBMetadata(
       assetInfo.type,
       assetInfo.id,
       assetInfo.season || 1,
@@ -6962,7 +7012,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         // External resolver (GitHub Actions) for viewers whose browser or
         // network blocks vidrift or needs background enrichment of extra dubs.
         remote: {
-          enabled: Boolean(env && env.GITHUB_DISPATCH_TOKEN),
+          enabled: Boolean(env && (env.GITHUB_DISPATCH_TOKEN || env.CONFIG_KV)),
           resolve: `${url.origin}/api/multi-audio/resolve`,
           status: `${url.origin}/api/multi-audio/status`,
           gateway: `${url.origin}/hls/${encodeURIComponent(assetID)}/remote.m3u8`,

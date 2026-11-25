@@ -164,6 +164,11 @@
       width: 100%;
       height: 100%;
       transform: rotate(-90deg);
+      animation: resolvingPulse 2.4s ease-in-out infinite;
+    }
+    @keyframes resolvingPulse {
+      0%, 100% { filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.35)); }
+      50% { filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.75)); }
     }
     .resolving-circle-bg {
       fill: none;
@@ -5462,13 +5467,15 @@
       function switchAudioTrack(idx) {
         if (idx < 0) return;
 
-        // 1. If HLS stream has internal audio tracks, switch natively via Hls.js without reloading stream!
-        if (hls && hls.audioTracks && hls.audioTracks.length > 1) {
+        // 1. If HLS stream has internal audio tracks and covers all known bootstrap tracks,
+        // switch natively via Hls.js without reloading stream.
+        if (hls && hls.audioTracks && hls.audioTracks.length > 1 && (!config.audioTracks || hls.audioTracks.length >= config.audioTracks.length)) {
           var targetHlsTrack = hls.audioTracks.find(function (t) { return t.id === idx; });
           if (!targetHlsTrack && idx < hls.audioTracks.length) {
             targetHlsTrack = hls.audioTracks[idx];
           }
           if (targetHlsTrack) {
+            currentAudioIdx = targetHlsTrack.id;
             hls.audioTrack = targetHlsTrack.id;
             updateAudioTrackUI(targetHlsTrack.id);
             return;
@@ -5478,17 +5485,26 @@
         // 2. Separate stream URL / Multi-Audio Master URL fallback
         if (config.audioTracks && config.audioTracks[idx]) {
           var targetTrack = config.audioTracks[idx];
+          currentAudioIdx = idx;
+          updateAudioTrackUI(idx);
           var newUrl = targetTrack.proxied_uri || targetTrack.proxiedUri || targetTrack.uri;
-          if (newUrl) {
-            var targetLang = (targetTrack.language || targetTrack.name || '').toLowerCase();
-            window.__PENDING_AUDIO_TRACK_LANG__ = targetLang;
-            window.__PENDING_AUDIO_TRACK_IDX__ = idx;
+          var targetLang = (targetTrack.language || targetTrack.name || '').toLowerCase().trim();
+          window.__PENDING_AUDIO_TRACK_LANG__ = targetLang;
+          window.__PENDING_AUDIO_TRACK_IDX__ = idx;
+          if (newUrl && newUrl !== currentStreamUrl) {
             var isStreamMp4 = targetTrack.isMP4 === true || (newUrl.indexOf('.mp4') >= 0 && newUrl.indexOf('.m3u8') < 0);
-            if (newUrl !== currentStreamUrl) {
-              loadNewStream(newUrl, isStreamMp4);
+            loadNewStream(newUrl, isStreamMp4);
+          } else if (hls && hls.audioTracks && hls.audioTracks.length > 1 && targetLang) {
+            var matchedHls = hls.audioTracks.find(function (t) {
+              var tl = String(t.lang || '').toLowerCase();
+              var tn = String(t.name || '').toLowerCase();
+              return (tl && tl === targetLang) || (tn && (tn === targetLang || tn.indexOf(targetLang) >= 0 || targetLang.indexOf(tn) >= 0));
+            });
+            if (matchedHls) {
+              hls.audioTrack = matchedHls.id;
+              window.__PENDING_AUDIO_TRACK_LANG__ = null;
             }
           }
-          updateAudioTrackUI(idx);
         }
       }
 
@@ -5498,7 +5514,7 @@
         var wasPlaying = !video.paused;
         currentStreamUrl = newUrl;
         spinner.style.display = 'block';
-        startResolvingCountdown(10);
+        startResolvingCountdown(10, 'Switching audio track…', 'Loading selected stream');
 
         var isMP4 = forceMp4 === true || (newUrl.indexOf('.mp4') >= 0 && newUrl.indexOf('.m3u8') < 0) || (newUrl.indexOf('/stream/chunk/') >= 0 && newUrl.indexOf('.m3u8') < 0);
 
@@ -5534,15 +5550,26 @@
             if (resumeTime > 0) {
               video.currentTime = resumeTime;
             }
+            var pendingLang = String(window.__PENDING_AUDIO_TRACK_LANG__ || '').toLowerCase().trim();
+            if (pendingLang && hls.audioTracks && hls.audioTracks.length > 1) {
+              var matchedTrack = hls.audioTracks.find(function (t) {
+                var tl = String(t.lang || '').toLowerCase();
+                var tn = String(t.name || '').toLowerCase();
+                return (tl && tl === pendingLang) || (tn && (tn === pendingLang || tn.indexOf(pendingLang) >= 0 || pendingLang.indexOf(tn) >= 0));
+              });
+              if (matchedTrack) {
+                hls.audioTrack = matchedTrack.id;
+                window.__PENDING_AUDIO_TRACK_LANG__ = null;
+              }
+            }
+            setupAudioTracks();
+            if (typeof currentAudioIdx === 'number' && currentAudioIdx >= 0) {
+              updateAudioTrackUI(currentAudioIdx);
+            }
             if (wasPlaying) {
               video.play().catch(function () { });
             }
             updateQualityPillText();
-            if (typeof window.__PENDING_AUDIO_TRACK_IDX__ === 'number' && hls.audioTracks && hls.audioTracks.length > window.__PENDING_AUDIO_TRACK_IDX__) {
-              hls.audioTrack = window.__PENDING_AUDIO_TRACK_IDX__;
-              updateAudioTrackUI(window.__PENDING_AUDIO_TRACK_IDX__);
-              window.__PENDING_AUDIO_TRACK_IDX__ = null;
-            }
           };
           hls.on(Hls.Events.MANIFEST_PARSED, onParsed);
         }
@@ -5645,8 +5672,19 @@
       var resolvingCountdownSec = 10;
       var resolvingActive = false;
 
-      function startResolvingCountdown(initialSeconds) {
-        if (resolvingActive) return;
+      var resolvingCustomTitle = '';
+      var resolvingCustomSubtitle = '';
+
+      function startResolvingCountdown(initialSeconds, customTitle, customSubtitle) {
+        resolvingCustomTitle = customTitle || '';
+        resolvingCustomSubtitle = customSubtitle || '';
+        if (resolvingSubtitle && resolvingCustomSubtitle) {
+          resolvingSubtitle.textContent = resolvingCustomSubtitle;
+        }
+        if (resolvingActive) {
+          updateResolvingUI();
+          return;
+        }
         resolvingActive = true;
         resolvingCountdownSec = typeof initialSeconds === 'number' ? initialSeconds : 10;
         if (resolvingHud) {
@@ -5683,12 +5721,14 @@
           }
         }
         if (resolvingTitle) {
-          if (resolvingCountdownSec >= 8) {
-            resolvingTitle.textContent = 'Resolving fast stream…';
+          if (resolvingCustomTitle) {
+            resolvingTitle.textContent = resolvingCustomTitle;
+          } else if (resolvingCountdownSec >= 8) {
+            resolvingTitle.textContent = 'Getting your stream ready…';
           } else if (resolvingCountdownSec >= 5) {
-            resolvingTitle.textContent = 'Connecting to best provider…';
+            resolvingTitle.textContent = 'Loading audio & subtitles…';
           } else if (resolvingCountdownSec >= 2) {
-            resolvingTitle.textContent = 'Verifying audio & subtitles…';
+            resolvingTitle.textContent = 'Connecting to backup providers…';
           } else {
             resolvingTitle.textContent = 'Finalizing stream buffer…';
           }
@@ -5719,6 +5759,8 @@
           resolvingRetryBtn.style.display = 'inline-flex';
           resolvingRetryBtn.onclick = function (e) {
             e.stopPropagation();
+            currentStreamUrl = '';
+            resolvingActive = false;
             fetchDynamicSourceAndPlay();
           };
         }
@@ -5810,6 +5852,7 @@
         }
         streamUrl = playUrl;
         currentStreamUrl = playUrl;
+        startResolvingCountdown(10, 'Getting your stream ready…', 'Loading video, audio & subtitles');
         var isDirectMP4 = Boolean(config.isMP4) || (playUrl.toLowerCase().indexOf('.mp4') >= 0 && playUrl.toLowerCase().indexOf('.m3u8') < 0) || (playUrl.indexOf('/stream/chunk/') >= 0 && playUrl.indexOf('.m3u8') < 0);
 
         if (!isDirectMP4 && Hls.isSupported()) {

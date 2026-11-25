@@ -182,8 +182,11 @@ export function srtToVtt(input) {
     return text.trimStart();
   }
 
-  // Drop common SRT numeric cue counters only when followed by a timestamp.
-  text = text.replace(/(^|\n)\d+\s*\n(?=\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->)/g, "$1");
+  // Drop common SRT numeric cue counters only when followed by a timestamp,
+  // and strip ASS inline positioning/style tags such as {\an8}.
+  text = text
+    .replace(/(^|\n)\d+\s*\n(?=\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->)/g, "$1")
+    .replace(/\{\\[^{}]*\}/g, "");
 
   return `WEBVTT\n\n${text.trim()}\n`;
 }
