@@ -6272,7 +6272,8 @@
           function poll() {
             attempts++;
             var statusUrl = remote.status + (remote.status.indexOf('?') >= 0 ? '&' : '?') +
-              'asset=' + encodeURIComponent(remote.asset);
+              'asset=' + encodeURIComponent(remote.asset) +
+              (config.playbackToken || config.token ? '&token=' + encodeURIComponent(config.playbackToken || config.token) : '');
             fetchJson(statusUrl, { credentials: 'omit', cache: 'no-store' }, 8000)
               .then(function (payload) {
                 if (payload && payload.state === 'ready') return resolve(payload);

@@ -2355,27 +2355,39 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         (/\/api\/orion\//i.test(String(maRecord.url || "")) ||
           /\/api\/orion\//i.test(String(maRecord.masterManifest || "")))
       );
-      if (multiAudioRecordUsable(maRecord) && !recordNeedsBlockedOrion) {
-        const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4);
-        const isAsianTitle = isAsianContent(assetInfo, tmdbMeta);
-        const hasDualOrMultiAudio = Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
-        const isMultiAudio = Boolean(maRecord.masterManifest && hasDualOrMultiAudio);
-        if (!isAsianTitle || isKiss || hasDualOrMultiAudio) {
-          const recordProvider = maRecord.provider || (isKiss ? "kisskh" : "evion");
-          if (!requested || requested === recordProvider) {
-            if (isKiss || isMultiAudio || hasDualOrMultiAudio) {
-              const isMP4 = Boolean(maRecord.isMP4 || (maRecord.url && maRecord.url.toLowerCase().includes(".mp4")));
-              const provRes = {
-                streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
-                backupStreamUrl: maRecord.url || "",
-                masterManifest: maRecord.masterManifest || "",
-                provider: recordProvider,
-                isMP4,
-                audioTracks: maRecord.audioTracks || [],
-                variants: maRecord.variants || [],
-                subtitles: maRecord.subtitles || [],
-              };
-              chosen = { provider: provRes.provider, result: provRes };
+      if (multiAudioRecordUsable(maRecord)) {
+        const rawTracks = Array.isArray(maRecord.audioTracks) ? maRecord.audioTracks : [];
+        const usableTracks = hasStoredOrionSubs
+          ? rawTracks
+          : rawTracks.filter((t) => t && !/\/api\/orion\//i.test(String(t.uri || t.url || "")));
+        const salvagedPrimary = usableTracks.find((t) => t && (t.uri || t.url) && isStreamUrlUsable(t.uri || t.url));
+        if (!recordNeedsBlockedOrion || salvagedPrimary) {
+          const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4) || (salvagedPrimary && salvagedPrimary.provider === "kisskh");
+          const isAsianTitle = isAsianContent(assetInfo, tmdbMeta);
+          const hasDualOrMultiAudio = usableTracks.length > 1;
+          const isMultiAudio = Boolean(!recordNeedsBlockedOrion && maRecord.masterManifest && hasDualOrMultiAudio);
+          if (!isAsianTitle || isKiss || hasDualOrMultiAudio || salvagedPrimary) {
+            const recordProvider = (recordNeedsBlockedOrion && salvagedPrimary && salvagedPrimary.provider) || maRecord.provider || (isKiss ? "kisskh" : "evion");
+            if (!requested || requested === recordProvider) {
+              if (isKiss || isMultiAudio || hasDualOrMultiAudio || salvagedPrimary) {
+                const effUrl = recordNeedsBlockedOrion
+                  ? (salvagedPrimary ? (salvagedPrimary.uri || salvagedPrimary.url) : "")
+                  : (maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || (salvagedPrimary && (salvagedPrimary.uri || salvagedPrimary.url)) || "");
+                const isMP4 = Boolean(maRecord.isMP4 || (effUrl && effUrl.toLowerCase().includes(".mp4")));
+                const provRes = {
+                  streamUrl: effUrl,
+                  backupStreamUrl: effUrl,
+                  masterManifest: recordNeedsBlockedOrion ? "" : (maRecord.masterManifest || ""),
+                  provider: recordProvider,
+                  isMP4,
+                  audioTracks: usableTracks,
+                  variants: recordNeedsBlockedOrion ? [] : (maRecord.variants || []),
+                  subtitles: maRecord.subtitles || [],
+                };
+                if (provRes.streamUrl && isStreamUrlUsable(provRes.streamUrl)) {
+                  chosen = { provider: provRes.provider, result: provRes };
+                }
+              }
             }
           }
         }
@@ -4884,24 +4896,61 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     const record = await readMultiAudioRecord(env, asset);
     if (record) {
       if (multiAudioRecordUsable(record)) {
-        const sanitizedTracks = ((record.audioTracks) || []).map((trk, idx) => {
+        const assetHyphenId = asset.replace(/\//g, "-");
+        let playbackToken = url.searchParams.get("token") || request.headers.get("X-Playback-Token") || "";
+        if (playbackToken) {
+          const validTok = await wasmVerifyToken(assetHyphenId, clientIP, playbackToken, secretSpec, { bindClientIP });
+          if (!validTok) playbackToken = "";
+        }
+        if (!playbackToken) {
+          playbackToken = await wasmIssueToken(assetHyphenId, clientIP, 10800, secretSpec);
+        }
+        const hasStoredOrionSubs = Boolean(record.subManifests && Object.keys(record.subManifests).length > 0);
+        const rawTracks = Array.isArray(record.audioTracks) ? record.audioTracks : [];
+        const hasSpecificOriginal = rawTracks.some((t) => t && /^original\s*\([^)]+\)/i.test(String(t.name || t.label || "").trim()));
+        const seenNames = new Set();
+        const seenLangs = new Set();
+        let seenOrig = false;
+        const sanitizedTracks = rawTracks.map((trk, idx) => {
           if (!trk) return null;
+          const rawTrackUri = trk.uri || trk.url || "";
+          if (!hasStoredOrionSubs && /\/api\/orion\//i.test(String(rawTrackUri))) {
+            return null;
+          }
           let safeUri = "";
           try {
-            safeUri = assertSafeUpstreamUrl(trk.uri || trk.url, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+            safeUri = assertSafeUpstreamUrl(rawTrackUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
           } catch (e) {
-            safeUri = trk.uri || trk.url || "";
+            safeUri = rawTrackUri;
           }
+          if (!safeUri) return null;
+          let cleanName = sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${idx + 1}`);
+          if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) cleanName = "Original Audio";
+          if (hasSpecificOriginal && isOriginalLikeAudio({ name: cleanName, language: trk.language }) && !/^original\s*\(/i.test(cleanName)) {
+            return null;
+          }
+          if (isOriginalLikeAudio({ name: cleanName, language: trk.language })) {
+            if (seenOrig) return null;
+            seenOrig = true;
+          }
+          const nameKey = cleanName.toLowerCase().replace(/\s+/g, " ").trim();
+          const langKey = normalizeAudioLang(trk.language, nameKey);
+          if (seenNames.has(nameKey) || (langKey && seenLangs.has(langKey) && !/dub/i.test(nameKey))) {
+            return null;
+          }
+          seenNames.add(nameKey);
+          if (langKey) seenLangs.add(langKey);
+
           const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || record.isMP4);
           const opaque = codec.encode(safeUri, trk.provider || record.provider || "kisskh");
           const proxiedUri = isTrkMp4
             ? `${url.origin}/stream/chunk/${opaque}`
-            : `${url.origin}/hls/${encodeURIComponent(asset)}/res/${opaque}`;
+            : `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`;
           return {
             id: idx,
-            name: sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${idx + 1}`),
-            label: sanitizeSubtitleLabel(trk.label || trk.name || `Audio ${idx + 1}`),
-            language: String(trk.language || "und").slice(0, 16),
+            name: cleanName,
+            label: cleanName,
+            language: String(trk.language || langKey || "und").slice(0, 16),
             default: trk.default || false,
             isMP4: isTrkMp4,
             uri: proxiedUri,
@@ -4923,7 +4972,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           }
           const opaque = codec.encode(safeSubUrl, record.provider || "kisskh");
           const proxiedSub = isPlaylistUrl(safeSubUrl)
-            ? `${url.origin}/hls/${encodeURIComponent(asset)}/res/${opaque}`
+            ? `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`
             : `${url.origin}/stream/chunk/${opaque}`;
           return {
             label: sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles"),
@@ -6159,19 +6208,34 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       });
     }
     try {
+      const hasStoredSubs = Boolean(record && record.subManifests && Object.keys(record.subManifests).length > 0);
       let raw = (record && record.masterManifest) || "";
-      if (!raw) {
-        raw = await fetchRawManifest(targetUrl.toString(), provider, request, env);
+      let effectiveUrl = targetUrl.toString();
+      let effectiveProvider = provider;
+      if (raw && !hasStoredSubs && /\/api\/orion\//i.test(raw)) {
+        raw = "";
       }
-      if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(targetUrl.toString()))) {
+      if (!raw && !hasStoredSubs && /\/api\/orion\//i.test(effectiveUrl)) {
+        const reachableTrack = (record.audioTracks || []).find(
+          (t) => t && (t.uri || t.url) && !/\/api\/orion\//i.test(String(t.uri || t.url || ""))
+        );
+        if (reachableTrack) {
+          effectiveUrl = reachableTrack.uri || reachableTrack.url;
+          effectiveProvider = normalizeProvider(reachableTrack.provider || "kisskh");
+        }
+      }
+      if (!raw) {
+        raw = await fetchRawManifest(effectiveUrl, effectiveProvider, request, env);
+      }
+      if (!raw || !(raw.startsWith("#EXTM3U") || raw.includes("#EXTINF") || isPlaylistUrl(effectiveUrl))) {
         return new Response("Upstream did not return a valid playlist", { status: 502, headers: corsHeaders });
       }
       const rewritten = rewriteManifest(raw, {
-        baseUrl: targetUrl.toString(),
+        baseUrl: effectiveUrl,
         assetId: assetID,
         token,
         origin: url.origin,
-        provider,
+        provider: effectiveProvider,
         codec,
       });
       return new Response(rewritten, {

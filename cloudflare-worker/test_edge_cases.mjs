@@ -212,6 +212,8 @@ await test("index.js enables remote multi-audio polling when KV or dispatch toke
   assert.ok(idx.includes("enabled: Boolean(env && (env.GITHUB_DISPATCH_TOKEN || env.CONFIG_KV))"));
   assert.ok(idx.includes("upstreamType.includes(\"trolltech\")"), ".ts Qt MIME must normalize to video/mp2t");
   assert.ok(idx.includes("recordNeedsBlockedOrion"), "unreachable Orion KV manifests without subManifests must not win over live KissKH");
+  assert.ok(idx.includes("salvagedPrimary"), "salvage reachable KissKH/dub tracks when a mixed KV record has an unbacked Orion masterManifest");
+  assert.ok(idx.includes("encodeURIComponent(assetHyphenId)}/res/${opaque}?token="), "/api/multi-audio/status must issue token-authenticated hyphenated asset HLS URLs");
   assert.ok(idx.includes("seenEmbedAudioNames") && idx.includes("normalizeAudioLang"), "embed audio tracks must deduplicate by canonical language and name");
   const prov = readSrc("src/providers.js");
   assert.ok(prov.includes("Promise.any("), "KissKH fallback mirrors must race in parallel");
