@@ -714,25 +714,54 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
     } catch (e) { }
   }
   const ordered = [activeKisskhDomain, ...KISSKH_DOMAINS.filter((d) => d !== activeKisskhDomain)];
-  const perDomainTimeout = Math.min(timeoutMs, 3500);
-  for (const domain of ordered) {
-    const url = `https://${domain}${apiPath}`;
-    const data = await kisskhFetchJson(fetchImpl, url, {
-      ...opts,
-      kv,
-      cacheKey: "", // already checked KV above; only write on success below
-      domain,
-      timeoutMs: perDomainTimeout,
-      maxAttempts: 1,
-    });
-    if (data !== null && data !== undefined) {
-      activeKisskhDomain = domain;
-      if (kv && cacheKey && opts.cacheTtlSec > 0) {
-        try {
-          await kv.put(cacheKey, JSON.stringify({ v: data }), { expirationTtl: opts.cacheTtlSec });
-        } catch (e) { }
+  const primary = ordered[0];
+  const primaryData = await kisskhFetchJson(fetchImpl, `https://${primary}${apiPath}`, {
+    ...opts,
+    kv: null, // KV already checked above; only write on success below
+    cacheKey: "",
+    domain: primary,
+    timeoutMs: Math.min(timeoutMs, 2200),
+    maxAttempts: 1,
+  });
+  if (primaryData !== null && primaryData !== undefined) {
+    activeKisskhDomain = primary;
+    if (kv && cacheKey && opts.cacheTtlSec > 0) {
+      try {
+        await kv.put(cacheKey, JSON.stringify({ v: primaryData }), { expirationTtl: opts.cacheTtlSec });
+      } catch (e) { }
+    }
+    return primaryData;
+  }
+
+  // Primary failed: race remaining mirrors (.cx, .ovh, .do) in parallel to stay under budget
+  const fallbacks = ordered.slice(1);
+  if (fallbacks.length > 0) {
+    try {
+      const winner = await Promise.any(
+        fallbacks.map(async (domain) => {
+          const data = await kisskhFetchJson(fetchImpl, `https://${domain}${apiPath}`, {
+            ...opts,
+            kv: null,
+            cacheKey: "",
+            domain,
+            timeoutMs: Math.min(timeoutMs, 2500),
+            maxAttempts: 1,
+          });
+          if (data === null || data === undefined) throw new Error(`mirror_${domain}_null`);
+          return { domain, data };
+        })
+      );
+      if (winner && winner.data !== undefined) {
+        activeKisskhDomain = winner.domain;
+        if (kv && cacheKey && opts.cacheTtlSec > 0) {
+          try {
+            await kv.put(cacheKey, JSON.stringify({ v: winner.data }), { expirationTtl: opts.cacheTtlSec });
+          } catch (e) { }
+        }
+        return winner.data;
       }
-      return data;
+    } catch (e) {
+      // All fallback mirrors failed
     }
   }
   return null;

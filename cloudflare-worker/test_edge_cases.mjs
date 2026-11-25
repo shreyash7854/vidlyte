@@ -210,6 +210,11 @@ await test("index.js proxyUpstream never treats KissKH .mp4/.ts/.m3u8 media chun
 await test("index.js enables remote multi-audio polling when KV or dispatch token is present", () => {
   const idx = readSrc("src/index.js");
   assert.ok(idx.includes("enabled: Boolean(env && (env.GITHUB_DISPATCH_TOKEN || env.CONFIG_KV))"));
+  assert.ok(idx.includes("upstreamType.includes(\"trolltech\")"), ".ts Qt MIME must normalize to video/mp2t");
+  assert.ok(idx.includes("recordNeedsBlockedOrion"), "unreachable Orion KV manifests without subManifests must not win over live KissKH");
+  assert.ok(idx.includes("seenEmbedAudioNames") && idx.includes("normalizeAudioLang"), "embed audio tracks must deduplicate by canonical language and name");
+  const prov = readSrc("src/providers.js");
+  assert.ok(prov.includes("Promise.any("), "KissKH fallback mirrors must race in parallel");
 });
 
 await test("player.html has zero pendingUpgradedStream refs, syncs audio state, and shows stream-ready overlay", () => {

@@ -2001,9 +2001,38 @@ async function seedKisskhPatternFromSibling(env, assetInfo) {
   return false;
 }
 
+const AUDIO_LANG_ALIASES = {
+  en: "eng", english: "eng",
+  hi: "hin", hindi: "hin",
+  fr: "fra", fre: "fra", french: "fra",
+  es: "spa", spanish: "spa",
+  pt: "por", portuguese: "por", "brazilian portuguese": "por",
+  de: "deu", ger: "deu", german: "deu",
+  it: "ita", italian: "ita",
+  ja: "jpn", japanese: "jpn",
+  ko: "kor", korean: "kor",
+  zh: "zho", chi: "zho", chinese: "zho",
+  th: "tha", thai: "tha",
+  ta: "tam", tamil: "tam",
+  te: "tel", telugu: "tel",
+  ru: "rus", russian: "rus",
+  tr: "tur", turkish: "tur",
+  ar: "ara", arabic: "ara",
+  id: "ind", indonesian: "ind",
+  vi: "vie", vietnamese: "vie",
+};
+
+function normalizeAudioLang(lang, name = "") {
+  const raw = String(lang || "").toLowerCase().trim();
+  if (AUDIO_LANG_ALIASES[raw]) return AUDIO_LANG_ALIASES[raw];
+  if (raw) return raw;
+  const n = String(name || "").toLowerCase().trim();
+  return AUDIO_LANG_ALIASES[n] || "";
+}
+
 function audioTrackKey(track) {
-  const lang = String((track && track.language) || "").toLowerCase().trim();
   const name = String((track && (track.name || track.label)) || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const lang = normalizeAudioLang(track && track.language, name);
   return `${lang}|${name}`;
 }
 
@@ -2016,20 +2045,24 @@ function isOriginalLikeAudio(track) {
 function mergeAudioTrackLists(baseTracks, extraTracks) {
   const merged = Array.isArray(baseTracks) ? baseTracks.slice() : [];
   const seen = new Set(merged.map(audioTrackKey));
+  const seenNames = new Set(
+    merged.map((t) => String((t && (t.name || t.label)) || "").toLowerCase().replace(/\s+/g, " ").trim()).filter(Boolean)
+  );
   const seenLang = new Set(
-    merged.map((track) => String((track && track.language) || "").toLowerCase()).filter(Boolean)
+    merged.map((track) => normalizeAudioLang(track && track.language, track && (track.name || track.label))).filter(Boolean)
   );
   for (const track of Array.isArray(extraTracks) ? extraTracks : []) {
     if (!track || !(track.uri || track.url)) continue;
     // The KissKH original already covers the authentic original language.
     if (isOriginalLikeAudio(track)) continue;
+    const normName = String(track.name || track.label || "").toLowerCase().replace(/\s+/g, " ").trim();
     const key = audioTrackKey(track);
-    if (seen.has(key)) continue;
-    const lang = String(track.language || "").toLowerCase();
-    const name = String(track.name || track.label || "");
-    if (lang && seenLang.has(lang) && !/dub/i.test(name)) continue;
+    if (seen.has(key) || (normName && seenNames.has(normName))) continue;
+    const lang = normalizeAudioLang(track.language, normName);
+    if (lang && seenLang.has(lang) && !/dub/i.test(normName)) continue;
     merged.push({ ...track, id: merged.length, default: false });
     seen.add(key);
+    if (normName) seenNames.add(normName);
     if (lang) seenLang.add(lang);
   }
   return merged;
@@ -2116,7 +2149,7 @@ function buildMultiAudioRecord(existing, result, asset, options = {}) {
     dubCheckedAt: options.dubChecked ? now : (Number(base.dubCheckedAt) || 0),
     audioTracks,
     subtitles,
-    masterManifest: (result && result.masterManifest) || base.masterManifest,
+    masterManifest: (result && result.masterManifest) || (!result || !result.streamUrl || result.streamUrl === base.url ? base.masterManifest : undefined),
     subManifests: (result && result.subManifests) || base.subManifests,
     variants: (result && Array.isArray(result.variants) && result.variants.length > 0)
       ? result.variants
@@ -2275,7 +2308,14 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
         : `movie/${assetInfo.id}`;
       const maRecord = await readMultiAudioRecord(options.env, asset);
-      if (multiAudioRecordUsable(maRecord)) {
+      const hasStoredOrionSubs = Boolean(maRecord && maRecord.subManifests && Object.keys(maRecord.subManifests).length > 0);
+      const recordNeedsBlockedOrion = Boolean(
+        maRecord &&
+        !hasStoredOrionSubs &&
+        (/\/api\/orion\//i.test(String(maRecord.url || "")) ||
+          /\/api\/orion\//i.test(String(maRecord.masterManifest || "")))
+      );
+      if (multiAudioRecordUsable(maRecord) && !recordNeedsBlockedOrion) {
         const isKiss = maRecord.provider === "kisskh" || maRecord.via === "kisskh" || Boolean(maRecord.isMP4);
         const isAsianTitle = isAsianContent(assetInfo, tmdbMeta);
         const hasDualOrMultiAudio = Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 1;
@@ -6460,6 +6500,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
 
     const sanitizeAudio = (tracks) => {
       const seen = new Set();
+      const seenLangs = new Set();
       let seenOrig = false;
       const out = [];
       const list = Array.isArray(tracks) ? tracks : [];
@@ -6491,15 +6532,17 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           if (seenOrig) return;
           seenOrig = true;
         }
-        const key = cleanName.toLowerCase();
-        if (seen.has(key)) return;
+        const key = cleanName.toLowerCase().replace(/\s+/g, " ").trim();
+        const langKey = normalizeAudioLang(track.language, key);
+        if (seen.has(key) || (langKey && seenLangs.has(langKey) && !/dub/i.test(key))) return;
         seen.add(key);
+        if (langKey) seenLangs.add(langKey);
 
         out.push({
           id: Number(track.id) || index,
           name: cleanName,
           label: cleanName,
-          language: String(track.language || "eng").slice(0, 16),
+          language: String(track.language || langKey || "eng").slice(0, 16),
           default: Boolean(track.default) || out.length === 0,
           isMP4: isTrkMp4,
           uri: gatewayUri,
@@ -6849,7 +6892,10 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       resolved && resolved.streamUrl && isStreamUrlUsable(resolved.streamUrl)
     );
 
-    // Sanitize audio tracks for player popover menu
+    // Sanitize audio tracks for player popover menu (with deduplication)
+    const seenEmbedAudioNames = new Set();
+    const seenEmbedAudioLangs = new Set();
+    let seenEmbedOrigAudio = false;
     const sanitizedAudio = ((resolved && resolved.audioTracks) || [])
       .map((trk, index) => {
         if (!trk) return null;
@@ -6871,10 +6917,25 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         if (!trackUri && resolved && resolved.isMP4 && resolved.streamUrl) {
           trackUri = `${url.origin}/stream/chunk/${codec.encode(resolved.streamUrl, resolved.provider)}`;
         }
+        let cleanName = sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${index + 1}`);
+        if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) {
+          cleanName = "Original Audio";
+        }
+        if (isOriginalLikeAudio({ name: cleanName, language: trk.language })) {
+          if (seenEmbedOrigAudio) return null;
+          seenEmbedOrigAudio = true;
+        }
+        const nameKey = cleanName.toLowerCase().replace(/\s+/g, " ").trim();
+        const langKey = normalizeAudioLang(trk.language, nameKey);
+        if (seenEmbedAudioNames.has(nameKey) || (langKey && seenEmbedAudioLangs.has(langKey) && !/dub/i.test(nameKey))) {
+          return null;
+        }
+        seenEmbedAudioNames.add(nameKey);
+        if (langKey) seenEmbedAudioLangs.add(langKey);
         return {
-          name: sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${index + 1}`),
-          label: sanitizeSubtitleLabel(trk.label || trk.name || `Audio ${index + 1}`),
-          language: String(trk.language || "eng").slice(0, 16),
+          name: cleanName,
+          label: cleanName,
+          language: String(trk.language || langKey || "eng").slice(0, 16),
           default: trk.default || false,
           isMP4: isTrkMp4,
           uri: trackUri,
@@ -7417,7 +7478,9 @@ async function proxyUpstream(request, targetUrl, provider, env, codec = null) {
         upstreamType.includes("binary") ||
         upstreamType.includes("image/") ||
         upstreamType.includes("text/html") ||
-        upstreamType.includes("text/plain")
+        upstreamType.includes("text/plain") ||
+        upstreamType.includes("trolltech") ||
+        (upstreamType.startsWith("text/") && fullTargetLower.includes(".ts"))
       ) {
         if (fullTargetLower.includes(".m4s") || fullTargetLower.includes(".mp4") || fullTargetLower.includes("init-")) {
           resHeaders.set("Content-Type", "video/mp4");
