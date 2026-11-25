@@ -4687,9 +4687,10 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     // still be resolvable from vidrift/framex. Enrich server-side in the
     // background and let the player keep polling. After a recent dub check that
     // found nothing, report "single" so the player stops instead of looping.
-    if (!force && multiAudioRecordUsable(existing) && existingAudio <= 1) {
-      const checkedAt = Number(existing.dubCheckedAt) || 0;
-      if (checkedAt && (Date.now() - checkedAt * 1000) < ASIAN_DUB_RECHECK_MS) {
+    let asianBgEnrichScheduled = false;
+    if (force || (multiAudioRecordUsable(existing) && existingAudio <= 1)) {
+      const checkedAt = Number(existing && existing.dubCheckedAt) || 0;
+      if (!force && checkedAt && (Date.now() - checkedAt * 1000) < ASIAN_DUB_RECHECK_MS) {
         return new Response(JSON.stringify({
           ok: true,
           state: "single",
@@ -4712,23 +4713,28 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           env
         );
         if (assetInfo && isAsianContent(assetInfo, tmdbMeta)) {
+          if (force && env && env.CONFIG_KV) {
+            await env.CONFIG_KV.delete(multiAudioDubMarkerKey(asset)).catch(() => { });
+          }
           scheduleAsianDubEnrichment(assetInfo, tmdbMeta, {
-            streamUrl: existing.url || "",
-            provider: existing.provider || "kisskh",
-            isMP4: Boolean(existing.isMP4),
-            audioTracks: Array.isArray(existing.audioTracks) ? existing.audioTracks : [],
-            subtitles: Array.isArray(existing.subtitles) ? existing.subtitles : [],
+            streamUrl: (existing && existing.url) || "",
+            provider: (existing && existing.provider) || "kisskh",
+            isMP4: Boolean(existing && existing.isMP4),
+            audioTracks: Array.isArray(existing && existing.audioTracks) ? existing.audioTracks : [],
+            subtitles: Array.isArray(existing && existing.subtitles) ? existing.subtitles : [],
           }, {
             env,
             waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
           });
+          asianBgEnrichScheduled = true;
         }
       } catch (e) { }
     }
 
     const dispatched = await dispatchMultiAudioResolution(env, asset);
-    return new Response(JSON.stringify({ ...dispatched, asset }), {
-      status: dispatched.ok ? 202 : 503,
+    const ok = Boolean(dispatched.ok || asianBgEnrichScheduled);
+    return new Response(JSON.stringify({ ...dispatched, ok, state: ok ? "resolving" : (dispatched.state || "failed"), asset }), {
+      status: ok ? 202 : 503,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
     });
   }

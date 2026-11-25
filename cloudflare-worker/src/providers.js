@@ -16,7 +16,7 @@ export const PROVIDER_DEFINITIONS = [
   { id: "orion", label: "Orion", priority: 1, hosts: ["embed.vidrift.net", "vidrift.net"] },
   { id: "evion", label: "Evion", priority: 2, hosts: ["img.animecurx.tech", "rousav.tech", "rousav.com", "bigbang.observer"] },
   { id: "framextv", label: "FrameX", priority: 3, hosts: ["api.framextv.xyz", "api.framextv.cc", "api.framextv.tech"] },
-  { id: "kisskh", label: "KissKH", priority: 4, hosts: ["kisskh.is", "kisskh.co", "videocdndelivery05.site", "cdnvideo11.shop", "dwish.pro"] },
+  { id: "kisskh", label: "KissKH", priority: 4, hosts: ["kisskh.is", "kisskh.cx", "kisskh.ovh", "kisskh.do", "kisskh.co", "videocdndelivery05.site", "cdnvideo11.shop", "dwish.pro"] },
   { id: "asianflix", label: "AsianFlix", priority: 5, hosts: ["asianflix.one", "rumble.com", "rumble.cloud"] },
   { id: "2vcdn", label: "2Embed", priority: 6, hosts: ["2embed.cc", "2vcdn.skin"] },
 ];
@@ -641,12 +641,15 @@ export const KISSKH_DRAMA_OVERRIDES = {
 const KISSKH_RETRY_STATUSES = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
 const KISSKH_DRAMA_KV_TTL_SEC = 6 * 60 * 60;
 const KISSKH_EPISODE_KV_TTL_SEC = 30 * 60;
+export const KISSKH_DOMAINS = ["kisskh.is", "kisskh.cx", "kisskh.ovh", "kisskh.do"];
+let activeKisskhDomain = "kisskh.is";
 
-function kisskhHeaders(extra = {}) {
+function kisskhHeaders(extra = {}, domain = activeKisskhDomain) {
+  const origin = `https://${domain || "kisskh.is"}`;
   return buildHeaders({
     Accept: "application/json",
-    Origin: "https://kisskh.is",
-    Referer: "https://kisskh.is/",
+    Origin: origin,
+    Referer: `${origin}/`,
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
@@ -660,7 +663,7 @@ function kisskhHeaders(extra = {}) {
  * a binding. Cached payloads are raw API bodies, never signed playback URLs
  * exposed to clients.
  */
-async function kisskhFetchJson(fetchImpl, url, { timeoutMs = 8000, kv = null, cacheKey = "", cacheTtlSec = 0 } = {}) {
+async function kisskhFetchJson(fetchImpl, url, { timeoutMs = 8000, kv = null, cacheKey = "", cacheTtlSec = 0, domain = activeKisskhDomain, maxAttempts = 4 } = {}) {
   if (kv && cacheKey) {
     try {
       const cached = await kv.get(cacheKey, "json");
@@ -668,11 +671,11 @@ async function kisskhFetchJson(fetchImpl, url, { timeoutMs = 8000, kv = null, ca
     } catch (e) { }
   }
   let lastStatus = 0;
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res = null;
     try {
       res = await fetchImpl(url, {
-        headers: kisskhHeaders(),
+        headers: kisskhHeaders({}, domain),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
@@ -695,6 +698,43 @@ async function kisskhFetchJson(fetchImpl, url, { timeoutMs = 8000, kv = null, ca
     await new Promise((resolve) => setTimeout(resolve, backoff));
   }
   console.error("[KissKH] request failed:", lastStatus, String(url).split("?")[0]);
+  return null;
+}
+
+/**
+ * Try a KissKH API path across known mirror domains (.is, .cx, .ovh, .do),
+ * preferring the last working domain and caching KV hits before network calls.
+ */
+async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
+  const { kv = null, cacheKey = "", timeoutMs = 8000 } = opts;
+  if (kv && cacheKey) {
+    try {
+      const cached = await kv.get(cacheKey, "json");
+      if (cached && cached.v) return cached.v;
+    } catch (e) { }
+  }
+  const ordered = [activeKisskhDomain, ...KISSKH_DOMAINS.filter((d) => d !== activeKisskhDomain)];
+  const perDomainTimeout = Math.min(timeoutMs, 5000);
+  for (const domain of ordered) {
+    const url = `https://${domain}${apiPath}`;
+    const data = await kisskhFetchJson(fetchImpl, url, {
+      ...opts,
+      kv,
+      cacheKey: "", // already checked KV above; only write on success below
+      domain,
+      timeoutMs: perDomainTimeout,
+      maxAttempts: domain === ordered[0] ? 3 : 1,
+    });
+    if (data !== null && data !== undefined) {
+      activeKisskhDomain = domain;
+      if (kv && cacheKey && opts.cacheTtlSec > 0) {
+        try {
+          await kv.put(cacheKey, JSON.stringify({ v: data }), { expirationTtl: opts.cacheTtlSec });
+        } catch (e) { }
+      }
+      return data;
+    }
+  }
   return null;
 }
 
@@ -834,9 +874,9 @@ export async function resolveKissKH({
   if (!drama) {
     if (!matchedDrama) {
       let searchData = [];
-      const primarySearch = await kisskhFetchJson(
+      const primarySearch = await kisskhFetchApi(
         fetchImpl,
-        `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`,
+        `/api/DramaList/Search?q=${encodeURIComponent(cleanTitle)}&page=1&pageSize=50`,
         {
           timeoutMs,
           kv,
@@ -847,9 +887,9 @@ export async function resolveKissKH({
       if (Array.isArray(primarySearch)) searchData = primarySearch;
 
       if (searchData.length === 0 && title && title !== cleanTitle) {
-        const fallbackSearch = await kisskhFetchJson(
+        const fallbackSearch = await kisskhFetchApi(
           fetchImpl,
-          `https://kisskh.is/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`,
+          `/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`,
           {
             timeoutMs,
             kv,
@@ -885,9 +925,9 @@ export async function resolveKissKH({
       return null;
     }
 
-    drama = await kisskhFetchJson(
+    drama = await kisskhFetchApi(
       fetchImpl,
-      `https://kisskh.is/api/DramaList/Drama/${matchedDrama.id}`,
+      `/api/DramaList/Drama/${matchedDrama.id}`,
       {
         timeoutMs,
         kv,
@@ -939,8 +979,8 @@ export async function resolveKissKH({
   }
 
   const videoKey = generateKissKHKey(episode.id, false);
-  const epStreamUrl = `https://kisskh.is/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
-  let epStreamData = await kisskhFetchJson(fetchImpl, epStreamUrl, {
+  const epStreamPath = `/api/DramaList/Episode/${episode.id}.png?err=false&ts=&time=&kkey=${videoKey}`;
+  let epStreamData = await kisskhFetchApi(fetchImpl, epStreamPath, {
     timeoutMs,
     kv,
     cacheKey: `kisskh_ep_v1:${episode.id}`,
@@ -976,8 +1016,8 @@ export async function resolveKissKH({
 
   // Subtitles
   const subKey = generateKissKHKey(episode.id, true);
-  const subApiUrl = `https://kisskh.is/api/Sub/${episode.id}?kkey=${subKey}`;
-  const subData = (await kisskhFetchJson(fetchImpl, subApiUrl, {
+  const subApiPath = `/api/Sub/${episode.id}?kkey=${subKey}`;
+  const subData = (await kisskhFetchApi(fetchImpl, subApiPath, {
     timeoutMs,
     kv,
     cacheKey: `kisskh_sub_v1:${episode.id}`,

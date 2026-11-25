@@ -4831,11 +4831,12 @@
         return -1;
       }
 
-      function loadSubtitle(item, autoSelect) {
+      function loadSubtitle(item, autoSelect, attempt) {
         if (!item) return;
+        var tries = Number(attempt) || 0;
         var rawKey = item.label || item.language || 'English';
         var trackKey = cleanSubtitleLabel(rawKey);
-        if (subtitleElements[trackKey]) {
+        if (subtitleElements[trackKey] && subtitleElements[trackKey].cues && subtitleElements[trackKey].cues.length > 0) {
           if (autoSelect) {
             currentSub = trackKey;
             updateCaptions();
@@ -4877,6 +4878,9 @@
           })
           .then(function (decryptedVtt) {
             var cues = parseCues(decryptedVtt);
+            if (!cues.length && tries < 2) {
+              throw new Error('empty_cues');
+            }
             subtitleElements[trackKey] = {
               cues: cues,
               item: item
@@ -4889,6 +4893,12 @@
             }
           })
           .catch(function (err) {
+            if (tries < 2) {
+              setTimeout(function () {
+                loadSubtitle(item, autoSelect, tries + 1);
+              }, tries === 0 ? 600 : 1500);
+              return;
+            }
             console.warn('Subtitle fetch error:', trackKey, err);
           });
       }
