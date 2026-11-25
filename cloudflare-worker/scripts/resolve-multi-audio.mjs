@@ -754,13 +754,31 @@ export async function resolveAsset(target) {
   if (directCandidates.length > 0) {
     directCandidates.sort((a, b) => b.audio - a.audio);
     let chosen = directCandidates[0];
+    if (directKiss) {
+      const merged = Array.isArray(directKiss.audioTracks) ? directKiss.audioTracks.slice() : [];
+      for (const tr of chosen.audioTracks || []) {
+        if (!tr || !tr.uri) continue;
+        const trName = String(tr.name || tr.label || "").toLowerCase().trim();
+        const trLang = String(tr.language || "").toLowerCase().trim();
+        if (/^original/i.test(trName) && merged.some((m) => /original/i.test(m.name || m.label || ""))) continue;
+        const dup = merged.some((m) => {
+          const mName = String(m.name || m.label || "").toLowerCase().trim();
+          const mLang = String(m.language || "").toLowerCase().trim();
+          return (trName && mName === trName) || (trLang && trLang !== "und" && mLang === trLang);
+        });
+        if (!dup) merged.push({ ...tr, id: merged.length, default: false });
+      }
+      directKiss.audioTracks = merged;
+      directKiss.audio = merged.length;
+      return directKiss;
+    }
     chosen = await enrichWithKissKH(chosen, target, started);
     chosen = await enrichWithFrameX(chosen, target);
     return chosen;
   }
 
   const token = boot.meta.playbackToken;
-  const candidateProviders = ["bigbang", "atlas", "titan", "default"];
+  const candidateProviders = ["bigbang", "vexon", "orion", "vela", "titan", "atlas", "lyra", "default"];
   let source = null;
   let chosenProvider = "bigbang";
 

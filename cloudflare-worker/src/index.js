@@ -639,8 +639,12 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         : `/api/source/movie/${encodeURIComponent(id)}`;
       const candidateUrls = [
         `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=bigbang`,
-        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=atlas`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=vexon`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=orion`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=vela`,
         `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=titan`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=atlas`,
+        `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=lyra`,
         `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&parent=vidrift.net`,
       ];
       for (const sourceUrl of candidateUrls) {
