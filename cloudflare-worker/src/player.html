@@ -146,11 +146,13 @@
       pointer-events: auto;
       transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
+
     .resolving-hud-content {
       display: flex;
       align-items: center;
       gap: calc(16px * var(--ui));
     }
+
     .resolving-timer-box {
       position: relative;
       width: calc(52px * var(--ui));
@@ -160,21 +162,32 @@
       justify-content: center;
       flex-shrink: 0;
     }
+
     .resolving-svg {
       width: 100%;
       height: 100%;
       transform: rotate(-90deg);
       animation: resolvingPulse 2.4s ease-in-out infinite;
     }
+
     @keyframes resolvingPulse {
-      0%, 100% { filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.35)); }
-      50% { filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.75)); }
+
+      0%,
+      100% {
+        filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.35));
+      }
+
+      50% {
+        filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.75));
+      }
     }
+
     .resolving-circle-bg {
       fill: none;
       stroke: rgba(255, 255, 255, 0.1);
       stroke-width: 4;
     }
+
     .resolving-circle-progress {
       fill: none;
       stroke: #38bdf8;
@@ -184,6 +197,7 @@
       stroke-dashoffset: 0;
       transition: stroke-dashoffset 1s linear, stroke 0.3s ease;
     }
+
     .resolving-counter-val {
       position: absolute;
       font-size: calc(18px * var(--ui));
@@ -192,23 +206,27 @@
       color: #fff;
       text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
     }
+
     .resolving-details {
       display: flex;
       flex-direction: column;
       gap: calc(4px * var(--ui));
       text-align: left;
     }
+
     .resolving-title-text {
       font-size: calc(14px * var(--ui));
       font-weight: 600;
       color: #f8fafc;
       letter-spacing: -0.01em;
     }
+
     .resolving-subtitle-text {
       font-size: calc(12px * var(--ui));
       color: #94a3b8;
       font-weight: 400;
     }
+
     .resolving-retry-btn {
       display: none;
       align-items: center;
@@ -223,6 +241,7 @@
       cursor: pointer;
       transition: background 0.2s, transform 0.1s;
     }
+
     .resolving-retry-btn:hover {
       background: rgba(255, 255, 255, 0.2);
       transform: scale(1.02);
@@ -2513,7 +2532,10 @@
         </div>
       </div>
       <button class="resolving-retry-btn" id="resolvingRetryBtn" style="display:none;" type="button">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path
+            d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+        </svg>
         <span>Retry Connection</span>
       </button>
     </div>
@@ -5283,7 +5305,11 @@
 
       function cleanAudioLabel(name, isDefault, lang) {
         if (!name) return 'Audio Track';
-        var label = name.replace(/^Server\s*\d+\s*[·•-]\s*/i, '').replace(/^[^\s·•-]+\s*[·•-]\s*/i, '').trim();
+        var label = name
+          .replace(/^Server\s*\d+\s*[·•-]\s*/i, '')
+          .replace(/^[^\s·•-]+\s*[·•-]\s*/i, '')
+          .replace(/^\d+\.\s*/, '')
+          .trim();
         if (!label) label = name;
         label = label.replace(/\s*\([^)]*Server[^)]*\)/gi, '').trim();
         if (/^original\s*\/\s*dual\s*audio$/i.test(label)) {
@@ -5309,7 +5335,10 @@
           if (activeId < 0) activeId = 0;
           currentAudioIdx = activeId;
 
-          var displayList = hlsTracks.map(function (trk, i) {
+          var seenHlsAudio = new Set();
+          var displayList = [];
+          hlsTracks.forEach(function (trk, i) {
+            var trkId = (trk.id !== undefined) ? trk.id : i;
             var rawName = trk.name || ('Track ' + (i + 1));
             if (config.audioTracks && config.audioTracks.length > 0) {
               var match = config.audioTracks.find(function (c) {
@@ -5321,12 +5350,16 @@
               }
             }
             var cleanName = cleanAudioLabel(rawName, trk.default, trk.lang);
-            return {
-              id: (trk.id !== undefined) ? trk.id : i,
+            if (/^unknown$/i.test(cleanName) && hlsTracks.length > 1 && trkId !== activeId) return;
+            var dedupeKey = cleanName.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (seenHlsAudio.has(dedupeKey) && trkId !== activeId) return;
+            seenHlsAudio.add(dedupeKey);
+            displayList.push({
+              id: trkId,
               name: cleanName,
               lang: trk.lang,
               isDefault: !!trk.default,
-            };
+            });
           });
 
           // Sort so original / default is displayed at the top
@@ -5596,22 +5629,25 @@
           highBufferWatchdogPeriod: 1,
           stretchShortVideoTrack: true,
           fastSwitch: true,
-          startLevel: 0,
-          testBandwidth: false,
-          manifestLoadingTimeOut: 10000,
+          startLevel: -1,
+          abrEwmaDefaultEstimate: 1200000,
+          testBandwidth: true,
+          manifestLoadingTimeOut: 12000,
           manifestLoadingMaxRetry: 4,
-          levelLoadingTimeOut: 10000,
+          levelLoadingTimeOut: 12000,
           levelLoadingMaxRetry: 4,
-          fragLoadingTimeOut: 12000,
-          fragLoadingMaxRetry: 6,
-          fragLoadingRetryDelay: 200,
-          fragLoadingMaxRetryTimeout: 2000
+          fragLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 8,
+          fragLoadingRetryDelay: 300,
+          fragLoadingMaxRetryTimeout: 4000
         });
         hls.on(Hls.Events.LEVEL_SWITCHED, function (event, data) {
           if (hls.currentLevel === -1) {
             currentQualityName = 'AUTO';
           } else if (hls.levels && hls.levels[data.level]) {
-            currentQualityName = hls.levels[data.level].height + 'P';
+            var lvlH = hls.levels[data.level].height;
+            var lvlName = hls.levels[data.level].name;
+            currentQualityName = (lvlH && lvlH > 0) ? (lvlH + 'P') : (lvlName ? String(lvlName).toUpperCase() : 'AUTO');
           }
           updateQualityPillText();
         });
@@ -6424,7 +6460,7 @@
           clientStream.subtitles.forEach(function (cs) {
             var exists = curSubs.some(function (es) {
               return (es.language && cs.language && es.language.toLowerCase() === cs.language.toLowerCase()) ||
-                     (es.label && cs.label && es.label.toLowerCase() === cs.label.toLowerCase());
+                (es.label && cs.label && es.label.toLowerCase() === cs.label.toLowerCase());
             });
             if (!exists) {
               curSubs.push(cs);
@@ -6451,7 +6487,7 @@
             var etLang = String(et.language || '').toLowerCase().trim();
             var etName = String(et.name || et.label || '').toLowerCase().trim();
             return (ntLang && etLang && ntLang === etLang) ||
-                   (ntName && etName && ntName === etName);
+              (ntName && etName && ntName === etName);
           });
           if (!exists) {
             var cloned = Object.assign({}, nt);

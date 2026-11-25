@@ -228,6 +228,9 @@ await test("player.html has zero pendingUpgradedStream refs, syncs audio state, 
   const loadNewSlice = player.slice(player.indexOf("function loadNewStream("), player.indexOf("function initHlsPlayer("));
   assert.ok(loadNewSlice.includes("setupAudioTracks();"), "loadNewStream MANIFEST_PARSED must call setupAudioTracks()");
   assert.ok(loadNewSlice.includes("window.__PENDING_AUDIO_TRACK_LANG__"), "loadNewStream must match by language rather than blind index");
+  assert.ok(player.includes("lvlH && lvlH > 0"), "LEVEL_SWITCHED must not display Quality 0P");
+  assert.ok(player.includes("seenHlsAudio"), "HLS internal audio list must deduplicate and skip Unknown");
+  assert.ok(player.includes("startLevel: -1"), "HLS player should use ABR startLevel rather than forcing heavy 1080p level 0");
 });
 
 console.log("\n[edge] Security adversarial inputs");
