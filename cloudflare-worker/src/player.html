@@ -5651,7 +5651,37 @@
           }
           updateQualityPillText();
         });
+        var levelFailures = {};
         hls.on(Hls.Events.ERROR, function (event, data) {
+          if (hls.levels && hls.levels.length > 1 && (
+            data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT ||
+            data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
+            data.details === Hls.ErrorDetails.LEVEL_LOAD_TIMEOUT ||
+            data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR
+          )) {
+            var failedLvl = (data.frag && typeof data.frag.level === 'number')
+              ? data.frag.level
+              : (typeof data.level === 'number' ? data.level : hls.loadLevel);
+            if (typeof failedLvl === 'number' && failedLvl >= 0) {
+              levelFailures[failedLvl] = (levelFailures[failedLvl] || 0) + 1;
+              if (levelFailures[failedLvl] >= 2) {
+                var nextLvl = -1;
+                for (var li = 0; li < hls.levels.length; li++) {
+                  var cand = (failedLvl + 1 + li) % hls.levels.length;
+                  if (cand !== failedLvl && (levelFailures[cand] || 0) < 2) {
+                    nextLvl = cand;
+                    break;
+                  }
+                }
+                if (nextLvl >= 0) {
+                  hls.currentLevel = nextLvl;
+                  hls.loadLevel = nextLvl;
+                  hls.startLoad();
+                  return;
+                }
+              }
+            }
+          }
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:

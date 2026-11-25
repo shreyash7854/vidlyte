@@ -7347,7 +7347,70 @@ async function fetchRawManifest(upstreamUrl, provider, request, env) {
 
   hostBreakers.recordSuccess(hostKey, Date.now() - startedAt);
 
-  const body = await response.text();
+async function pruneDeadMasterVariants(body, baseUrl, provider, env) {
+  if (!body || typeof body !== "string" || !body.includes("#EXT-X-STREAM-INF")) return body;
+  const lines = body.split(/\r?\n/);
+  const pairs = [];
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i].trim();
+    const nextLine = lines[i + 1].trim();
+    if (line.startsWith("#EXT-X-STREAM-INF") && nextLine && !nextLine.startsWith("#")) {
+      let varUrl = nextLine;
+      try {
+        varUrl = new URL(nextLine, baseUrl).toString();
+      } catch (e) { }
+      pairs.push({ infIdx: i, uriIdx: i + 1, varUrl });
+    }
+  }
+  if (pairs.length < 2 || pairs.length > 5) return body;
+
+  const health = await Promise.all(
+    pairs.map(async (pair) => {
+      if (/\/api\/orion\//i.test(pair.varUrl)) return true;
+      try {
+        const safeVar = assertSafeUpstreamUrl(pair.varUrl, { extraAllowlist: env && env.UPSTREAM_ALLOWLIST });
+        const varHeaders = getUpstreamHeaders(provider, safeVar, null);
+        const vRes = await fetchWithSwarmFallback(
+          safeVar.toString(),
+          { headers: varHeaders, signal: AbortSignal.timeout(2200) },
+          env
+        );
+        if (!vRes || !vRes.ok) return false;
+        const vText = await vRes.text();
+        const segLine = vText.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !l.startsWith("#"));
+        if (!segLine) return vText.includes("#EXTM3U");
+        const segUrl = new URL(segLine, safeVar.toString()).toString();
+        const safeSeg = assertSafeUpstreamUrl(segUrl, { extraAllowlist: env && env.UPSTREAM_ALLOWLIST });
+        const segHeaders = getUpstreamHeaders(provider, safeSeg, null);
+        segHeaders.set("Range", "bytes=0-63");
+        const sRes = await fetchWithSwarmFallback(
+          safeSeg.toString(),
+          { headers: segHeaders, signal: AbortSignal.timeout(2200) },
+          env
+        );
+        try { await sRes?.body?.cancel(); } catch (e) { }
+        return Boolean(sRes && sRes.ok && sRes.status < 400);
+      } catch (e) {
+        return false;
+      }
+    })
+  );
+
+  const healthyCount = health.filter(Boolean).length;
+  if (healthyCount === 0 || healthyCount === pairs.length) return body;
+
+  const dropIndices = new Set();
+  pairs.forEach((p, idx) => {
+    if (!health[idx]) {
+      dropIndices.add(p.infIdx);
+      dropIndices.add(p.uriIdx);
+    }
+  });
+  return lines.filter((_, idx) => !dropIndices.has(idx)).join("\n");
+}
+
+  const rawBody = await response.text();
+  const body = await pruneDeadMasterVariants(rawBody, safeUrl, provider, env);
   rawManifestCache.set(safeUrl, { body, expiresAt: now + RAW_MANIFEST_TTL_MS });
 
   if (cache) {
