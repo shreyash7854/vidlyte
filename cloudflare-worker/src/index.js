@@ -431,7 +431,14 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     if (env) {
       const maRecord = await readMultiAudioRecord(env, asset);
       const isKissRecord = maRecord && (maRecord.provider === "kisskh" || maRecord.via === "kisskh");
-      if (!isKissRecord && multiAudioRecordUsable(maRecord) && (maRecord.url || maRecord.masterManifest)) {
+      const hasStoredOrionSubs = Boolean(maRecord && maRecord.subManifests && Object.keys(maRecord.subManifests).length > 0);
+      const recordNeedsBlockedOrion = Boolean(
+        maRecord &&
+        !hasStoredOrionSubs &&
+        (/\/api\/orion\//i.test(String(maRecord.url || "")) ||
+          /\/api\/orion\//i.test(String(maRecord.masterManifest || "")))
+      );
+      if (!isKissRecord && !recordNeedsBlockedOrion && multiAudioRecordUsable(maRecord) && (maRecord.url || maRecord.masterManifest)) {
         if (maRecord.masterManifest && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
           const resObj = {
             streamUrl: maRecord.url || (maRecord.variants && maRecord.variants[0] && maRecord.variants[0].playlistUri) || "",
@@ -443,6 +450,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
             audioTracks: Array.isArray(maRecord.audioTracks) ? maRecord.audioTracks : [],
             subtitles: Array.isArray(maRecord.subtitles) ? maRecord.subtitles : [],
             variants: Array.isArray(maRecord.variants) ? maRecord.variants : [],
+            hasStoredSubManifests: hasStoredOrionSubs,
           };
           if (env && env.CONFIG_KV && resObj.streamUrl) {
             try {
@@ -530,7 +538,12 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
     if (env && env.CONFIG_KV) {
       try {
         const cached = await env.CONFIG_KV.get(kvKey, "json");
-        if (cached && cached.streamUrl) {
+        const cachedBlockedOrion = Boolean(
+          cached &&
+          (/\/api\/orion\//i.test(String(cached.streamUrl || "")) ||
+            /\/api\/orion\//i.test(String(cached.masterManifest || "")))
+        );
+        if (cached && cached.streamUrl && !cachedBlockedOrion) {
           return cached;
         }
       } catch (e) { }
@@ -677,33 +690,42 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&provider=lyra`,
         `https://embed.vidrift.net${sourcePath}?token=${encodeURIComponent(meta.playbackToken)}&parent=vidrift.net`,
       ];
-      for (const sourceUrl of candidateUrls) {
-        try {
-          let srcRes = await fetchWithSwarmFallback(sourceUrl, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-              "Referer": `https://embed.vidrift.net/embed/${isTv ? `tv/${encodeURIComponent(id)}/${season}/${episode}` : `movie/${encodeURIComponent(id)}`}`,
-              "Origin": "https://embed.vidrift.net",
-              "Accept": "application/json, text/plain, */*",
-            },
-            signal: AbortSignal.timeout(9000),
-          }, env);
-          if (srcRes && srcRes.ok) {
+      try {
+        const res = await Promise.any(
+          candidateUrls.map(async (sourceUrl) => {
+            const srcRes = await fetchWithSwarmFallback(sourceUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": `https://embed.vidrift.net/embed/${isTv ? `tv/${encodeURIComponent(id)}/${season}/${episode}` : `movie/${encodeURIComponent(id)}`}`,
+                "Origin": "https://embed.vidrift.net",
+                "Accept": "application/json, text/plain, */*",
+              },
+              signal: AbortSignal.timeout(2800),
+            }, env);
+            if (!srcRes || !srcRes.ok) throw new Error(`src_status_${srcRes ? srcRes.status : 0}`);
             const sourceData = await srcRes.json();
-            if (sourceData && Array.isArray(sourceData.streams) && sourceData.streams.length > 0) {
-              apiStreams = sourceData.streams;
-              apiSubtitles = Array.isArray(sourceData.subtitles) ? sourceData.subtitles : null;
-              apiProvider = String(sourceData.provider || "");
-              break;
+            if (!sourceData || !Array.isArray(sourceData.streams) || sourceData.streams.length === 0) {
+              throw new Error("empty_streams");
             }
-          } else {
+            return sourceData;
+          })
+        );
+        if (res) {
+          apiStreams = res.streams;
+          apiSubtitles = Array.isArray(res.subtitles) ? res.subtitles : null;
+          apiProvider = String(res.provider || "");
+        }
+      } catch (e) {
+        // Direct blocked across servers; try Jina reader fallback once on primary endpoints
+        for (const sourceUrl of candidateUrls.slice(0, 2)) {
+          try {
             const rSrcRes = await fetch(`https://r.jina.ai/${sourceUrl}`, {
               headers: {
                 "X-Return-Format": "text",
                 "Accept": "text/plain",
                 "User-Agent": "vidlyte-multi-audio-resolver",
               },
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(3500),
             });
             if (rSrcRes && rSrcRes.ok) {
               const rText = await rSrcRes.text();
@@ -719,8 +741,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
                 }
               }
             }
-          }
-        } catch (e) { }
+          } catch (re) { }
+        }
       }
     }
 
@@ -1781,7 +1803,25 @@ async function verifyManifestPlayable(result, provider, env) {
       return false;
     }
   }
-  if (result.masterManifest && provider !== "orion") return true;
+  if (result.masterManifest) {
+    if (provider === "orion" || /\/api\/orion\//i.test(result.masterManifest)) {
+      const mLine = result.masterManifest.split(/\r?\n/).find((l) => /^https?:\/\//i.test(l.trim()) || /URI="([^"]+)"/i.test(l));
+      const uriMatch = mLine && mLine.match(/URI="([^"]+)"/i);
+      const testSub = uriMatch ? uriMatch[1] : (mLine ? mLine.trim() : "");
+      if (testSub && /\/api\/orion\//i.test(testSub) && !result.hasStoredSubManifests) {
+        try {
+          const probe = await fetch(testSub, {
+            headers: { Origin: "https://embed.vidrift.net", Referer: "https://embed.vidrift.net/" },
+            signal: AbortSignal.timeout(1800),
+          });
+          if (!probe || !probe.ok) return false;
+        } catch (e) {
+          return false;
+        }
+      }
+    }
+    if (provider !== "orion") return true;
+  }
   try {
     const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
       extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
@@ -6892,11 +6932,13 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       resolved && resolved.streamUrl && isStreamUrlUsable(resolved.streamUrl)
     );
 
+    const rawAudioList = (resolved && resolved.audioTracks) || [];
+    const hasSpecificOriginal = rawAudioList.some((t) => t && /^original\s*\([^)]+\)/i.test(String(t.name || t.label || "").trim()));
     // Sanitize audio tracks for player popover menu (with deduplication)
     const seenEmbedAudioNames = new Set();
     const seenEmbedAudioLangs = new Set();
     let seenEmbedOrigAudio = false;
-    const sanitizedAudio = ((resolved && resolved.audioTracks) || [])
+    const sanitizedAudio = rawAudioList
       .map((trk, index) => {
         if (!trk) return null;
         let trackUri = "";
@@ -6920,6 +6962,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         let cleanName = sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${index + 1}`);
         if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) {
           cleanName = "Original Audio";
+        }
+        if (hasSpecificOriginal && isOriginalLikeAudio({ name: cleanName, language: trk.language }) && !/^original\s*\(/i.test(cleanName)) {
+          return null;
         }
         if (isOriginalLikeAudio({ name: cleanName, language: trk.language })) {
           if (seenEmbedOrigAudio) return null;
