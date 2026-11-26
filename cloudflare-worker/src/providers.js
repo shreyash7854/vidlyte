@@ -749,7 +749,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
             kv: null,
             cacheKey: "",
             domain,
-            timeoutMs: Math.min(timeoutMs, 1000),
+            timeoutMs: Math.min(timeoutMs, 750),
             maxAttempts: 1,
           });
           if (data === null || data === undefined) throw new Error(`mirror_${domain}_null`);
@@ -995,7 +995,7 @@ async function kisskhGuessFromTitle(fetchImpl, kv, assetInfo, title, year, epNum
   try {
     const winner = await Promise.any(
       urls.map(async (url) => {
-        const ok = await kisskhProbePlaylist(fetchImpl, url, Math.min(timeoutMs, 2200));
+        const ok = await kisskhProbePlaylist(fetchImpl, url, Math.min(timeoutMs, 950));
         if (!ok) throw new Error("miss");
         return url;
       })
@@ -1020,11 +1020,13 @@ async function kisskhGuessFromTitle(fetchImpl, kv, assetInfo, title, year, epNum
 
 async function kisskhTemplateFastPath(fetchImpl, kv, assetInfo, title, year, epNum, timeoutMs, originalLanguage = "") {
   const key = kisskhTemplateKey(assetInfo);
+  let hasNumericTemplate = false;
   if (kv && key) {
     try {
       const template = await kv.get(key);
       if (template) {
         const rawTemplate = String(template);
+        hasNumericTemplate = !/\/tmp\//i.test(rawTemplate);
         const candidates = [rawTemplate.replace("{ep}", String(epNum))];
         const versionless = rawTemplate.replace(/\.v\d+(?=[_./-]|$)/i, "");
         if (versionless !== rawTemplate) {
@@ -1033,7 +1035,7 @@ async function kisskhTemplateFastPath(fetchImpl, kv, assetInfo, title, year, epN
         try {
           const hit = await Promise.any(
             candidates.map(async (cand) => {
-              if (await kisskhProbePlaylist(fetchImpl, cand, Math.min(timeoutMs, 2200))) return cand;
+              if (await kisskhProbePlaylist(fetchImpl, cand, Math.min(timeoutMs, 1600))) return cand;
               throw new Error("miss");
             })
           );
@@ -1042,6 +1044,9 @@ async function kisskhTemplateFastPath(fetchImpl, kv, assetInfo, title, year, epN
       }
     } catch (e) { }
   }
+  // If we already know this drama uses a numeric /hlsNN/<dramaId>/ CDN path,
+  // probing /tmp/<slug> cannot succeed — go straight to the API.
+  if (hasNumericTemplate) return "";
   return kisskhGuessFromTitle(fetchImpl, kv, assetInfo, title, year, epNum, timeoutMs, originalLanguage);
 }
 
@@ -1389,5 +1394,94 @@ export async function resolveKissKH({
     title: (drama && drama.title) || cleanTitle,
     posterUrl: (drama && drama.thumbnail) || "",
     logoUrl: "",
+    _dramaContext: drama && matchedDrama && Array.isArray(drama.episodes) && drama.episodes.length > 1
+      ? {
+          dramaId: matchedDrama.id,
+          drama,
+          cleanTitle,
+          originalLanguage: originalLanguage || (assetInfo && assetInfo.original_language) || "",
+          title: (drama && drama.title) || cleanTitle,
+          posterUrl: (drama && drama.thumbnail) || "",
+        }
+      : null,
   };
+}
+
+/**
+ * Resolve all remaining episodes of an already-fetched KissKH drama in small
+ * concurrent batches using zero extra Search/Drama calls.
+ */
+export async function resolveKissKHSiblingBatch({
+  assetInfo = {},
+  dramaContext = null,
+  fetchImpl = fetch,
+  timeoutMs = 6000,
+  excludeEpisodes = [],
+  maxEpisodes = 24,
+  concurrency = 4,
+} = {}) {
+  const isTv = assetInfo.type === "tv" || assetInfo.type === "series";
+  if (!isTv || !assetInfo.id || !dramaContext || !dramaContext.drama || !Array.isArray(dramaContext.drama.episodes)) {
+    return [];
+  }
+  const season = Number(assetInfo.season) || 1;
+  const targetEp = Number(assetInfo.episode) || 1;
+  const skip = new Set((excludeEpisodes || []).map((n) => Number(n)));
+  const candidates = dramaContext.drama.episodes
+    .filter((ep) => ep && ep.id && Number.isInteger(Number(ep.number)) && Number(ep.number) > 0 && !skip.has(Number(ep.number)))
+    .sort((a, b) => Math.abs(Number(a.number) - targetEp) - Math.abs(Number(b.number) - targetEp))
+    .slice(0, Math.max(1, maxEpisodes));
+
+  const out = [];
+  for (let i = 0; i < candidates.length; i += Math.max(1, concurrency)) {
+    const slice = candidates.slice(i, i + Math.max(1, concurrency));
+    const settled = await Promise.allSettled(
+      slice.map(async (ep) => {
+        const epNum = Number(ep.number);
+        const vKey = generateKissKHKey(ep.id, false);
+        const sKey = generateKissKHKey(ep.id, true);
+        const [epStreamData, subData] = await Promise.all([
+          kisskhFetchApi(fetchImpl, `/api/DramaList/Episode/${ep.id}.png?err=false&ts=&time=&kkey=${vKey}`, { timeoutMs }),
+          kisskhFetchApi(fetchImpl, `/api/Sub/${ep.id}?kkey=${sKey}`, { timeoutMs }).catch(() => null),
+        ]);
+        const rawStream = epStreamData && (epStreamData.Video || epStreamData.Video_tmp || "");
+        if (!rawStream) return null;
+        const isMP4 = (epStreamData && epStreamData.Type === 0) || /\.mp4(\?|$)/i.test(rawStream);
+        const subtitles = [];
+        if (Array.isArray(subData)) {
+          subData.forEach((s) => {
+            if (!s || !s.src) return;
+            const label = s.label || s.land || "Subtitles";
+            const isEn = String(label).toLowerCase().includes("english") || s.land === "en";
+            subtitles.push({
+              label: `${label} Subtitles`,
+              language: s.land || (isEn ? "en" : "und"),
+              url: s.src,
+              default: isEn || Boolean(s.default),
+              provider: "kisskh",
+            });
+          });
+        }
+        return {
+          episode: epNum,
+          asset: `tv/${assetInfo.id}/${season}/${epNum}`,
+          result: {
+            streamUrl: rawStream,
+            backupStreamUrl: rawStream,
+            provider: "kisskh",
+            isMP4,
+            audioTracks: [kisskhOriginalAudio(dramaContext.originalLanguage, dramaContext.drama.country, rawStream)],
+            subtitles,
+            variants: [],
+            title: dramaContext.title || dramaContext.cleanTitle,
+            posterUrl: dramaContext.posterUrl || "",
+          },
+        };
+      })
+    );
+    for (const item of settled) {
+      if (item.status === "fulfilled" && item.value) out.push(item.value);
+    }
+  }
+  return out;
 }

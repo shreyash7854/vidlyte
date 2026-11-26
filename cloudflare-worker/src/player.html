@@ -5745,6 +5745,7 @@
 
       var resolvingCustomTitle = '';
       var resolvingCustomSubtitle = '';
+      var resolvingTotalSec = 10;
 
       function startResolvingCountdown(initialSeconds, customTitle, customSubtitle) {
         resolvingCustomTitle = customTitle || '';
@@ -5752,12 +5753,18 @@
         if (resolvingSubtitle && resolvingCustomSubtitle) {
           resolvingSubtitle.textContent = resolvingCustomSubtitle;
         }
+        var targetSec = typeof initialSeconds === 'number' && initialSeconds > 0 ? initialSeconds : 10;
         if (resolvingActive) {
+          if (targetSec > resolvingTotalSec) {
+            resolvingTotalSec = targetSec;
+            resolvingCountdownSec = Math.max(resolvingCountdownSec, targetSec);
+          }
           updateResolvingUI();
           return;
         }
         resolvingActive = true;
-        resolvingCountdownSec = typeof initialSeconds === 'number' ? initialSeconds : 10;
+        resolvingTotalSec = targetSec;
+        resolvingCountdownSec = targetSec;
         if (resolvingHud) {
           resolvingHud.style.display = 'flex';
           resolvingHud.style.opacity = '1';
@@ -5783,7 +5790,8 @@
         if (resolvingTimer) resolvingTimer.textContent = String(resolvingCountdownSec);
         if (resolvingProgress) {
           var circumference = 175.9; // 2 * Math.PI * 28
-          var fraction = (10 - resolvingCountdownSec) / 10;
+          var total = resolvingTotalSec > 0 ? resolvingTotalSec : 10;
+          var fraction = Math.max(0, Math.min(1, (total - resolvingCountdownSec) / total));
           resolvingProgress.style.strokeDashoffset = String(circumference * fraction);
           if (resolvingCountdownSec <= 3) {
             resolvingProgress.style.stroke = '#f59e0b';
@@ -5872,14 +5880,18 @@
           })
           .then(function (started) {
             if (started) return true;
-            if (resolvingSubtitle) resolvingSubtitle.textContent = 'Checking client & backup resolvers…';
-            return resolveClientStream({ force: true })
-              .then(function (clientStream) {
-                if (applyClientUpgrade(clientStream, false)) return true;
-                return resolveRemoteMultiAudio(false).then(function (remoteStream) {
-                  return applyClientUpgrade(remoteStream, false);
-                });
-              });
+            startResolvingCountdown(45, 'Preparing KissKH stream & subtitles…', 'Resolving from backup server — playback will start automatically…');
+            // Run client probing and remote GitHub Actions polling in parallel so
+            // cold KissKH episodes never stall behind sequential client timeouts.
+            var clientJob = resolveClientStream({ force: true })
+              .then(function (cs) { return applyClientUpgrade(cs, false); })
+              .catch(function () { return false; });
+            var remoteJob = resolveRemoteMultiAudio(false)
+              .then(function (rs) { return applyClientUpgrade(rs, false); })
+              .catch(function () { return false; });
+            return Promise.all([clientJob, remoteJob]).then(function (results) {
+              return Boolean(results[0] || results[1] || currentStreamUrl);
+            });
           })
           .then(function (started) {
             if (!started && !currentStreamUrl) {
@@ -6408,15 +6420,18 @@
                 remoteError: '',
                 audioCount: totalSingleAudio
               });
-              if (!currentStreamUrl) {
-                startInitialPlayback(remoteUrl);
-              }
-              return {
+              var singleStream = {
                 url: remoteUrl,
                 audioCount: totalSingleAudio,
                 audioTracks: singleTracks,
-                subtitles: payload.subtitles || null
+                subtitles: payload.subtitles || null,
+                variants: payload.variants || null
               };
+              if (!currentStreamUrl) {
+                hydrateStreamMetadata(singleStream);
+                startInitialPlayback(remoteUrl);
+              }
+              return singleStream;
             }
 
             return verifyClientGateway(remoteUrl).then(function (result) {
@@ -6438,6 +6453,7 @@
               };
 
               if (!currentStreamUrl) {
+                hydrateStreamMetadata(finalStream);
                 startInitialPlayback(remoteUrl);
               }
               return finalStream;
@@ -6458,6 +6474,7 @@
                   variants: payload.variants || null
                 };
                 if (!currentStreamUrl) {
+                  hydrateStreamMetadata(finalStream);
                   startInitialPlayback(remoteUrl);
                 }
                 return finalStream;
@@ -6485,10 +6502,26 @@
         return pending;
       }
 
+      function hydrateStreamMetadata(streamPayload) {
+        if (!streamPayload) return;
+        if (streamPayload.variants && Array.isArray(streamPayload.variants) && streamPayload.variants.length > 0) {
+          config.variants = streamPayload.variants;
+        }
+        if (streamPayload.subtitles && Array.isArray(streamPayload.subtitles) && streamPayload.subtitles.length > 0) {
+          config.subtitles = streamPayload.subtitles;
+          setupSubtitleTracks();
+        }
+        if (streamPayload.audioTracks && Array.isArray(streamPayload.audioTracks) && streamPayload.audioTracks.length > 0) {
+          config.audioTracks = streamPayload.audioTracks;
+          setupAudioTracks();
+        }
+      }
+
       // Swap to the multi-audio master once it is verified or append newly resolved tracks.
       function applyClientUpgrade(clientStream, manual) {
         if (!clientStream || (!clientStream.url && (!clientStream.audioTracks || clientStream.audioTracks.length === 0))) return false;
         if (!currentStreamUrl && clientStream.url) {
+          hydrateStreamMetadata(clientStream);
           startInitialPlayback(clientStream.url);
           return true;
         }

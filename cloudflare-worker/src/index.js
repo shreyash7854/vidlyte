@@ -5430,6 +5430,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           return {
             label: sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles"),
             language: String(sub.language || "en").slice(0, 16),
+            default: Boolean(sub.default || /^en/i.test(String(sub.language || "")) || /english/i.test(String(sub.label || ""))),
             uri: proxiedSub,
             proxiedUri: proxiedSub,
             provider: "vidlyte",
@@ -5468,9 +5469,10 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           }
           const checkedAt = Number(record.dubCheckedAt) || 0;
           const recordAgeMs = Math.max(0, Date.now() - Date.parse(record.checked_at || 0) || 0);
-          // Give a freshly written record a short grace window to let the
-          // background enrichment finish before declaring single-audio final.
-          if (dubPending || (!checkedAt && recordAgeMs < 120000)) {
+          const isKissPlayable = record.provider === "kisskh" || (sanitizedTracks[0] && /kisskh/i.test(String(sanitizedTracks[0].name || "")));
+          // Playable KissKH records start playback immediately instead of blocking
+          // the player behind "resolving" for 120s while background dub checks run.
+          if (!isKissPlayable && (dubPending || (!checkedAt && recordAgeMs < 120000))) {
             return new Response(JSON.stringify({ ok: true, state: "resolving", asset }), {
               status: 200,
               headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
@@ -5562,59 +5564,75 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     try {
       body = JSON.parse(rawBody);
     } catch (error) { }
-    const asset = normalizeMultiAudioAsset(body && body.asset);
-    if (!asset) {
+    const upsertPublishedItem = async (entry) => {
+      const asset = normalizeMultiAudioAsset(entry && entry.asset);
+      if (!asset) return null;
+      const entryUrl = String((entry && entry.url) || "");
+      const ok = Boolean(entry && entry.ok) && (isBigBangStreamUrl(entryUrl) || entry.provider === "orion" || entry.provider === "evion" || entry.provider === "kisskh" || Boolean(entryUrl) || Boolean(entry && entry.masterManifest));
+      const isMP4 = ok && Boolean(entry.isMP4 || entryUrl.toLowerCase().includes(".mp4"));
+      const record = {
+        ok,
+        url: ok ? entryUrl : "",
+        isMP4,
+        audio: ok ? Math.max(0, Math.min(64, Number(entry.audio) || 0)) : 0,
+        provider: entry && entry.provider ? entry.provider : "bigbang",
+        exp: ok ? Number(entry.exp) || 0 : 0,
+        checked_at: new Date().toISOString(),
+        error: ok ? "" : String((entry && entry.error) || "no_multi_audio").slice(0, 80),
+        masterManifest: ok && entry.masterManifest ? String(entry.masterManifest) : undefined,
+        audioTracks: ok && Array.isArray(entry.audioTracks) ? entry.audioTracks : undefined,
+        variants: ok && Array.isArray(entry.variants) ? entry.variants : undefined,
+        subtitles: ok && Array.isArray(entry.subtitles) ? entry.subtitles : undefined,
+        subManifests: ok && entry.subManifests && typeof entry.subManifests === "object" ? entry.subManifests : undefined,
+      };
+      if (entry && entry.subManifestsGz && typeof entry.subManifestsGz === "object" && (!record.subManifests || Object.keys(record.subManifests).length === 0)) {
+        record.subManifests = {};
+        for (const [subKey, b64] of Object.entries(entry.subManifestsGz)) {
+          try {
+            const decompressed = await decompressGzipBase64(b64);
+            if (decompressed && decompressed.includes("#EXTM3U")) {
+              record.subManifests[subKey] = decompressed;
+            }
+          } catch (e) { }
+        }
+      }
+      let finalRecord = record;
+      if (ok) {
+        try {
+          const existing = await readMultiAudioRecord(env, asset);
+          finalRecord = mergeMultiAudioRecords(existing, record);
+        } catch (e) { }
+      }
+      const persisted = await writeMultiAudioRecord(env, asset, finalRecord);
+      if (finalRecord && finalRecord.ok) {
+        await seedKisskhPatternFromRecord(env, finalRecord, asset);
+      }
+      if (env && env.CONFIG_KV) {
+        try {
+          await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
+        } catch (e) { }
+      }
+      return { persisted, asset, stored: finalRecord.ok };
+    };
+
+    if (body && body.batch === true && Array.isArray(body.items)) {
+      const results = await Promise.all(body.items.slice(0, 32).map(upsertPublishedItem));
+      const storedCount = results.filter((r) => r && r.persisted).length;
+      return new Response(JSON.stringify({ ok: storedCount > 0, batch: true, count: storedCount }), {
+        status: storedCount > 0 ? 200 : 400,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
+    const singleOut = await upsertPublishedItem(body);
+    if (!singleOut) {
       return new Response(JSON.stringify({ ok: false, error: "invalid_asset" }), {
         status: 400,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
-    const ok = Boolean(body && body.ok) && (isBigBangStreamUrl(body && body.url) || body.provider === "orion" || body.provider === "evion" || body.provider === "kisskh" || Boolean(body && body.url) || Boolean(body && body.masterManifest));
-    const isMP4 = ok && Boolean(body.isMP4 || (body.url && body.url.toLowerCase().includes(".mp4")));
-    const record = {
-      ok,
-      url: ok ? String(body.url) : "",
-      isMP4,
-      audio: ok ? Math.max(0, Math.min(64, Number(body.audio) || 0)) : 0,
-      provider: body && body.provider ? body.provider : "bigbang",
-      exp: ok ? Number(body.exp) || 0 : 0,
-      checked_at: new Date().toISOString(),
-      error: ok ? "" : String((body && body.error) || "no_multi_audio").slice(0, 80),
-      masterManifest: ok && body.masterManifest ? String(body.masterManifest) : undefined,
-      audioTracks: ok && Array.isArray(body.audioTracks) ? body.audioTracks : undefined,
-      variants: ok && Array.isArray(body.variants) ? body.variants : undefined,
-      subtitles: ok && Array.isArray(body.subtitles) ? body.subtitles : undefined,
-      subManifests: ok && body.subManifests && typeof body.subManifests === "object" ? body.subManifests : undefined,
-    };
-    if (body && body.subManifestsGz && typeof body.subManifestsGz === "object" && (!record.subManifests || Object.keys(record.subManifests).length === 0)) {
-      record.subManifests = {};
-      for (const [subKey, b64] of Object.entries(body.subManifestsGz)) {
-        try {
-          const decompressed = await decompressGzipBase64(b64);
-          if (decompressed && decompressed.includes("#EXTM3U")) {
-            record.subManifests[subKey] = decompressed;
-          }
-        } catch (e) { }
-      }
-    }
-    let finalRecord = record;
-    if (ok) {
-      try {
-        const existing = await readMultiAudioRecord(env, asset);
-        finalRecord = mergeMultiAudioRecords(existing, record);
-      } catch (e) { }
-    }
-    const persisted = await writeMultiAudioRecord(env, asset, finalRecord);
-    if (finalRecord && finalRecord.ok) {
-      await seedKisskhPatternFromRecord(env, finalRecord, asset);
-    }
-    if (env && env.CONFIG_KV) {
-      try {
-        await env.CONFIG_KV.delete(multiAudioDispatchKey(asset));
-      } catch (e) { }
-    }
-    return new Response(JSON.stringify({ ok: persisted, asset, stored: finalRecord.ok }), {
-      status: persisted ? 200 : 503,
+    return new Response(JSON.stringify({ ok: singleOut.persisted, asset: singleOut.asset, stored: singleOut.stored }), {
+      status: singleOut.persisted ? 200 : 503,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
@@ -7055,8 +7073,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       // Cold-start recovery for Asian dramas: vidrift/KissKH may be blocked from
       // this edge but reachable from the external runner. Dispatch in the
       // background so the player's next status poll can upgrade.
+      let asian = false;
       try {
-        let asian = isAsianContent(assetInfo, null);
+        asian = isAsianContent(assetInfo, null);
         if (!asian) {
           const meta = await fetchTMDBMetadata(assetInfo.type, assetInfo.id, assetInfo.season || 1, assetInfo.episode || 1, env).catch(() => null);
           asian = isAsianContent(assetInfo, meta);
@@ -7068,6 +7087,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       } catch (e) { }
       return new Response(JSON.stringify({
         success: false,
+        resolving: asian,
         error: "No usable stream source is currently available for this title.",
       }), {
         status: 404,

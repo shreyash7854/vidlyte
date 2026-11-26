@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   resolveKissKH,
+  resolveKissKHSiblingBatch,
   KISSKH_DOMAINS,
   kisskhTemplateFromUrl,
   kisskhTemplateKeyFromAsset,
@@ -546,6 +547,72 @@ await test("resolveKissKH skips duplicate search on edge block and resolver fast
   assert.ok(idx.includes("fastCached.stale"), "resolveUpstreamSource must check sourceStaleCache before waiting on TMDB");
   const player = readSrc("src/player.html");
   assert.ok(player.includes('<link rel="preconnect" href="https://cdn.jsdelivr.net"'), "player.html must preconnect hls.js CDN");
+});
+
+await test("resolveKissKHSiblingBatch resolves remaining season episodes without extra Search/Drama calls", async () => {
+  let episodeCalls = 0;
+  let searchOrDramaCalls = 0;
+  const fetchImpl = async (url) => {
+    const u = String(url);
+    if (u.includes("/api/DramaList/Search") || u.includes("/api/DramaList/Drama/")) {
+      searchOrDramaCalls++;
+      return new Response("unexpected", { status: 500 });
+    }
+    if (u.includes("/api/DramaList/Episode/")) {
+      episodeCalls++;
+      const m = u.match(/Episode\/(\d+)\.png/);
+      const epId = m ? m[1] : "0";
+      return new Response(JSON.stringify({ Video: `https://hls08.cdnvideo11.shop/hls08/13133/Ep${epId}.v999_index.m3u8`, Type: 1 }), { status: 200 });
+    }
+    if (u.includes("/api/Sub/")) {
+      return new Response(JSON.stringify([{ src: "https://sub.cdnvideo11.shop/en.srt", label: "English", land: "en", default: true }]), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  const siblings = await resolveKissKHSiblingBatch({
+    assetInfo: { type: "tv", id: "314936", season: 1, episode: 10 },
+    dramaContext: {
+      dramaId: 13133,
+      cleanTitle: "Don't Be Too Emotional",
+      originalLanguage: "th",
+      title: "Don't Be Too Emotional (2026)",
+      posterUrl: "",
+      drama: {
+        title: "Don't Be Too Emotional (2026)",
+        country: "Thailand",
+        episodes: [
+          { id: 223043, number: 10 },
+          { id: 223253, number: 11 },
+          { id: 223877, number: 12 },
+          { id: 218474, number: 4 },
+        ],
+      },
+    },
+    excludeEpisodes: [10],
+    fetchImpl,
+    timeoutMs: 1000,
+    concurrency: 2,
+  });
+
+  assert.equal(searchOrDramaCalls, 0);
+  assert.equal(episodeCalls, 3);
+  assert.deepEqual(siblings.map((s) => s.asset), [
+    "tv/314936/1/11",
+    "tv/314936/1/12",
+    "tv/314936/1/4",
+  ]);
+  assert.equal(siblings[0].result.audioTracks[0].name, "Original (Thai)");
+  assert.equal(siblings[0].result.subtitles[0].default, true);
+
+  const idx = readSrc("src/index.js");
+  assert.ok(idx.includes("isKissPlayable"), "status route must not stall playable KissKH streams behind 120s resolving grace");
+  assert.ok(idx.includes("body.batch === true && Array.isArray(body.items)"), "publish route must support sibling batch publish");
+  const player = readSrc("src/player.html");
+  assert.ok(player.includes("hydrateStreamMetadata("), "cold recovery must hydrate subtitles & audio before initial playback");
+  assert.ok(player.includes("Promise.all([clientJob, remoteJob])"), "cold recovery must run remote & client resolvers in parallel");
+  const resolver = readSrc("scripts/resolve-multi-audio.mjs");
+  assert.ok(resolver.includes("launchSiblingBatch(") && resolver.includes("onEarlyPublish"), "GH resolver must early-publish KissKH and batch season siblings");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

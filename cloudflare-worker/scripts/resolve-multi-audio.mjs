@@ -21,8 +21,8 @@ import { createHmac } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { Buffer } from "node:buffer";
 import dns from "node:dns";
-try { dns.setServers(["1.1.1.1", "8.8.8.8"]); } catch (e) {}
-import { resolveKissKH, KISSKH_DRAMA_OVERRIDES } from "../src/providers.js";
+try { dns.setServers(["1.1.1.1", "8.8.8.8"]); } catch (e) { }
+import { resolveKissKH, resolveKissKHSiblingBatch, KISSKH_DRAMA_OVERRIDES } from "../src/providers.js";
 
 function mapOrionPlaylist(text) {
   const firstChunkMatch = text.match(/https:\/\/[^\r\n]+\.m4s[^\r\n]*/);
@@ -234,7 +234,7 @@ async function enrichWithKissKH(candidate, target, started) {
         }
       }
     }
-  } catch (err) {}
+  } catch (err) { }
   if (started) candidate.latency_ms = Date.now() - started;
   return candidate;
 }
@@ -337,7 +337,7 @@ async function fetchOriginalLanguage(target) {
       const data = await res.json().catch(() => null);
       if (data) lang = normalizeAudioLang(String(data.original_language || "").toLowerCase(), "");
     }
-  } catch (e) {}
+  } catch (e) { }
   tmdbLangCache.set(key, lang);
   return lang;
 }
@@ -420,9 +420,9 @@ async function enrichWithFrameX(candidate, target) {
           candidate.subtitles = currentSubs;
         }
         break;
-      } catch (e) {}
+      } catch (e) { }
     }
-  } catch (e) {}
+  } catch (e) { }
   return candidate;
 }
 
@@ -471,9 +471,9 @@ async function enrichWithVidrift(candidate, target) {
           candidate.audio = currentTracks.length;
           break;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
-  } catch (e) {}
+  } catch (e) { }
   return candidate;
 }
 
@@ -515,15 +515,16 @@ async function fallbackToKissKH(target, started, failures = []) {
           audioTracks: kiss.audioTracks || [],
           variants: kiss.variants || [],
           subtitles: kiss.subtitles || [],
+          _dramaContext: kiss._dramaContext || null,
           latency_ms: Date.now() - started,
         };
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   return null;
 }
 
-export async function resolveAsset(target) {
+export async function resolveAsset(target, options = {}) {
   const suffix = target.type === "tv" ? `/${target.season}/${target.episode}` : "";
   const started = Date.now();
   const failures = [];
@@ -546,15 +547,20 @@ export async function resolveAsset(target) {
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   let directKiss = null;
   if (isAsianTitle) {
     directKiss = await fallbackToKissKH(target, started, failures);
     if (directKiss && directKiss.url) {
-      await enrichWithFrameX(directKiss, target);
-      await enrichWithVidrift(directKiss, target);
+      if (typeof options.onEarlyPublish === "function") {
+        await options.onEarlyPublish(directKiss).catch(() => { });
+      }
+      await Promise.allSettled([
+        enrichWithFrameX(directKiss, target),
+        enrichWithVidrift(directKiss, target),
+      ]);
     }
   }
 
@@ -653,12 +659,12 @@ export async function resolveAsset(target) {
         if (evRes && evRes.ok) {
           evText = await evRes.text();
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (!evText || !evText.includes("#EXTM3U")) {
         try {
           evText = await readerFetch(boot.meta.evionUrl);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (evText && evText.includes("#EXTM3U")) {
@@ -744,7 +750,7 @@ export async function resolveAsset(target) {
           };
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 2. Check Orion multi-audio candidate
@@ -860,7 +866,7 @@ export async function resolveAsset(target) {
             subManifests[`${item.m[1]}:${item.m[2]}`] = mapped;
             subManifestsGz[`${item.m[1]}:${item.m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
           }
-        } catch (e) {}
+        } catch (e) { }
       })
     );
 
@@ -890,7 +896,7 @@ export async function resolveAsset(target) {
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     orionCandidate = {
@@ -1105,7 +1111,7 @@ export async function resolveAsset(target) {
       try {
         const parsed = new URL(defaultTrack.uri);
         exp = Number(parsed.searchParams.get("Expires") || parsed.searchParams.get("exp")) || 0;
-      } catch (error) {}
+      } catch (error) { }
 
       let subs = [];
       try {
@@ -1119,7 +1125,7 @@ export async function resolveAsset(target) {
             subs = kiss.subtitles;
           }
         }
-      } catch (error) {}
+      } catch (error) { }
 
       if (directKiss) {
         return mergeIntoDirectKiss(audioTracks, subs);
@@ -1211,7 +1217,7 @@ export async function resolveAsset(target) {
   try {
     const parsed = new URL(streamUrl);
     exp = Number(parsed.searchParams.get("exp")) || 0;
-  } catch (error) {}
+  } catch (error) { }
 
   return await enrichWithKissKH({ ok: true, url: streamUrl, provider: chosenProvider, audio, exp, via, latency_ms: Date.now() - started }, target, started);
 }
@@ -1269,6 +1275,18 @@ async function publish(asset, result) {
   return published;
 }
 
+async function publishBatch(items) {
+  if (!PUBLISH_KEY || !Array.isArray(items) || items.length === 0) return { ok: false, count: 0 };
+  let total = 0;
+  for (let i = 0; i < items.length; i += 12) {
+    const chunk = items.slice(i, i + 12);
+    const payload = JSON.stringify({ batch: true, items: chunk });
+    const res = await postPublish(payload).catch(() => ({ ok: false, status: 0 }));
+    if (res && res.ok) total += chunk.length;
+  }
+  return { ok: total > 0, count: total };
+}
+
 import { fileURLToPath } from "node:url";
 
 const isMain = process.argv[1] && (fileURLToPath(import.meta.url) === process.argv[1] || import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/")));
@@ -1280,60 +1298,119 @@ if (isMain) {
     process.exit(0);
   }
 
-for (const target of assets) {
-  let result;
-  try {
-    result = await resolveAsset(target);
-  } catch (error) {
-    result = { ok: false, error: String((error && error.message) || error).slice(0, 80) };
-  }
-  let published;
-  try {
-    published = await publish(target.asset, result);
-  } catch (error) {
-    published = { ok: false, status: 0, error: String((error && error.message) || error).slice(0, 80) };
-  }
-  log("resolved", {
-    asset: target.asset,
-    ok: Boolean(result.ok),
-    audio: result.ok ? result.audio : 0,
-    error: result.ok ? "" : result.error,
-    boot_failures: result.ok ? "" : result.boot_failures || "",
-    via: result.ok ? result.via : "",
-    latency_ms: result.latency_ms || 0,
-    published: Boolean(published.ok),
-    publish_status: published.status || 0,
-  });
-
-  if (process.env.MULTI_AUDIO_SYNC_KV === "1" && result.ok && result.url) {
+  for (const target of assets) {
+    let earlySig = "";
+    let siblingPromise = null;
+    const launchSiblingBatch = (dramaContext) => {
+      if (siblingPromise || !dramaContext || target.type !== "tv") return;
+      siblingPromise = (async () => {
+        const siblings = await resolveKissKHSiblingBatch({
+          assetInfo: target,
+          dramaContext,
+          excludeEpisodes: [target.episode],
+          maxEpisodes: 24,
+          concurrency: 4,
+          timeoutMs: 5000,
+        });
+        if (siblings.length > 0) {
+          const exp = Math.floor(Date.now() / 1000) + 86400 * 2;
+          const batchItems = siblings.map((s) => ({
+            asset: s.asset,
+            ok: true,
+            url: s.result.streamUrl,
+            audio: (s.result.audioTracks && s.result.audioTracks.length) || 1,
+            exp,
+            provider: "kisskh",
+            isMP4: Boolean(s.result.isMP4),
+            audioTracks: s.result.audioTracks || [],
+            variants: s.result.variants || [],
+            subtitles: s.result.subtitles || [],
+          }));
+          const batchRes = await publishBatch(batchItems);
+          log("batch_siblings", {
+            asset: target.asset,
+            siblings: batchItems.length,
+            published_count: batchRes.count,
+          });
+        }
+      })().catch(() => { });
+    };
+    let result;
     try {
-      const { execSync } = await import("node:child_process");
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const rec = {
-        ok: true,
-        url: result.url,
-        audio: result.audio,
-        provider: result.provider || "bigbang",
-        exp: result.exp,
-        checked_at: new Date().toISOString(),
-        error: "",
-        masterManifest: result.masterManifest,
-        audioTracks: result.audioTracks,
-        variants: result.variants,
-        subtitles: result.subtitles || [],
-        subManifests: result.subManifests || undefined,
-      };
-      const tmpFile = path.resolve(`./tmp_ma_${target.id}.json`);
-      fs.writeFileSync(tmpFile, JSON.stringify(rec));
-      execSync(`npx wrangler kv key put --remote --namespace-id 1458cc95d50b4ba99b31ea7b736b5e64 "ma_status_v1:${target.asset}" --path "${tmpFile}" --ttl 86400`, {
-        cwd: path.resolve(import.meta.dirname, ".."),
-        stdio: "inherit",
+      result = await resolveAsset(target, {
+        onEarlyPublish: async (early) => {
+          launchSiblingBatch(early && early._dramaContext);
+          const epub = await publish(target.asset, early);
+          if (epub && epub.ok) {
+            earlySig = `${early.provider}:${early.audio || 1}:${(early.subtitles || []).length}`;
+            log("early_published", {
+              asset: target.asset,
+              via: early.via || "kisskh",
+              subs: (early.subtitles || []).length,
+              latency_ms: early.latency_ms || 0,
+            });
+          }
+        },
       });
-      try { fs.unlinkSync(tmpFile); } catch (e) {}
-    } catch (e) {
-      console.error("KV sync error:", e.message);
+    } catch (error) {
+      result = { ok: false, error: String((error && error.message) || error).slice(0, 80) };
+    }
+    if (result && result.ok && result._dramaContext) {
+      launchSiblingBatch(result._dramaContext);
+    }
+    const finalSig = result && result.ok ? `${result.provider}:${result.audio || 1}:${(result.subtitles || []).length}` : "";
+    let published = { ok: Boolean(earlySig && finalSig === earlySig), status: earlySig && finalSig === earlySig ? 200 : 0 };
+    if (!published.ok) {
+      try {
+        published = await publish(target.asset, result);
+      } catch (error) {
+        published = { ok: false, status: 0, error: String((error && error.message) || error).slice(0, 80) };
+      }
+    }
+    if (siblingPromise) {
+      await siblingPromise;
+    }
+    log("resolved", {
+      asset: target.asset,
+      ok: Boolean(result.ok),
+      audio: result.ok ? result.audio : 0,
+      error: result.ok ? "" : result.error,
+      boot_failures: result.ok ? "" : result.boot_failures || "",
+      via: result.ok ? result.via : "",
+      latency_ms: result.latency_ms || 0,
+      published: Boolean(published.ok),
+      publish_status: published.status || 0,
+    });
+
+    if (process.env.MULTI_AUDIO_SYNC_KV === "1" && result.ok && result.url) {
+      try {
+        const { execSync } = await import("node:child_process");
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const rec = {
+          ok: true,
+          url: result.url,
+          audio: result.audio,
+          provider: result.provider || "bigbang",
+          exp: result.exp,
+          checked_at: new Date().toISOString(),
+          error: "",
+          masterManifest: result.masterManifest,
+          audioTracks: result.audioTracks,
+          variants: result.variants,
+          subtitles: result.subtitles || [],
+          subManifests: result.subManifests || undefined,
+        };
+        const tmpFile = path.resolve(`./tmp_ma_${target.id}.json`);
+        fs.writeFileSync(tmpFile, JSON.stringify(rec));
+        execSync(`npx wrangler kv key put --remote --namespace-id 1458cc95d50b4ba99b31ea7b736b5e64 "ma_status_v1:${target.asset}" --path "${tmpFile}" --ttl 86400`, {
+          cwd: path.resolve(import.meta.dirname, ".."),
+          stdio: "inherit",
+        });
+        try { fs.unlinkSync(tmpFile); } catch (e) { }
+      } catch (e) {
+        console.error("KV sync error:", e.message);
+      }
     }
   }
-}
 }
