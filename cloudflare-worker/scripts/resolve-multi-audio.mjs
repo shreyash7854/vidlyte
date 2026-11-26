@@ -162,23 +162,42 @@ function extractM3u8(text) {
   return index >= 0 ? raw.slice(index) : "";
 }
 
+const tmdbShowCache = new Map();
+async function fetchTmdbShowInfo(target) {
+  const key = `${target.type}:${target.id}`;
+  if (tmdbShowCache.has(key)) return tmdbShowCache.get(key);
+  const hosts = ["https://api.tmdb.org", "https://api.themoviedb.org"];
+  let data = null;
+  for (const host of hosts) {
+    try {
+      const res = await fetchWithTimeout(
+        `${host}/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
+        { signal: AbortSignal.timeout(3000) }
+      ).catch(() => null);
+      if (res && res.ok) {
+        const parsed = await res.json().catch(() => null);
+        if (parsed && (parsed.name || parsed.title || parsed.original_language)) {
+          data = parsed;
+          break;
+        }
+      }
+    } catch (e) { }
+  }
+  tmdbShowCache.set(key, data);
+  return data;
+}
+
 async function enrichWithKissKH(candidate, target, started) {
   if (!candidate || !candidate.ok) return candidate;
   try {
     let title = "";
     let year = "";
     let origLang = "";
-    const tmdbRes = await fetchWithTimeout(
-      `https://api.tmdb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
-      { signal: AbortSignal.timeout(4000) }
-    ).catch(() => null);
-    if (tmdbRes && tmdbRes.ok) {
-      const tmdbData = await tmdbRes.json().catch(() => null);
-      if (tmdbData) {
-        title = tmdbData.name || tmdbData.title || "";
-        year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
-        origLang = tmdbData.original_language || "";
-      }
+    const tmdbData = await fetchTmdbShowInfo(target);
+    if (tmdbData) {
+      title = tmdbData.name || tmdbData.title || "";
+      year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
+      origLang = tmdbData.original_language || "";
     }
     if (!title) return candidate;
 
@@ -482,17 +501,11 @@ async function fallbackToKissKH(target, started, failures = []) {
     let title = "";
     let year = "";
     let origLang = "";
-    const tmdbRes = await fetchWithTimeout(
-      `https://api.tmdb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
-      { signal: AbortSignal.timeout(4000) }
-    ).catch(() => null);
-    if (tmdbRes && tmdbRes.ok) {
-      const tmdbData = await tmdbRes.json().catch(() => null);
-      if (tmdbData) {
-        title = tmdbData.name || tmdbData.title || "";
-        year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
-        origLang = tmdbData.original_language || "";
-      }
+    const tmdbData = await fetchTmdbShowInfo(target);
+    if (tmdbData) {
+      title = tmdbData.name || tmdbData.title || "";
+      year = (tmdbData.first_air_date || tmdbData.release_date || "").slice(0, 4);
+      origLang = tmdbData.original_language || "";
     }
     if (title) {
       const kiss = await resolveKissKH({
@@ -533,18 +546,12 @@ export async function resolveAsset(target, options = {}) {
   let isAsianTitle = String(target.id) === "122206" || String(target.id) === "93846" || String(target.id) === "221851" || Boolean(KISSKH_DRAMA_OVERRIDES && KISSKH_DRAMA_OVERRIDES[String(target.id)]);
   if (!isAsianTitle) {
     try {
-      const tmdbRes = await fetchWithTimeout(
-        `https://api.themoviedb.org/3/${target.type}/${target.id}?api_key=844dba0bfd8f3a4f3799f6130ef9e335`,
-        { signal: AbortSignal.timeout(3000) }
-      ).catch(() => null);
-      if (tmdbRes && tmdbRes.ok) {
-        const tmdbData = await tmdbRes.json().catch(() => null);
-        if (tmdbData) {
-          const l = String(tmdbData.original_language || "").toLowerCase();
-          const countries = Array.isArray(tmdbData.origin_country) ? tmdbData.origin_country.map((c) => String(c).toUpperCase()) : [];
-          if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(l) || countries.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN"].includes(c))) {
-            isAsianTitle = true;
-          }
+      const tmdbData = await fetchTmdbShowInfo(target);
+      if (tmdbData) {
+        const l = String(tmdbData.original_language || "").toLowerCase();
+        const countries = Array.isArray(tmdbData.origin_country) ? tmdbData.origin_country.map((c) => String(c).toUpperCase()) : [];
+        if (["zh", "ko", "ja", "th", "vi", "tl", "cn", "tw", "hk", "kr", "jp"].includes(l) || countries.some((c) => ["CN", "KR", "JP", "TW", "TH", "HK", "VN"].includes(c))) {
+          isAsianTitle = true;
         }
       }
     } catch (e) { }
@@ -852,6 +859,7 @@ export async function resolveAsset(target, options = {}) {
       .map((uri) => ({ uri, m: uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) }))
       .filter((item) => item.m);
 
+    const discoveredSubUrls = new Set();
     await Promise.allSettled(
       warmItems.map(async (item) => {
         try {
@@ -865,10 +873,48 @@ export async function resolveAsset(target, options = {}) {
             const mapped = mapOrionPlaylist(text);
             subManifests[`${item.m[1]}:${item.m[2]}`] = mapped;
             subManifestsGz[`${item.m[1]}:${item.m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
+            // Harvest actual #EXT-X-MEDIA audio playlists and variant URIs referenced
+            // inside each fetched master so dubs (e.g. Hindi) never miss subManifests.
+            for (const rawLine of text.split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line) continue;
+              const uriM = line.match(/URI="([^"]+)"/i);
+              const candidateRef = uriM ? uriM[1] : (!line.startsWith("#") && /\.m3u8/i.test(line) ? line : "");
+              if (candidateRef) {
+                try {
+                  const resolvedRef = new URL(candidateRef, item.uri).toString();
+                  if (/\/api\/orion\//i.test(resolvedRef)) discoveredSubUrls.add(resolvedRef);
+                } catch (e) { }
+              }
+            }
           }
         } catch (e) { }
       })
     );
+
+    const missingSubItems = Array.from(discoveredSubUrls)
+      .map((uri) => ({ uri, m: uri.match(/\/api\/orion\/([a-zA-Z0-9]+)\/([a-zA-Z0-9_.-]+)/) }))
+      .filter((item) => item.m && !subManifests[`${item.m[1]}:${item.m[2]}`]);
+
+    if (missingSubItems.length > 0) {
+      await Promise.allSettled(
+        missingSubItems.map(async (item) => {
+          try {
+            const res = await fetchWithTimeout(item.uri, {
+              headers: fetchHeaders,
+              signal: AbortSignal.timeout(2200),
+            });
+            if (res && res.ok) {
+              const text = await res.text();
+              if (!text || !text.includes("#EXTM3U")) return;
+              const mapped = mapOrionPlaylist(text);
+              subManifests[`${item.m[1]}:${item.m[2]}`] = mapped;
+              subManifestsGz[`${item.m[1]}:${item.m[2]}`] = gzipSync(Buffer.from(mapped)).toString("base64");
+            }
+          } catch (e) { }
+        })
+      );
+    }
 
     const orionSubtitles = [];
     if (orionStreams[0] && orionStreams[0].subtitleListUrl) {

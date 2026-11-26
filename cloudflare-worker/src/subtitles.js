@@ -11,35 +11,70 @@ import { Buffer } from "node:buffer";
 export const KISSKH_SUBTITLE_KEY = Buffer.from("AmSmZVcH93UQUezi", "utf8");
 export const KISSKH_SUBTITLE_IV_WORDS = [1382367819, 1465333859, 1902406224, 1164854838];
 
-export function getKisskhSubtitleIv() {
+const KISSKH_LEGACY_SUB_IV_WORDS = [946894696, 1634749029, 1127508082, 1396271183];
+
+function wordsToIvBuffer(words) {
   const iv = Buffer.alloc(16);
-  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[0], 0);
-  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[1], 4);
-  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[2], 8);
-  iv.writeInt32BE(KISSKH_SUBTITLE_IV_WORDS[3], 12);
+  iv.writeInt32BE(words[0], 0);
+  iv.writeInt32BE(words[1], 4);
+  iv.writeInt32BE(words[2], 8);
+  iv.writeInt32BE(words[3], 12);
   return iv;
 }
 
-/**
- * Decrypts a single Base64-encoded AES-128-CBC KissKH ciphertext string.
- * Returns the original string if decryption fails or if it's not KissKH ciphertext.
- */
-export function decryptKisskhText(ciphertext) {
-  const trimmed = String(ciphertext || "").trim();
-  if (!trimmed || trimmed.length < 16) return ciphertext;
-  if (!/^[A-Za-z0-9+/=]+$/.test(trimmed)) return ciphertext;
+export function getKisskhSubtitleIv() {
+  return wordsToIvBuffer(KISSKH_SUBTITLE_IV_WORDS);
+}
+
+// KissKH rotates between three AES-128-CBC keys across newer .txt (a2),
+// legacy .srt.txt (a1, e.g. 2023 dramas), and .txt1 (a3) subtitles.
+const KISSKH_SUBTITLE_CIPHERS = [
+  { key: KISSKH_SUBTITLE_KEY, iv: wordsToIvBuffer(KISSKH_SUBTITLE_IV_WORDS) },
+  { key: Buffer.from("8056483646328763", "utf8"), iv: Buffer.from("6852612370185273", "utf8") },
+  { key: Buffer.from("sWODXX04QRTkHdlZ", "utf8"), iv: wordsToIvBuffer(KISSKH_LEGACY_SUB_IV_WORDS) },
+];
+
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function tryDecryptWithCipher(buf, cipher) {
   try {
-    const decipher = createDecipheriv("aes-128-cbc", KISSKH_SUBTITLE_KEY, getKisskhSubtitleIv());
-    let dec = decipher.update(Buffer.from(trimmed, "base64"));
+    const decipher = createDecipheriv("aes-128-cbc", cipher.key, cipher.iv);
+    let dec = decipher.update(buf);
     dec = Buffer.concat([dec, decipher.final()]);
-    const utf8 = dec.toString("utf8");
+    const utf8 = strictUtf8Decoder.decode(dec);
     if (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8)) {
       return utf8;
     }
   } catch (e) {
-    // Non-matching ciphertext or padding error -> pass through unchanged
+    // Key mismatch, padding error, or non-UTF8 bytes -> try next cipher
   }
-  return ciphertext;
+  return null;
+}
+
+/**
+ * Decrypts a single Base64-encoded AES-128-CBC KissKH ciphertext string.
+ * Tries all known KissKH subtitle keys (modern, legacy .srt.txt, alternate) and
+ * returns { text, cipherIdx } or { text: ciphertext, cipherIdx: -1 }.
+ */
+export function decryptKisskhTextWithHint(ciphertext, preferredIdx = -1) {
+  const trimmed = String(ciphertext || "").trim();
+  if (!trimmed || trimmed.length < 16) return { text: ciphertext, cipherIdx: preferredIdx };
+  if (!/^[A-Za-z0-9+/=]+$/.test(trimmed)) return { text: ciphertext, cipherIdx: preferredIdx };
+  const rawBuf = Buffer.from(trimmed, "base64");
+  const order = preferredIdx >= 0 && preferredIdx < KISSKH_SUBTITLE_CIPHERS.length
+    ? [preferredIdx, ...KISSKH_SUBTITLE_CIPHERS.map((_, i) => i).filter((i) => i !== preferredIdx)]
+    : KISSKH_SUBTITLE_CIPHERS.map((_, i) => i);
+  for (const idx of order) {
+    const plain = tryDecryptWithCipher(rawBuf, KISSKH_SUBTITLE_CIPHERS[idx]);
+    if (plain !== null) {
+      return { text: plain, cipherIdx: idx };
+    }
+  }
+  return { text: ciphertext, cipherIdx: preferredIdx };
+}
+
+export function decryptKisskhText(ciphertext) {
+  return decryptKisskhTextWithHint(ciphertext, -1).text;
 }
 
 /**
@@ -49,14 +84,16 @@ export function decryptKisskhSubtitle(text) {
   if (!text || typeof text !== "string") return text;
   if (!/[A-Za-z0-9+/=]{16,}/.test(text)) return text;
 
+  let activeCipherIdx = -1;
   const lines = text.split("\n");
   const decryptedLines = lines.map((line) => {
     const trimmed = line.trim();
     if (!trimmed || /^\d+$/.test(trimmed) || trimmed.includes("-->")) {
       return line;
     }
-    const dec = decryptKisskhText(trimmed);
+    const { text: dec, cipherIdx } = decryptKisskhTextWithHint(trimmed, activeCipherIdx);
     if (dec !== trimmed) {
+      activeCipherIdx = cipherIdx;
       return line.replace(trimmed, dec);
     }
     return line;

@@ -4758,29 +4758,38 @@
       var currentSub = 'off';
       var subtitleOffset = 0;
 
-      // KissKH Subtitle AES-128 Decryption
-      var kisskhCryptoKey = null;
-      var kisskhIvBytes = null;
-      function initKisskhCrypto() {
-        if (kisskhCryptoKey) return Promise.resolve(kisskhCryptoKey);
-        if (typeof crypto === 'undefined' || !crypto.subtle) return Promise.resolve(null);
-        var keyBytes = new TextEncoder().encode('AmSmZVcH93UQUezi');
-        var ivWords = [1382367819, 1465333859, 1902406224, 1164854838];
-        var iv = new Uint8Array(16);
-        var view = new DataView(iv.buffer);
-        ivWords.forEach(function (w, i) { view.setInt32(i * 4, w, false); });
-        kisskhIvBytes = iv;
-        return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt'])
-          .then(function (k) { kisskhCryptoKey = k; return k; })
-          .catch(function () { return null; });
+      // KissKH Subtitle AES-128 Decryption (supports modern .txt, legacy .srt.txt, and .txt1 keys)
+      var kisskhCiphersPromise = null;
+      function getKisskhCiphers() {
+        if (kisskhCiphersPromise) return kisskhCiphersPromise;
+        if (typeof crypto === 'undefined' || !crypto.subtle) return Promise.resolve([]);
+        var enc = new TextEncoder();
+        function ivFromWords(words) {
+          var iv = new Uint8Array(16);
+          var view = new DataView(iv.buffer);
+          words.forEach(function (w, i) { view.setInt32(i * 4, w, false); });
+          return iv;
+        }
+        var specs = [
+          { keyBytes: enc.encode('AmSmZVcH93UQUezi'), iv: ivFromWords([1382367819, 1465333859, 1902406224, 1164854838]) },
+          { keyBytes: enc.encode('8056483646328763'), iv: enc.encode('6852612370185273') },
+          { keyBytes: enc.encode('sWODXX04QRTkHdlZ'), iv: ivFromWords([946894696, 1634749029, 1127508082, 1396271183]) }
+        ];
+        kisskhCiphersPromise = Promise.all(specs.map(function (sp) {
+          return crypto.subtle.importKey('raw', sp.keyBytes, { name: 'AES-CBC' }, false, ['decrypt'])
+            .then(function (k) { return { key: k, iv: sp.iv }; })
+            .catch(function () { return null; });
+        })).then(function (list) { return list.filter(Boolean); });
+        return kisskhCiphersPromise;
       }
 
       function decryptKisskhVttContent(text) {
-        if (!text || !/[A-Za-z0-9+/=]{24,}/.test(text) || typeof crypto === 'undefined' || !crypto.subtle) {
+        if (!text || !/[A-Za-z0-9+/=]{16,}/.test(text) || typeof crypto === 'undefined' || !crypto.subtle) {
           return Promise.resolve(text);
         }
-        return initKisskhCrypto().then(function (cryptoKey) {
-          if (!cryptoKey) return text;
+        var strictDecoder = new TextDecoder('utf-8', { fatal: true });
+        return getKisskhCiphers().then(function (ciphers) {
+          if (!ciphers || ciphers.length === 0) return text;
           var lines = text.split('\n');
           var promises = lines.map(function (line) {
             var trimmed = line.trim();
@@ -4789,12 +4798,19 @@
             }
             try {
               var raw = Uint8Array.from(atob(trimmed), function (c) { return c.charCodeAt(0); });
-              return crypto.subtle.decrypt({ name: 'AES-CBC', iv: kisskhIvBytes }, cryptoKey, raw)
-                .then(function (dec) {
-                  var utf8 = new TextDecoder().decode(dec);
-                  return (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8)) ? line.replace(trimmed, utf8) : line;
-                })
-                .catch(function () { return line; });
+              function tryCipher(idx) {
+                if (idx >= ciphers.length) return Promise.resolve(line);
+                return crypto.subtle.decrypt({ name: 'AES-CBC', iv: ciphers[idx].iv }, ciphers[idx].key, raw)
+                  .then(function (dec) {
+                    var utf8 = strictDecoder.decode(dec);
+                    if (utf8 && !/[\x00-\x08\x0E-\x1F]/.test(utf8)) {
+                      return line.replace(trimmed, utf8);
+                    }
+                    return tryCipher(idx + 1);
+                  })
+                  .catch(function () { return tryCipher(idx + 1); });
+              }
+              return tryCipher(0);
             } catch (e) {
               return Promise.resolve(line);
             }
@@ -5880,9 +5896,9 @@
           })
           .then(function (started) {
             if (started) return true;
-            startResolvingCountdown(45, 'Preparing KissKH stream & subtitles…', 'Resolving from backup server — playback will start automatically…');
-            // Run client probing and remote GitHub Actions polling in parallel so
-            // cold KissKH episodes never stall behind sequential client timeouts.
+            startResolvingCountdown(45, 'Getting your stream ready…', 'Searching backup servers — playback will start automatically…');
+            // Run client probing and remote resolver polling in parallel so
+            // cold episodes never stall behind sequential client timeouts.
             var clientJob = resolveClientStream({ force: true })
               .then(function (cs) { return applyClientUpgrade(cs, false); })
               .catch(function () { return false; });
@@ -6128,8 +6144,7 @@
       function buildClientGatewayUrl(upstreamUrl) {
         var cr = config.clientResolve;
         return cr.gateway + '?token=' + encodeURIComponent(cr.token) +
-          '&url=' + encodeURIComponent(upstreamUrl) +
-          '&provider=' + encodeURIComponent(cr.provider || 'bigbang');
+          '&url=' + encodeURIComponent(upstreamUrl);
       }
 
       // Fetch the master through the gateway and count alternate audio groups.
@@ -6348,8 +6363,7 @@
       // opaque gateway route, so upstream hosts/signatures never reach the page.
       function buildRemoteGatewayUrl(remote) {
         var cr = config.clientResolve;
-        return remote.gateway + '?token=' + encodeURIComponent(cr.token) +
-          '&provider=' + encodeURIComponent(cr.provider || 'bigbang');
+        return remote.gateway + '?token=' + encodeURIComponent(cr.token);
       }
 
       function pollRemoteMultiAudio(remote) {
@@ -6391,7 +6405,12 @@
           cache: 'no-store'
         }, 10000)
           .then(function (payload) {
-            if (payload && payload.state === 'ready') return payload;
+            if (payload && payload.state === 'ready' && Array.isArray(payload.audioTracks) && payload.audioTracks.length > 0) {
+              return payload;
+            }
+            if (payload && payload.state === 'single' && Array.isArray(payload.audioTracks) && payload.audioTracks.length > 0) {
+              return payload;
+            }
             if (!payload || payload.ok !== true) {
               throw new Error((payload && payload.error) || 'dispatch_failed');
             }

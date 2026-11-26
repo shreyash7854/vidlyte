@@ -5255,6 +5255,137 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
   // Multi-audio resolver: request a GitHub Actions resolution, read its
   // result, and accept the signed result from the workflow. The player uses
   // these when the browser cannot reach vidrift directly.
+  const sanitizeMultiAudioResponse = async (asset, record) => {
+    const assetHyphenId = asset.replace(/\//g, "-");
+    let playbackToken = url.searchParams.get("token") || request.headers.get("X-Playback-Token") || "";
+    if (playbackToken) {
+      const validTok = await wasmVerifyToken(assetHyphenId, clientIP, playbackToken, secretSpec, { bindClientIP });
+      if (!validTok) playbackToken = "";
+    }
+    if (!playbackToken) {
+      playbackToken = await wasmIssueToken(assetHyphenId, clientIP, 10800, secretSpec);
+    }
+    const rawTracks = Array.isArray(record.audioTracks) ? record.audioTracks : [];
+    const hasSpecificOriginal = rawTracks.some((t) => t && /^original\s*\([^)]+\)/i.test(String(t.name || t.label || "").trim()));
+    const seenNames = new Set();
+    const seenLangs = new Set();
+    let seenOrig = false;
+    const sanitizedTracks = rawTracks.map((trk, idx) => {
+      if (!trk) return null;
+      const rawTrackUri = trk.uri || trk.url || "";
+      if (!hasOrionSubForUri(record, rawTrackUri)) return null;
+      let safeUri = "";
+      try {
+        safeUri = assertSafeUpstreamUrl(rawTrackUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+      } catch (e) {
+        safeUri = rawTrackUri;
+      }
+      if (!safeUri) return null;
+      let cleanName = sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${idx + 1}`);
+      if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) cleanName = "Original Audio";
+      if (hasSpecificOriginal && isOriginalLikeAudio({ name: cleanName, language: trk.language }) && !/^original\s*\(/i.test(cleanName)) {
+        return null;
+      }
+      if (isOriginalLikeAudio({ name: cleanName, language: trk.language })) {
+        if (seenOrig) return null;
+        seenOrig = true;
+      }
+      const nameKey = cleanName.toLowerCase().replace(/\s+/g, " ").trim();
+      const langKey = normalizeAudioLang(trk.language, nameKey);
+      if (seenNames.has(nameKey) || (langKey && seenLangs.has(langKey) && !/dub/i.test(nameKey))) {
+        return null;
+      }
+      seenNames.add(nameKey);
+      if (langKey) seenLangs.add(langKey);
+
+      const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || record.isMP4);
+      const opaque = codec.encode(safeUri, trk.provider || record.provider || "kisskh");
+      const proxiedUri = isTrkMp4
+        ? `${url.origin}/stream/chunk/${opaque}`
+        : `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`;
+      return {
+        id: idx,
+        name: cleanName,
+        label: cleanName,
+        language: String(trk.language || langKey || "und").slice(0, 16),
+        default: trk.default || false,
+        isMP4: isTrkMp4,
+        uri: proxiedUri,
+        proxiedUri: proxiedUri,
+        proxied_uri: proxiedUri,
+        provider: "vidlyte",
+      };
+    }).filter(Boolean);
+
+    const seenSubKeys = new Set();
+    const sanitizedSubs = ((record.subtitles) || []).map((sub) => {
+      if (!sub) return null;
+      const rawSubUrl = sub.url || sub.uri || "";
+      if (!rawSubUrl) return null;
+      let safeSubUrl = "";
+      try {
+        safeSubUrl = assertSafeUpstreamUrl(rawSubUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+      } catch (e) {
+        return null;
+      }
+      const label = sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles");
+      const language = String(sub.language || "en").slice(0, 16);
+      const dedupeKey = `${label.toLowerCase().replace(/\s*subtitles?$/i, "").trim()}:${language.toLowerCase()}`;
+      if (seenSubKeys.has(dedupeKey)) return null;
+      seenSubKeys.add(dedupeKey);
+      const opaque = codec.encode(safeSubUrl, record.provider || "kisskh");
+      const proxiedSub = isPlaylistUrl(safeSubUrl)
+        ? `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`
+        : `${url.origin}/stream/chunk/${opaque}`;
+      return {
+        label,
+        language,
+        default: Boolean(sub.default || /^en/i.test(language) || /english/i.test(label)),
+        uri: proxiedSub,
+        proxiedUri: proxiedSub,
+        provider: "vidlyte",
+      };
+    }).filter(Boolean);
+
+    const sanitizedVariants = (Array.isArray(record.variants) ? record.variants : [])
+      .filter((v) => v && (v.playlistUri || v.uri || v.url))
+      .map((v) => {
+        const rawVar = v.playlistUri || v.uri || v.url || "";
+        if (!hasOrionSubForUri(record, rawVar)) return null;
+        let safeVar = "";
+        try {
+          safeVar = assertSafeUpstreamUrl(rawVar, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
+        } catch (e) {
+          return null;
+        }
+        const proxiedVar = `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${codec.encode(safeVar, v.provider || record.provider || "orion")}?token=${encodeURIComponent(playbackToken)}`;
+        return {
+          resolution: String(v.resolution || "Auto").slice(0, 24),
+          bandwidth: Number(v.bandwidth) || 0,
+          playlistUri: proxiedVar,
+          proxiedUri: proxiedVar,
+          provider: "vidlyte",
+        };
+      })
+      .filter(Boolean);
+
+    const recordAudio = Number(record.audio) || sanitizedTracks.length || 1;
+    return {
+      recordAudio,
+      base: {
+        ok: true,
+        ready: true,
+        asset,
+        audio: recordAudio,
+        exp: Number(record.exp) || 0,
+        audioTracks: sanitizedTracks,
+        subtitles: sanitizedSubs,
+        variants: sanitizedVariants,
+        checked_at: record.checked_at || "",
+      },
+    };
+  };
+
   if (url.pathname === "/api/multi-audio/resolve" && request.method === "POST") {
     const body = await request.json().catch(() => null);
     const asset = normalizeMultiAudioAsset(body && body.asset);
@@ -5270,13 +5401,11 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
       (Array.isArray(existing && existing.audioTracks) ? existing.audioTracks.length : 0);
 
     if (!force && multiAudioRecordUsable(existing) && existingAudio > 1) {
+      const sanitized = await sanitizeMultiAudioResponse(asset, existing);
       return new Response(JSON.stringify({
-        ok: true,
+        ...sanitized.base,
         state: "ready",
         ready: true,
-        asset,
-        audio: existingAudio,
-        exp: Number(existing.exp) || 0,
       }), {
         status: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
@@ -5291,13 +5420,11 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     if (force || (multiAudioRecordUsable(existing) && existingAudio <= 1)) {
       const checkedAt = Number(existing && existing.dubCheckedAt) || 0;
       if (!force && checkedAt && (Date.now() - checkedAt * 1000) < asianDubRecheckMs(existing)) {
+        const sanitized = await sanitizeMultiAudioResponse(asset, existing);
         return new Response(JSON.stringify({
-          ok: true,
+          ...sanitized.base,
           state: "single",
           ready: true,
-          asset,
-          audio: existingAudio || 1,
-          exp: Number(existing.exp) || 0,
         }), {
           status: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
@@ -5350,116 +5477,8 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     const record = await readMultiAudioRecord(env, asset);
     if (record) {
       if (multiAudioRecordUsable(record)) {
-        const assetHyphenId = asset.replace(/\//g, "-");
-        let playbackToken = url.searchParams.get("token") || request.headers.get("X-Playback-Token") || "";
-        if (playbackToken) {
-          const validTok = await wasmVerifyToken(assetHyphenId, clientIP, playbackToken, secretSpec, { bindClientIP });
-          if (!validTok) playbackToken = "";
-        }
-        if (!playbackToken) {
-          playbackToken = await wasmIssueToken(assetHyphenId, clientIP, 10800, secretSpec);
-        }
-        const rawTracks = Array.isArray(record.audioTracks) ? record.audioTracks : [];
-        const hasSpecificOriginal = rawTracks.some((t) => t && /^original\s*\([^)]+\)/i.test(String(t.name || t.label || "").trim()));
-        const seenNames = new Set();
-        const seenLangs = new Set();
-        let seenOrig = false;
-        const sanitizedTracks = rawTracks.map((trk, idx) => {
-          if (!trk) return null;
-          const rawTrackUri = trk.uri || trk.url || "";
-          if (!hasOrionSubForUri(record, rawTrackUri)) {
-            return null;
-          }
-          let safeUri = "";
-          try {
-            safeUri = assertSafeUpstreamUrl(rawTrackUri, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-          } catch (e) {
-            safeUri = rawTrackUri;
-          }
-          if (!safeUri) return null;
-          let cleanName = sanitizeSubtitleLabel(trk.name || trk.label || `Audio ${idx + 1}`);
-          if (/^original\s*\/\s*dual\s*audio$/i.test(cleanName)) cleanName = "Original Audio";
-          if (hasSpecificOriginal && isOriginalLikeAudio({ name: cleanName, language: trk.language }) && !/^original\s*\(/i.test(cleanName)) {
-            return null;
-          }
-          if (isOriginalLikeAudio({ name: cleanName, language: trk.language })) {
-            if (seenOrig) return null;
-            seenOrig = true;
-          }
-          const nameKey = cleanName.toLowerCase().replace(/\s+/g, " ").trim();
-          const langKey = normalizeAudioLang(trk.language, nameKey);
-          if (seenNames.has(nameKey) || (langKey && seenLangs.has(langKey) && !/dub/i.test(nameKey))) {
-            return null;
-          }
-          seenNames.add(nameKey);
-          if (langKey) seenLangs.add(langKey);
-
-          const isTrkMp4 = Boolean(trk.isMP4 || (safeUri && safeUri.toLowerCase().includes(".mp4")) || record.isMP4);
-          const opaque = codec.encode(safeUri, trk.provider || record.provider || "kisskh");
-          const proxiedUri = isTrkMp4
-            ? `${url.origin}/stream/chunk/${opaque}`
-            : `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`;
-          return {
-            id: idx,
-            name: cleanName,
-            label: cleanName,
-            language: String(trk.language || langKey || "und").slice(0, 16),
-            default: trk.default || false,
-            isMP4: isTrkMp4,
-            uri: proxiedUri,
-            proxiedUri: proxiedUri,
-            proxied_uri: proxiedUri,
-            provider: "vidlyte",
-          };
-        }).filter(Boolean);
-
-        const sanitizedSubs = ((record.subtitles) || []).map((sub) => {
-          if (!sub) return null;
-          const rawSubUrl = sub.url || sub.uri || "";
-          if (!rawSubUrl) return null;
-          let safeSubUrl = "";
-          try {
-            safeSubUrl = assertSafeUpstreamUrl(rawSubUrl, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-          } catch (e) {
-            return null;
-          }
-          const opaque = codec.encode(safeSubUrl, record.provider || "kisskh");
-          const proxiedSub = isPlaylistUrl(safeSubUrl)
-            ? `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${opaque}?token=${encodeURIComponent(playbackToken)}`
-            : `${url.origin}/stream/chunk/${opaque}`;
-          return {
-            label: sanitizeSubtitleLabel(sub.label || sub.language || "Subtitles"),
-            language: String(sub.language || "en").slice(0, 16),
-            default: Boolean(sub.default || /^en/i.test(String(sub.language || "")) || /english/i.test(String(sub.label || ""))),
-            uri: proxiedSub,
-            proxiedUri: proxiedSub,
-            provider: "vidlyte",
-          };
-        }).filter(Boolean);
-
-        const sanitizedVariants = (Array.isArray(record.variants) ? record.variants : [])
-          .filter((v) => v && (v.playlistUri || v.uri || v.url))
-          .map((v) => {
-            const rawVar = v.playlistUri || v.uri || v.url || "";
-            if (!hasOrionSubForUri(record, rawVar)) return null;
-            let safeVar = "";
-            try {
-              safeVar = assertSafeUpstreamUrl(rawVar, { extraAllowlist: env.UPSTREAM_ALLOWLIST }).toString();
-            } catch (e) {
-              return null;
-            }
-            const proxiedVar = `${url.origin}/hls/${encodeURIComponent(assetHyphenId)}/res/${codec.encode(safeVar, v.provider || record.provider || "orion")}?token=${encodeURIComponent(playbackToken)}`;
-            return {
-              resolution: String(v.resolution || "Auto").slice(0, 24),
-              bandwidth: Number(v.bandwidth) || 0,
-              playlistUri: proxiedVar,
-              proxiedUri: proxiedVar,
-              provider: "vidlyte",
-            };
-          })
-          .filter(Boolean);
-
-        const recordAudio = Number(record.audio) || sanitizedTracks.length || 1;
+        const sanitized = await sanitizeMultiAudioResponse(asset, record);
+        const { recordAudio, base } = sanitized;
         if (recordAudio <= 1) {
           let dubPending = false;
           if (env && env.CONFIG_KV) {
@@ -5469,7 +5488,7 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
           }
           const checkedAt = Number(record.dubCheckedAt) || 0;
           const recordAgeMs = Math.max(0, Date.now() - Date.parse(record.checked_at || 0) || 0);
-          const isKissPlayable = record.provider === "kisskh" || (sanitizedTracks[0] && /kisskh/i.test(String(sanitizedTracks[0].name || "")));
+          const isKissPlayable = record.provider === "kisskh" || (base.audioTracks[0] && /kisskh/i.test(String(base.audioTracks[0].name || "")));
           // Playable KissKH records start playback immediately instead of blocking
           // the player behind "resolving" for 120s while background dub checks run.
           if (!isKissPlayable && (dubPending || (!checkedAt && recordAgeMs < 120000))) {
@@ -5479,16 +5498,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
             });
           }
           return new Response(JSON.stringify({
-            ok: true,
+            ...base,
             state: "single",
             ready: true,
-            asset,
-            audio: recordAudio,
-            exp: Number(record.exp) || 0,
-            audioTracks: sanitizedTracks,
-            subtitles: sanitizedSubs,
-            variants: sanitizedVariants,
-            checked_at: record.checked_at || "",
           }), {
             status: 200,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },
@@ -5496,16 +5508,9 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
         }
 
         return new Response(JSON.stringify({
-          ok: true,
+          ...base,
           state: "ready",
           ready: true,
-          asset,
-          audio: recordAudio,
-          exp: Number(record.exp) || 0,
-          audioTracks: sanitizedTracks,
-          subtitles: sanitizedSubs,
-          variants: sanitizedVariants,
-          checked_at: record.checked_at || "",
         }), {
           status: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" },

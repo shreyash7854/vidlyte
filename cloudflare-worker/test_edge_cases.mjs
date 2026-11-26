@@ -608,11 +608,25 @@ await test("resolveKissKHSiblingBatch resolves remaining season episodes without
   const idx = readSrc("src/index.js");
   assert.ok(idx.includes("isKissPlayable"), "status route must not stall playable KissKH streams behind 120s resolving grace");
   assert.ok(idx.includes("body.batch === true && Array.isArray(body.items)"), "publish route must support sibling batch publish");
+  assert.ok(idx.includes("seenSubKeys"), "multi-audio payload sanitizer must deduplicate duplicate subtitle entries");
   const player = readSrc("src/player.html");
   assert.ok(player.includes("hydrateStreamMetadata("), "cold recovery must hydrate subtitles & audio before initial playback");
   assert.ok(player.includes("Promise.all([clientJob, remoteJob])"), "cold recovery must run remote & client resolvers in parallel");
+  assert.ok(!/startResolvingCountdown\([^)]*KissKH/i.test(player), "player countdown UI must never display upstream provider names");
+  assert.ok(player.includes("8056483646328763") && player.includes("sWODXX04QRTkHdlZ"), "player client subtitle decryptor must support all KissKH keys");
   const resolver = readSrc("scripts/resolve-multi-audio.mjs");
   assert.ok(resolver.includes("launchSiblingBatch(") && resolver.includes("onEarlyPublish"), "GH resolver must early-publish KissKH and batch season siblings");
+  assert.ok(resolver.includes("discoveredSubUrls"), "Orion resolver must harvest audio/variant sub-manifests referenced inside masters");
+
+  // Regression test for legacy KissKH (a1/a3) subtitle ciphertexts (e.g. Hidden Love 2023)
+  const legacySrt = [
+    "1",
+    "00:00:29,820 --> 00:00:33,980",
+    "8SDXM2phcW+GaQEKsHBS27mj06iChhZpsf30cM3i3UR+KjvMrpyCfKZLhlnXD2Ta",
+    "",
+  ].join("\n");
+  const decLegacy = decryptKisskhSubtitle(legacySrt);
+  assert.ok(decLegacy.includes("A beautiful place full of smiles"), `expected legacy a1 cipher to decrypt cleanly, got: ${decLegacy}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
