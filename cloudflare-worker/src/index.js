@@ -348,8 +348,8 @@ async function fetchTMDBMetadata(type, id, season = 1, episode = 1, env = null) 
       : "";
 
     const [showRes, epRes] = await Promise.allSettled([
-      !data ? tmdbFetchJson(showPath, 3500) : Promise.resolve(data),
-      epPath && !epData ? tmdbFetchJson(epPath, 2200) : Promise.resolve(epData),
+      !data ? tmdbFetchJson(showPath, 1800) : Promise.resolve(data),
+      epPath && !epData ? tmdbFetchJson(epPath, 1200) : Promise.resolve(epData),
     ]);
 
     if (!data && showRes.status === "fulfilled" && showRes.value) {
@@ -592,7 +592,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           "Origin": "https://vidrift.net",
           "Accept": "application/json, text/plain, */*",
         },
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(1300),
       }, env);
       if (bootRes && bootRes.ok) {
         const bootData = await bootRes.json();
@@ -616,7 +616,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
         }
         const readerRes = await fetch(readerUrl, {
           headers: readerHeaders,
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(2200),
         });
         if (readerRes && readerRes.ok) {
           const readerText = await readerRes.text();
@@ -651,7 +651,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
 
       let res = await fetchWithSwarmFallback(pageUrl, {
         headers: vidriftHeaders,
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(1800),
       }, env).catch(() => null);
 
       if (!res || !res.ok) {
@@ -662,7 +662,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
               "Accept": "text/plain",
               "User-Agent": "vidlyte-multi-audio-resolver",
             },
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(2400),
           });
         } catch (e) { }
       }
@@ -726,7 +726,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
                 "Origin": "https://embed.vidrift.net",
                 "Accept": "application/json, text/plain, */*",
               },
-              signal: AbortSignal.timeout(2800),
+              signal: AbortSignal.timeout(2000),
             }, env);
             if (!srcRes || !srcRes.ok) throw new Error(`src_status_${srcRes ? srcRes.status : 0}`);
             const sourceData = await srcRes.json();
@@ -742,8 +742,8 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
           apiProvider = String(res.provider || "");
         }
       } catch (e) {
-        // Direct blocked across servers; try Jina reader fallback once on primary endpoints
-        for (const sourceUrl of candidateUrls.slice(0, 2)) {
+        // Direct blocked across servers; try Jina reader fallback once on primary endpoint
+        for (const sourceUrl of candidateUrls.slice(0, 1)) {
           try {
             const rSrcRes = await fetch(`https://r.jina.ai/${sourceUrl}`, {
               headers: {
@@ -751,7 +751,7 @@ async function resolveVidrift(type, id, season = 1, episode = 1, env = null) {
                 "Accept": "text/plain",
                 "User-Agent": "vidlyte-multi-audio-resolver",
               },
-              signal: AbortSignal.timeout(3500),
+              signal: AbortSignal.timeout(2200),
             });
             if (rSrcRes && rSrcRes.ok) {
               const rText = await rSrcRes.text();
@@ -1640,130 +1640,130 @@ async function resolveFrameX(assetInfo, tmdbMeta = null) {
       return null;
     }
 
-      const subtitles = [];
-      if (Array.isArray(data.subtitles)) {
-        const seen = new Set();
-        data.subtitles.forEach((sub) => {
-          if (!sub || !sub.url) return;
-          const label = sanitizeSubtitleLabel(sub.label || sub.language || "English");
-          const key = label.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          subtitles.push({
-            language: sub.language || sub.lang || "en",
-            label,
-            url: sub.url,
-          });
-        });
-      }
-
-      // Build one track per distinct language. FrameX ships each language as a
-      // full manifest, so these become real, switchable audio tracks. The
-      // default is the track whose language matches the title's original
-      // language; otherwise the best source stays the default.
-      const primaryInfo = framexAudioInfo(bestSource, tmdbMeta);
-      const originalIso = normalizeAudioLang(
-        String((tmdbMeta && (tmdbMeta.originalLanguage || tmdbMeta.original_language)) || ""),
-        ""
-      ) || (!primaryInfo.isDub ? primaryInfo.language : "");
-      const entries = [];
-      const seenAudioKeys = new Set();
-      for (const source of data.sources) {
-        if (!source || !source.url) continue;
-        const info = framexAudioInfo(source, tmdbMeta);
-        const known = Boolean(info.label);
-        const isOriginal = known
-          ? (originalIso ? info.language === originalIso : false)
-          : false;
-        const key = isOriginal || (!known && !info.isDub) ? "orig" : (info.language || "und");
-        if (seenAudioKeys.has(key)) continue;
-        seenAudioKeys.add(key);
-        const label = isOriginal || (!known && !info.isDub)
-          ? (known ? `Original (${info.label})` : "Original Audio")
-          : (info.label || "Dub");
-        entries.push({
-          source,
-          key,
+    const subtitles = [];
+    if (Array.isArray(data.subtitles)) {
+      const seen = new Set();
+      data.subtitles.forEach((sub) => {
+        if (!sub || !sub.url) return;
+        const label = sanitizeSubtitleLabel(sub.label || sub.language || "English");
+        const key = label.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        subtitles.push({
+          language: sub.language || sub.lang || "en",
           label,
-          language: key === "orig" ? "orig" : (info.language || "und"),
-          isDub: key !== "orig",
-          isPrimary: source === bestSource,
+          url: sub.url,
         });
-      }
-      if (entries.length === 0) {
-        entries.push({
-          source: bestSource,
-          key: "orig",
-          label: "Original Audio",
-          language: "orig",
-          isDub: false,
-          isPrimary: true,
-        });
-      }
-      const defaultKey = entries.find((e) => e.key === "orig")?.key || entries[0].key;
-      // The default track must be the one actually playing, so anchor playback
-      // on the original-language source and put it first.
-      const primaryIndex = Math.max(0, entries.findIndex((e) => e.key === defaultKey));
-      const [primaryEntry] = entries.splice(primaryIndex, 1);
-      entries.unshift(primaryEntry);
-      // Quality variants must stay in the selected audio language; otherwise a
-      // quality switch would silently change the soundtrack.
-      const variants = [];
-      const seenRes = new Set();
-      for (const source of data.sources) {
-        if (!source || !source.url) continue;
-        const info = framexAudioInfo(source, tmdbMeta);
-        const sameLanguage = primaryEntry.language === "orig"
-          ? (!info.label || (originalIso ? info.language === originalIso : !info.isDub))
-          : info.language === primaryEntry.language;
-        if (!sameLanguage) continue;
-        let resolution = String(source.quality || "").trim();
-        if (!resolution || resolution.toLowerCase() === "auto") {
-          if (variants.length > 0) continue;
-          resolution = "Auto";
-        }
-        const key = resolution.toLowerCase();
-        if (seenRes.has(key)) continue;
-        seenRes.add(key);
-        variants.push({
-          resolution,
-          playlistUri: source.url,
-          bandwidth: resolution.includes("1080")
-            ? 3200000
-            : resolution.includes("720")
-              ? 1800000
-              : 1000000,
-          provider: "framextv",
-        });
-      }
-      if (variants.length === 0) {
-        variants.push({
-          resolution: String(primaryEntry.source.quality || "Auto").trim() || "Auto",
-          playlistUri: primaryEntry.source.url,
-          bandwidth: 1800000,
-          provider: "framextv",
-        });
-      }
-      const audioTracks = entries.map((entry, index) => ({
-        id: index,
-        name: entry.label,
-        label: entry.label,
-        language: entry.language,
-        default: entry.key === defaultKey,
-        uri: entry.source.url,
-        provider: "framextv",
-        isMP4: entry.source.type === "mp4" || /\.mp4(\?|$)/i.test(entry.source.url),
-      }));
-      const streamUrl = primaryEntry.source.url || bestSource.url;
+      });
+    }
 
-      return {
-        streamUrl,
+    // Build one track per distinct language. FrameX ships each language as a
+    // full manifest, so these become real, switchable audio tracks. The
+    // default is the track whose language matches the title's original
+    // language; otherwise the best source stays the default.
+    const primaryInfo = framexAudioInfo(bestSource, tmdbMeta);
+    const originalIso = normalizeAudioLang(
+      String((tmdbMeta && (tmdbMeta.originalLanguage || tmdbMeta.original_language)) || ""),
+      ""
+    ) || (!primaryInfo.isDub ? primaryInfo.language : "");
+    const entries = [];
+    const seenAudioKeys = new Set();
+    for (const source of data.sources) {
+      if (!source || !source.url) continue;
+      const info = framexAudioInfo(source, tmdbMeta);
+      const known = Boolean(info.label);
+      const isOriginal = known
+        ? (originalIso ? info.language === originalIso : false)
+        : false;
+      const key = isOriginal || (!known && !info.isDub) ? "orig" : (info.language || "und");
+      if (seenAudioKeys.has(key)) continue;
+      seenAudioKeys.add(key);
+      const label = isOriginal || (!known && !info.isDub)
+        ? (known ? `Original (${info.label})` : "Original Audio")
+        : (info.label || "Dub");
+      entries.push({
+        source,
+        key,
+        label,
+        language: key === "orig" ? "orig" : (info.language || "und"),
+        isDub: key !== "orig",
+        isPrimary: source === bestSource,
+      });
+    }
+    if (entries.length === 0) {
+      entries.push({
+        source: bestSource,
+        key: "orig",
+        label: "Original Audio",
+        language: "orig",
+        isDub: false,
+        isPrimary: true,
+      });
+    }
+    const defaultKey = entries.find((e) => e.key === "orig")?.key || entries[0].key;
+    // The default track must be the one actually playing, so anchor playback
+    // on the original-language source and put it first.
+    const primaryIndex = Math.max(0, entries.findIndex((e) => e.key === defaultKey));
+    const [primaryEntry] = entries.splice(primaryIndex, 1);
+    entries.unshift(primaryEntry);
+    // Quality variants must stay in the selected audio language; otherwise a
+    // quality switch would silently change the soundtrack.
+    const variants = [];
+    const seenRes = new Set();
+    for (const source of data.sources) {
+      if (!source || !source.url) continue;
+      const info = framexAudioInfo(source, tmdbMeta);
+      const sameLanguage = primaryEntry.language === "orig"
+        ? (!info.label || (originalIso ? info.language === originalIso : !info.isDub))
+        : info.language === primaryEntry.language;
+      if (!sameLanguage) continue;
+      let resolution = String(source.quality || "").trim();
+      if (!resolution || resolution.toLowerCase() === "auto") {
+        if (variants.length > 0) continue;
+        resolution = "Auto";
+      }
+      const key = resolution.toLowerCase();
+      if (seenRes.has(key)) continue;
+      seenRes.add(key);
+      variants.push({
+        resolution,
+        playlistUri: source.url,
+        bandwidth: resolution.includes("1080")
+          ? 3200000
+          : resolution.includes("720")
+            ? 1800000
+            : 1000000,
         provider: "framextv",
-        isMP4: primaryEntry.source.type === "mp4" || /\.mp4(\?|$)/i.test(streamUrl),
-        subtitles,
-        variants,
-        audioTracks,
-      };
+      });
+    }
+    if (variants.length === 0) {
+      variants.push({
+        resolution: String(primaryEntry.source.quality || "Auto").trim() || "Auto",
+        playlistUri: primaryEntry.source.url,
+        bandwidth: 1800000,
+        provider: "framextv",
+      });
+    }
+    const audioTracks = entries.map((entry, index) => ({
+      id: index,
+      name: entry.label,
+      label: entry.label,
+      language: entry.language,
+      default: entry.key === defaultKey,
+      uri: entry.source.url,
+      provider: "framextv",
+      isMP4: entry.source.type === "mp4" || /\.mp4(\?|$)/i.test(entry.source.url),
+    }));
+    const streamUrl = primaryEntry.source.url || bestSource.url;
+
+    return {
+      streamUrl,
+      provider: "framextv",
+      isMP4: primaryEntry.source.type === "mp4" || /\.mp4(\?|$)/i.test(streamUrl),
+      subtitles,
+      variants,
+      audioTracks,
+    };
   } catch (e) {
     return null;
   }
@@ -2049,7 +2049,7 @@ async function verifyManifestPlayable(result, provider, env) {
     const headers = getUpstreamHeaders(provider, target, null);
     const res = await fetchWithSwarmFallback(
       safeUrl,
-      { headers, signal: AbortSignal.timeout(4500) },
+      { headers, signal: AbortSignal.timeout(2200) },
       env
     );
     if (!res || !res.ok) return false;
@@ -2076,7 +2076,7 @@ async function verifyManifestPlayable(result, provider, env) {
             segHeaders.set("Range", "bytes=0-188");
             const segRes = await fetchWithSwarmFallback(
               segUrl,
-              { headers: segHeaders, signal: AbortSignal.timeout(2500) },
+              { headers: segHeaders, signal: AbortSignal.timeout(1400) },
               env
             );
             if (!segRes || !segRes.ok || segRes.status === 404 || segRes.status === 410 || segRes.status === 403 || segRes.status >= 500) {
@@ -2108,6 +2108,8 @@ async function verifyManifestPlayable(result, provider, env) {
       }
     }
 
+    if (rawManifestCache.size > 400) rawManifestCache.clear();
+    rawManifestCache.set(safeUrl, { body, expiresAt: Date.now() + RAW_MANIFEST_TTL_MS });
     return true;
   } catch (e) {
     return false;
@@ -2291,10 +2293,15 @@ async function seedKisskhPatternFromSibling(env, assetInfo) {
   if (kisskhSiblingSeedAttempts.size > 500) kisskhSiblingSeedAttempts.clear();
   kisskhSiblingSeedAttempts.add(showKey);
   try {
-    const listing = await env.CONFIG_KV.list({ prefix: `ma_status_v1:${showKey}/`, limit: 20 });
-    for (const entry of (listing.keys || []).slice(0, 8)) {
-      const asset = String(entry.name || "").replace(/^ma_status_v1:/, "");
-      const record = await readMultiAudioRecord(env, asset);
+    const listing = await env.CONFIG_KV.list({ prefix: `ma_status_v1:${showKey}/`, limit: 12 });
+    const entries = (listing.keys || []).slice(0, 5);
+    const records = await Promise.all(
+      entries.map(async (entry) => {
+        const asset = String(entry.name || "").replace(/^ma_status_v1:/, "");
+        return { asset, record: await readMultiAudioRecord(env, asset) };
+      })
+    );
+    for (const { asset, record } of records) {
       if (await seedKisskhPatternFromRecord(env, record, asset)) return true;
     }
   } catch (e) { }
@@ -2538,62 +2545,60 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
   const baseCacheKey = `${assetInfo.type}:${assetInfo.id}:${assetInfo.season || 0}:${assetInfo.episode || 0}`;
   const cacheKey = `${baseCacheKey}:${requested || "auto"}`;
 
-  const initialTmdbMeta = await fetchTMDBMetadata(
-    assetInfo.type,
-    assetInfo.id,
-    assetInfo.season || 1,
-    assetInfo.episode || 1,
-    options.env
-  );
-  const isAsianShow = isAsianContent(assetInfo, initialTmdbMeta);
-
   if (!options.forceRefresh) {
-    const existing = sourceStaleCache.get(cacheKey);
-    if (existing && existing.value) {
-      const hasAsianAudio = (existing.value.audioTracks || []).some((t) =>
-        /korean|chinese|japanese|thai|^ko$|^zh$|^ja$|^th$/i.test(t.name || t.label || t.language || "")
-      );
-      if (isAsianShow && !hasAsianAudio) {
-        sourceStaleCache.delete(cacheKey);
-      }
-    }
-    const cached = sourceStaleCache.get(cacheKey);
+    const fastCached = sourceStaleCache.get(cacheKey);
     if (
-      cached &&
-      cached.fresh &&
-      cached.value &&
-      !(isAsianShow && !(cached.value.audioTracks || []).some((t) => /korean|chinese|japanese|thai|^ko$|^zh$|^ja$|^th$/i.test(t.name || t.label || t.language || ""))) &&
-      ((Array.isArray(cached.value.audioTracks) && cached.value.audioTracks.length > 1) || requested === "framextv" || (!isAsianShow && cached.value.provider === "kisskh"))
+      fastCached &&
+      fastCached.fresh &&
+      fastCached.value &&
+      isStreamUrlUsable(fastCached.value.streamUrl)
     ) {
-      return cloneValue(cached.value);
+      return cloneValue(fastCached.value);
     }
-    if (cached && cached.stale && !(isAsianShow && !(cached.value.audioTracks || []).some((t) => /korean|chinese|japanese|thai|^ko$|^zh$|^ja$|^th$/i.test(t.name || t.label || t.language || "")))) {
+    if (
+      fastCached &&
+      fastCached.stale &&
+      fastCached.value &&
+      isStreamUrlUsable(fastCached.value.streamUrl) &&
+      ((Array.isArray(fastCached.value.audioTracks) && fastCached.value.audioTracks.length > 1) || fastCached.value.provider === "kisskh") &&
+      typeof options.waitUntil === "function"
+    ) {
       const refresh = resolveUpstreamSource(assetInfo, requestedProvider, {
         forceRefresh: true,
+        env: options.env,
         waitUntil: null,
       })
         .then((value) => {
-          if (value && value.streamUrl) {
-            sourceStaleCache.set(cacheKey, cloneValue(value), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
+          if (value && value.streamUrl && isStreamUrlUsable(value.streamUrl)) {
+            const multiOrKiss = (Array.isArray(value.audioTracks) && value.audioTracks.length > 1) || value.provider === "kisskh";
+            sourceStaleCache.set(cacheKey, cloneValue(value), multiOrKiss ? 15 * 60 * 1000 : 90 * 1000, 6 * 60 * 60 * 1000);
           }
           return value;
         })
         .catch(() => null);
-      if (typeof options.waitUntil === "function") options.waitUntil(refresh);
-      return cloneValue(cached.value);
+      options.waitUntil(refresh);
+      return cloneValue(fastCached.value);
     }
   }
 
   return coalesceSource(cacheKey, async () => {
     const result = createBaseResult(assetInfo, requested);
+    const asset = assetInfo.type === "tv" || assetInfo.type === "series"
+      ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
+      : `movie/${assetInfo.id}`;
+    const shouldCheckKv = !requested || requested === "orion" || requested === "evion" || requested === "bigbang" || requested === "kisskh";
 
-    const tmdbMeta = initialTmdbMeta || await fetchTMDBMetadata(
-      assetInfo.type,
-      assetInfo.id,
-      assetInfo.season || 1,
-      assetInfo.episode || 1,
-      options.env
-    );
+    const [tmdbMeta, prefetchedMaRecord] = await Promise.all([
+      fetchTMDBMetadata(
+        assetInfo.type,
+        assetInfo.id,
+        assetInfo.season || 1,
+        assetInfo.episode || 1,
+        options.env
+      ),
+      shouldCheckKv ? readMultiAudioRecord(options.env, asset) : Promise.resolve(undefined),
+    ]);
+    const isAsianShow = isAsianContent(assetInfo, tmdbMeta);
     if (tmdbMeta) {
       result.title = tmdbMeta.title;
       result.year = tmdbMeta.year;
@@ -2608,12 +2613,11 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
     const order = getProviderOrder(requested, tmdbMeta, assetInfo);
     console.log("[resolveUpstreamSource] asset:", assetInfo, "meta:", tmdbMeta?.title, tmdbMeta?.originalLanguage, "order:", order);
     let chosen = null;
+    let chosenFromKv = false;
+    let kisskhAlreadyTried = false;
 
-    if (!requested || requested === "orion" || requested === "evion" || requested === "bigbang" || requested === "kisskh") {
-      const asset = assetInfo.type === "tv" || assetInfo.type === "series"
-        ? `tv/${assetInfo.id}/${assetInfo.season || 1}/${assetInfo.episode || 1}`
-        : `movie/${assetInfo.id}`;
-      const maRecord = await readMultiAudioRecord(options.env, asset);
+    if (shouldCheckKv) {
+      const maRecord = prefetchedMaRecord;
       const hasStoredOrionSubs = Boolean(maRecord && maRecord.subManifests && Object.keys(maRecord.subManifests).length > 0);
       const recordNeedsBlockedOrion = Boolean(
         maRecord &&
@@ -2665,6 +2669,8 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
                 };
                 if (provRes.streamUrl && isStreamUrlUsable(provRes.streamUrl)) {
                   chosen = { provider: provRes.provider, result: provRes };
+                  chosenFromKv = true;
+                  kisskhAlreadyTried = true;
                 }
               }
             }
@@ -2695,58 +2701,108 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       const providerResult = await attemptProvider(requested, assetInfo, tmdbMeta, options.env);
       if (providerResult) chosen = { provider: requested, result: providerResult };
     } else if (!chosen) {
-      // Parallel priority racing: run top providers concurrently with tight budgets
-      // so cold misses resolve in ~1.5-4.5s instead of stalling sequentially for 15s+.
+      // Event-driven priority racing: deduplicate Vidrift (orion/evion), run top providers
+      // concurrently, and settle as soon as higher-priority providers finish or a tight grace elapses.
+      const dedupedOrder = order.filter((p, idx) => !(p === "evion" && order.indexOf("orion") >= 0 && order.indexOf("orion") < idx));
       const inFlight = new Map();
       const settledResults = new Map();
       const fastPool = isAsianShow
-        ? order.filter((p) => p !== "2vcdn").slice(0, 4)
-        : order.slice(0, 4);
+        ? dedupedOrder.filter((p) => p !== "2vcdn").slice(0, 4)
+        : dedupedOrder.slice(0, 4);
+
+      if (fastPool.includes("kisskh")) kisskhAlreadyTried = true;
+
+      const pendingProviders = new Set(fastPool);
+      const raceStartedAt = Date.now();
+      let notifyRace = null;
+      const pingRace = () => {
+        if (notifyRace) {
+          const fn = notifyRace;
+          notifyRace = null;
+          fn();
+        }
+      };
 
       for (const provider of fastPool) {
-        const capMs = provider === "kisskh" ? 4200 : 4000;
+        const capMs = provider === "kisskh" ? 2600 : (provider === "orion" ? 2600 : 2300);
         const p = withRaceBudget(attemptProvider(provider, assetInfo, tmdbMeta, options.env), capMs)
           .then((res) => {
             const valid = (res && res.streamUrl && isStreamUrlUsable(res.streamUrl)) ? res : null;
             settledResults.set(provider, valid);
+            pendingProviders.delete(provider);
+            pingRace();
             return valid;
+          })
+          .catch(() => {
+            settledResults.set(provider, null);
+            pendingProviders.delete(provider);
+            pingRace();
+            return null;
           });
         inFlight.set(provider, p);
       }
 
-      if (isAsianShow && inFlight.has("kisskh")) {
-        const kissRes = await inFlight.get("kisskh");
-        if (kissRes) {
-          chosen = { provider: "kisskh", result: kissRes };
-          // Brief grace window for parallel Orion/FrameX dubs & multi-quality variants
-          const dubTasks = ["orion", "framextv"].filter((p) => inFlight.has(p)).map((p) => inFlight.get(p));
-          if (dubTasks.length > 0) {
-            await withRaceBudget(Promise.allSettled(dubTasks), 350);
+      const PRIORITY_GRACE_MS = isAsianShow ? 1400 : 1100;
+      let activeTimer = null;
+      try {
+        while (pendingProviders.size > 0) {
+          const winner = fastPool.find((p) => settledResults.get(p));
+          if (winner) {
+            const winnerIdx = fastPool.indexOf(winner);
+            const higherStillPending = fastPool.slice(0, winnerIdx).some((p) => pendingProviders.has(p));
+            const elapsedMs = Date.now() - raceStartedAt;
+            if (!higherStillPending || elapsedMs >= PRIORITY_GRACE_MS) {
+              chosen = { provider: winner, result: settledResults.get(winner) };
+              break;
+            }
+            const remainingGrace = Math.max(20, PRIORITY_GRACE_MS - elapsedMs);
+            await new Promise((resolve) => {
+              notifyRace = resolve;
+              activeTimer = setTimeout(resolve, remainingGrace);
+            });
+            if (activeTimer) {
+              clearTimeout(activeTimer);
+              activeTimer = null;
+            }
+            continue;
           }
-          for (const dubProv of ["orion", "framextv"]) {
-            const dubRes = settledResults.get(dubProv);
-            if (dubRes) mergeSecondaryTrackData(dubRes);
+          await new Promise((resolve) => {
+            notifyRace = resolve;
+            activeTimer = setTimeout(resolve, 2800);
+          });
+          if (activeTimer) {
+            clearTimeout(activeTimer);
+            activeTimer = null;
           }
         }
+        if (!chosen) {
+          const winner = fastPool.find((p) => settledResults.get(p));
+          if (winner) chosen = { provider: winner, result: settledResults.get(winner) };
+        }
+      } finally {
+        if (activeTimer) clearTimeout(activeTimer);
+        notifyRace = null;
       }
 
-      if (!chosen) {
-        for (const provider of fastPool) {
-          const p = inFlight.get(provider);
-          if (!p) continue;
-          const res = await p;
-          if (res) {
-            chosen = { provider, result: res };
-            break;
-          }
+      if (chosen && chosen.provider === "kisskh") {
+        // Brief grace window for parallel Orion/FrameX dubs & multi-quality variants
+        const dubTasks = ["orion", "framextv"]
+          .filter((p) => inFlight.has(p) && pendingProviders.has(p))
+          .map((p) => inFlight.get(p));
+        if (dubTasks.length > 0) {
+          await withRaceBudget(Promise.allSettled(dubTasks), 250);
+        }
+        for (const dubProv of ["orion", "framextv"]) {
+          const dubRes = settledResults.get(dubProv);
+          if (dubRes) mergeSecondaryTrackData(dubRes);
         }
       }
 
       // Final fallback walk only if the parallel pool missed everything
       if (!chosen) {
-        for (const provider of order) {
+        for (const provider of dedupedOrder) {
           if (inFlight.has(provider)) continue;
-          const providerResult = await withRaceBudget(attemptProvider(provider, assetInfo, tmdbMeta, options.env), 3500);
+          const providerResult = await withRaceBudget(attemptProvider(provider, assetInfo, tmdbMeta, options.env), 2400);
           if (providerResult && providerResult.streamUrl && isStreamUrlUsable(providerResult.streamUrl)) {
             chosen = { provider, result: providerResult };
             break;
@@ -2765,8 +2821,8 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
       const hasEnglishSub = (result.subtitles || []).some((s) => /english|eng|^en/i.test(s.label || s.language));
       const needsSubs = !result.subtitles || result.subtitles.length === 0 || !hasEnglishSub;
 
-      // KissKH is strictly for Asian content
-      if (isAsian && (needsSubs || needsAudio) && chosen.provider !== "kisskh") {
+      // KissKH is strictly for Asian content; skip redundant retry if fastPool or KV already ran
+      if (!kisskhAlreadyTried && isAsian && (needsSubs || needsAudio) && chosen.provider !== "kisskh") {
         try {
           const kissRes = await resolveKissKH({
             assetInfo,
@@ -2774,7 +2830,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
             year: (tmdbMeta && tmdbMeta.year) || result.year || "",
             originalLanguage: (tmdbMeta && tmdbMeta.originalLanguage) || "",
             kv: options.env && options.env.CONFIG_KV,
-            timeoutMs: 4000,
+            timeoutMs: 2200,
           });
           if (kissRes) {
             if (needsSubs && Array.isArray(kissRes.subtitles) && kissRes.subtitles.length > 0) {
@@ -2815,7 +2871,9 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         const assetKey = multiAudioAssetKey(assetInfo);
         let maRecord = null;
         try {
-          maRecord = await readMultiAudioRecord(options.env, assetKey);
+          maRecord = prefetchedMaRecord !== undefined
+            ? prefetchedMaRecord
+            : await readMultiAudioRecord(options.env, assetKey);
           if (maRecord && Array.isArray(maRecord.audioTracks) && maRecord.audioTracks.length > 0) {
             const baseTracks = Array.isArray(result.audioTracks) ? result.audioTracks : [];
             result.audioTracks = baseTracks.length > 0
@@ -2890,7 +2948,7 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
             ? `${tmdbMeta.imdbId}:${assetInfo.season || 1}:${assetInfo.episode || 1}`
             : tmdbMeta.imdbId;
           const stremioRes = await fetch(`https://opensubtitles-v3.strem.io/subtitles/${stremioType}/${stremioId}.json`, {
-            signal: AbortSignal.timeout(3500)
+            signal: AbortSignal.timeout(1200)
           });
           if (stremioRes.ok) {
             const stremioData = await stremioRes.json().catch(() => null);
@@ -2917,7 +2975,16 @@ async function resolveUpstreamSource(assetInfo, requestedProvider, options = {})
         }
       }
       if (result.streamUrl && isStreamUrlUsable(result.streamUrl)) {
-        sourceStaleCache.set(cacheKey, cloneValue(result), 15 * 60 * 1000, 6 * 60 * 60 * 1000);
+        const hasAsianAudio = (result.audioTracks || []).some((t) =>
+          /korean|chinese|japanese|thai|^ko$|^zh$|^ja$|^th$/i.test(t.name || t.label || t.language || "")
+        );
+        const isDegradedAsian = isAsianShow && (!hasAsianAudio || ((result.audioTracks || []).length <= 1 && result.provider !== "kisskh"));
+        const freshTtlMs = isDegradedAsian
+          ? 90 * 1000
+          : ((Array.isArray(result.audioTracks) && result.audioTracks.length > 1) || result.provider === "kisskh")
+            ? 15 * 60 * 1000
+            : 3 * 60 * 1000;
+        sourceStaleCache.set(cacheKey, cloneValue(result), freshTtlMs, 6 * 60 * 60 * 1000);
         cacheResolvedResult(cacheKey, baseCacheKey, result);
         if (options.env && options.env.CONFIG_KV) {
           const assetNorm = multiAudioAssetKey(assetInfo);
@@ -7384,11 +7451,17 @@ async function handleRequest(request, env, ctx, cspNonce = "") {
     // browser resolve the signed upstream URL (see clientResolve below).
     let resolved = null;
     const requestedProvider = url.searchParams.get("server") || url.searchParams.get("provider") || undefined;
+    const waitUntilFn = ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null;
     try {
-      resolved = await resolveUpstreamSource(assetInfo, requestedProvider, {
+      const resolvePromise = resolveUpstreamSource(assetInfo, requestedProvider, {
         env,
-        waitUntil: ctx && typeof ctx.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
+        waitUntil: waitUntilFn,
       });
+      if (waitUntilFn) waitUntilFn(resolvePromise.catch(() => null));
+      resolved = await Promise.race([
+        resolvePromise,
+        new Promise((resolve) => setTimeout(() => resolve(null), 1650)),
+      ]);
     } catch (e) {
       resolved = null;
     }

@@ -725,7 +725,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
     kv: null, // KV already checked above; only write on success below
     cacheKey: "",
     domain: primary,
-    timeoutMs: Math.min(timeoutMs, 1800),
+    timeoutMs: Math.min(timeoutMs, 1100),
     maxAttempts: 1,
   });
   if (primaryData !== null && primaryData !== undefined) {
@@ -749,7 +749,7 @@ async function kisskhFetchApi(fetchImpl, apiPath, opts = {}) {
             kv: null,
             cacheKey: "",
             domain,
-            timeoutMs: Math.min(timeoutMs, 1500),
+            timeoutMs: Math.min(timeoutMs, 1000),
             maxAttempts: 1,
           });
           if (data === null || data === undefined) throw new Error(`mirror_${domain}_null`);
@@ -1116,7 +1116,7 @@ export async function resolveKissKH({
         if (epObj && epObj.id) {
           const sKey = generateKissKHKey(epObj.id, true);
           const sData = await kisskhFetchApi(fetchImpl, `/api/Sub/${epObj.id}?kkey=${sKey}`, {
-            timeoutMs: Math.min(timeoutMs, 2200),
+            timeoutMs: Math.min(timeoutMs, 1400),
             kv,
             cacheKey: `kisskh_sub_v1:${epObj.id}`,
             cacheTtlSec: KISSKH_EPISODE_KV_TTL_SEC,
@@ -1172,7 +1172,8 @@ export async function resolveKissKH({
       );
       if (Array.isArray(primarySearch)) searchData = primarySearch;
 
-      if (searchData.length === 0 && title && title !== cleanTitle) {
+      // Only retry raw title when search succeeded cleanly with [] — skip when all mirrors are blocked (null).
+      if (Array.isArray(primarySearch) && searchData.length === 0 && title && title !== cleanTitle) {
         const fallbackSearch = await kisskhFetchApi(
           fetchImpl,
           `/api/DramaList/Search?q=${encodeURIComponent(title)}&page=1&pageSize=50`,
@@ -1297,27 +1298,28 @@ export async function resolveKissKH({
   const rawStream = epStreamData.Video || epStreamData.Video_tmp || "";
   if (!rawStream) return null;
 
+  const kvWrites = [];
   if (kv && matchedDrama && matchedDrama.id) {
     const tmplKey = kisskhTemplateKey(assetInfo);
     if (tmplKey) {
-      try {
-        await kv.put(`kisskh_dramaid_v1:${tmplKey}`, String(matchedDrama.id), { expirationTtl: KISSKH_TMPL_TTL_SEC });
-      } catch (e) { }
+      kvWrites.push(
+        kv.put(`kisskh_dramaid_v1:${tmplKey}`, String(matchedDrama.id), { expirationTtl: KISSKH_TMPL_TTL_SEC }).catch(() => { })
+      );
     }
     const template = kisskhTemplateFromUrl(rawStream, reqEpNum);
     if (template) {
-      try {
-        await kv.put(`kisskh_pattern_v1:${matchedDrama.id}`, template, { expirationTtl: 7 * 24 * 60 * 60 });
-      } catch (e) { }
+      kvWrites.push(
+        kv.put(`kisskh_pattern_v1:${matchedDrama.id}`, template, { expirationTtl: 7 * 24 * 60 * 60 }).catch(() => { })
+      );
     }
   }
   if (kv) {
     const tmplKey = kisskhTemplateKey(assetInfo);
     const tmpl = kisskhTemplateFromUrl(rawStream, reqEpNum);
     if (tmplKey && tmpl) {
-      try {
-        await kv.put(tmplKey, tmpl, { expirationTtl: KISSKH_TMPL_TTL_SEC });
-      } catch (e) { }
+      kvWrites.push(
+        kv.put(tmplKey, tmpl, { expirationTtl: KISSKH_TMPL_TTL_SEC }).catch(() => { })
+      );
     }
   }
 
@@ -1340,9 +1342,9 @@ export async function resolveKissKH({
     });
     if (kv && matchedDrama && matchedDrama.id) {
       if (subtitles.length > 0) {
-        try {
-          await kv.put(`kisskh_ep_subs_v1:${matchedDrama.id}:${reqEpNum}`, JSON.stringify(subtitles), { expirationTtl: KISSKH_EPISODE_KV_TTL_SEC });
-        } catch (e) { }
+        kvWrites.push(
+          kv.put(`kisskh_ep_subs_v1:${matchedDrama.id}:${reqEpNum}`, JSON.stringify(subtitles), { expirationTtl: KISSKH_EPISODE_KV_TTL_SEC }).catch(() => { })
+        );
       }
       const english = subtitles.find((s) => /^en/i.test(s.language || "") || /english/i.test(s.label || ""));
       let subTemplate = english && String(english.url).replace(/Ep\d+_/i, "Ep{ep}_");
@@ -1350,11 +1352,14 @@ export async function resolveKissKH({
         subTemplate = String(english.url).replace(/Ep\d+\./i, "Ep{ep}.");
       }
       if (subTemplate && subTemplate !== english.url) {
-        try {
-          await kv.put(`kisskh_subpattern_v1:${matchedDrama.id}`, subTemplate, { expirationTtl: 7 * 24 * 60 * 60 });
-        } catch (e) { }
+        kvWrites.push(
+          kv.put(`kisskh_subpattern_v1:${matchedDrama.id}`, subTemplate, { expirationTtl: 7 * 24 * 60 * 60 }).catch(() => { })
+        );
       }
     }
+  }
+  if (kvWrites.length > 0) {
+    await Promise.all(kvWrites);
   }
   if (subtitles.length === 0 && kv && matchedDrama && matchedDrama.id) {
     const patternSubs = await kisskhPatternSubtitles(kv, matchedDrama.id, reqEpNum);

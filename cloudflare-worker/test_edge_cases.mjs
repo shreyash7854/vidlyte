@@ -515,5 +515,38 @@ await test("assertSafeUpstreamUrl blocks SSRF vectors and opaque codec rejects t
   assert.equal(isStreamUrlUsable(`https://cdn.example.com/a.m3u8?exp=${pastUnix}`), false, "expired exp= must be rejected");
 });
 
+await test("resolveKissKH skips duplicate search on edge block and resolver fast-paths hold", async () => {
+  let searchCalls = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/api/DramaList/Search")) {
+      searchCalls++;
+      return new Response("Forbidden", { status: 403 });
+    }
+    return new Response("Not Found", { status: 404 });
+  };
+
+  const res = await resolveKissKH({
+    assetInfo: { type: "tv", id: "9999999", season: 1, episode: 1 },
+    title: "Secret Drama: Special Edition",
+    year: "2026",
+    originalLanguage: "ko",
+    kv: makeMockKv(),
+    fetchImpl,
+    timeoutMs: 800,
+  });
+
+  assert.equal(res, null);
+  assert.equal(searchCalls, 5, "blocked primarySearch must query the 5 mirrors once without running a redundant raw-title retry");
+
+  const idx = readSrc("src/index.js");
+  assert.ok(idx.includes("PRIORITY_GRACE_MS"), "resolveUpstreamSource must use bounded event-driven priority racing");
+  assert.ok(idx.includes("kisskhAlreadyTried"), "resolveUpstreamSource must skip redundant sequential resolveKissKH when fastPool/KV already checked");
+  assert.ok(idx.includes("prefetchedMaRecord"), "cold preflight must run TMDB and KV ma_status_v1 lookups in parallel");
+  assert.ok(idx.includes("rawManifestCache.set(safeUrl, { body, expiresAt: Date.now() + RAW_MANIFEST_TTL_MS })"), "verifyManifestPlayable must populate rawManifestCache to avoid duplicate fetches");
+  assert.ok(idx.includes("fastCached.stale"), "resolveUpstreamSource must check sourceStaleCache before waiting on TMDB");
+  const player = readSrc("src/player.html");
+  assert.ok(player.includes('<link rel="preconnect" href="https://cdn.jsdelivr.net"'), "player.html must preconnect hls.js CDN");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
