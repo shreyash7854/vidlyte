@@ -79,7 +79,7 @@ import {
   DEFAULT_HMAC_SECRET,
 } from "./security.js";
 import { rewriteManifest, isPlaylistUrl, parseMasterManifest } from "./manifest.js";
-import { toVttFromBytes } from "./subtitles.js";
+import { toVttFromBytes, isPlayableMediaProbe, readProbeBytes } from "./subtitles.js";
 import {
   TTLCache,
   createCoalescer,
@@ -108,6 +108,7 @@ import {
   buildConfigExport,
   validateConfigImport,
   gradeHealth,
+  evaluateTelegramAlertGate,
   summarizeConfig,
   diffConfigs,
 } from "./observability.js";
@@ -1967,6 +1968,33 @@ function getProviderOrder(requestedProvider, tmdbMeta = null, assetInfo = null) 
   return sorted;
 }
 
+async function probeMediaResponsePlayable(url, provider, env, { range = "bytes=0-375", timeoutMs = 1400 } = {}) {
+  try {
+    const safeUrl = assertSafeUpstreamUrl(url, {
+      extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
+    }).toString();
+    const target = new URL(safeUrl);
+    const headers = getUpstreamHeaders(provider, target, null);
+    if (range) headers.set("Range", range);
+    const res = await fetchWithSwarmFallback(
+      safeUrl,
+      { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) },
+      env
+    );
+    if (!res || !res.ok || res.status === 403 || res.status === 404 || res.status === 410 || res.status >= 500) {
+      return false;
+    }
+    if (res.headers.get("x-powered-by") === "ImageX") {
+      return false;
+    }
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const sample = await readProbeBytes(res, 512);
+    return isPlayableMediaProbe(sample, ct, { minBytes: 64 });
+  } catch (e) {
+    return false;
+  }
+}
+
 async function verifyManifestPlayable(result, provider, env) {
   if (!result || !result.streamUrl) return false;
   if (provider === "kisskh") {
@@ -1991,27 +2019,10 @@ async function verifyManifestPlayable(result, provider, env) {
     return true;
   }
   if (result.isMP4 || /\.mp4(\?|$)/i.test(result.streamUrl)) {
-    try {
-      const safeUrl = assertSafeUpstreamUrl(result.streamUrl, {
-        extraAllowlist: env && env.UPSTREAM_ALLOWLIST,
-      }).toString();
-      const target = new URL(safeUrl);
-      const headers = getUpstreamHeaders(provider, target, null);
-      headers.set("Range", "bytes=0-100");
-      const res = await fetchWithSwarmFallback(
-        safeUrl,
-        { method: "GET", headers, signal: AbortSignal.timeout(3500) },
-        env
-      );
-      if (!res || !res.ok || res.status === 403 || res.status === 404 || res.status === 410 || res.status >= 500) {
-        return false;
-      }
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      if (ct.includes("image/") || ct.includes("text/html")) return false;
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return probeMediaResponsePlayable(result.streamUrl, provider, env, {
+      range: "bytes=0-511",
+      timeoutMs: 3500,
+    });
   }
   if (result.masterManifest) {
     if (provider === "orion" || /\/api\/orion\//i.test(result.masterManifest)) {
@@ -2070,40 +2081,11 @@ async function verifyManifestPlayable(result, provider, env) {
           }
         }
         if (segUrl) {
-          try {
-            const segTarget = new URL(segUrl);
-            const segHeaders = getUpstreamHeaders(provider, segTarget, null);
-            segHeaders.set("Range", "bytes=0-188");
-            const segRes = await fetchWithSwarmFallback(
-              segUrl,
-              { headers: segHeaders, signal: AbortSignal.timeout(1400) },
-              env
-            );
-            if (!segRes || !segRes.ok || segRes.status === 404 || segRes.status === 410 || segRes.status === 403 || segRes.status >= 500) {
-              return false;
-            }
-            const ct = (segRes.headers.get("content-type") || "").toLowerCase();
-            if (ct.includes("image/") || ct.includes("text/html") || ct.includes("text/plain")) {
-              return false;
-            }
-            if (segRes.headers.get("x-powered-by") === "ImageX") {
-              return false;
-            }
-            const buf = await segRes.arrayBuffer().catch(() => null);
-            if (!buf || buf.byteLength < 64) {
-              return false;
-            }
-            const uint8 = new Uint8Array(buf);
-            // Block fake PNG responses (PNG magic \x89PNG) or HTML error documents
-            if (uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4e && uint8[3] === 0x47) {
-              return false;
-            }
-            if (uint8[0] === 0x3c && (uint8[1] === 0x21 || uint8[1] === 0x68 || uint8[1] === 0x48)) {
-              return false;
-            }
-          } catch (e) {
-            return false;
-          }
+          const segPlayable = await probeMediaResponsePlayable(segUrl, provider, env, {
+            range: "bytes=0-375",
+            timeoutMs: 1400,
+          });
+          if (!segPlayable) return false;
         }
       }
     }
@@ -2120,6 +2102,7 @@ async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
   const breakerKey = `provider:${provider}`;
   if (provider !== "kisskh" && !providerBreakers.canAttempt(breakerKey)) return null;
 
+  const priorFailures = Math.max(0, Number((providerHealth.get(provider) || {}).failures) || 0);
   const started = Date.now();
   try {
     const result = await resolveProviderSource(provider, assetInfo, tmdbMeta, env);
@@ -2137,6 +2120,7 @@ async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
           status: "healthy",
           latency_ms: latency,
           error: "",
+          failures: 0,
         });
         return result;
       }
@@ -2146,6 +2130,7 @@ async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
         status: "degraded",
         latency_ms: Date.now() - started,
         error: "manifest not playable",
+        failures: priorFailures + 1,
       });
       return null;
     }
@@ -2156,6 +2141,7 @@ async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
       status: "degraded",
       latency_ms: latency,
       error: "no usable stream",
+      failures: priorFailures + 1,
     });
     return null;
   } catch (error) {
@@ -2165,6 +2151,7 @@ async function attemptProvider(provider, assetInfo, tmdbMeta, env = null) {
       status: "offline",
       latency_ms: Date.now() - started,
       error: String((error && error.message) || error).slice(0, 160),
+      failures: priorFailures + 1,
     });
     return null;
   }
@@ -4049,20 +4036,17 @@ async function sendTelegramAlert(env, options = {}) {
   const now = Date.now();
   const state = await readTelegramState(env);
   const previous = state[key] || {};
-  if (!force) {
-    if (
-      type === "open" &&
-      previous.last_type === "open" &&
-      previous.signature === signature &&
-      now - Number(previous.last_sent_at || 0) < config.cooldownMs
-    ) {
-      result.skipped = "cooldown";
-      return result;
-    }
-    if (type === "recovery" && previous.last_type !== "open") {
-      result.skipped = "no_open_incident";
-      return result;
-    }
+  const gate = evaluateTelegramAlertGate(previous, {
+    type,
+    signature,
+    now,
+    cooldownMs: config.cooldownMs,
+    force,
+  });
+  if (!gate.allow) {
+    // Explicit states: "cooldown", "already_open", "no_open_incident"
+    result.skipped = gate.skipped || (type === "recovery" ? "no_open_incident" : "cooldown");
+    return result;
   }
 
   const text = options.text || formatTelegramMessage({
@@ -4443,6 +4427,10 @@ async function runScheduledMaintenance(env, event) {
   } catch (e) {
     summary.swarm_error = String((e && e.message) || e);
   }
+
+  try {
+    await loadPersistedProviderHealth(env);
+  } catch (e) { }
 
   try {
     const providerIds = defaultProviderOrder();

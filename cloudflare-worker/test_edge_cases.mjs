@@ -23,9 +23,10 @@ import {
   kisskhTemplateKeyFromAsset,
   seedKisskhTemplateFromUrl,
 } from "./src/providers.js";
-import { decryptKisskhSubtitle, convertSubtitleToVtt, toVttFromBytes } from "./src/subtitles.js";
+import { decryptKisskhSubtitle, convertSubtitleToVtt, toVttFromBytes, sniffMediaType, isPlayableMediaProbe, readProbeBytes } from "./src/subtitles.js";
 import { assertSafeUpstreamUrl, createOpaqueCodec, issuePlaybackToken, verifyPlaybackToken, parseSecretKeys, isStreamUrlUsable } from "./src/security.js";
 import { TTLCache } from "./src/resilience.js";
+import { evaluateTelegramAlertGate } from "./src/observability.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (p) => readFileSync(join(here, p), "utf8");
@@ -627,6 +628,109 @@ await test("resolveKissKHSiblingBatch resolves remaining season episodes without
   ].join("\n");
   const decLegacy = decryptKisskhSubtitle(legacySrt);
   assert.ok(decLegacy.includes("A beautiful place full of smiles"), `expected legacy a1 cipher to decrypt cleanly, got: ${decLegacy}`);
+});
+
+console.log("\n[edge] Canary media probing & Telegram alert deduplication");
+await test("isPlayableMediaProbe accepts disguised image/jpeg MPEG-TS and rejects real image/HTML payloads", async () => {
+  // Genuine FrameX-style MPEG-TS disguised with Content-Type: image/jpeg (0x47 at byte 0 and byte 188)
+  const tsBytes = new Uint8Array(376);
+  tsBytes.fill(0x55);
+  tsBytes[0] = 0x47;
+  tsBytes[1] = 0x40;
+  tsBytes[188] = 0x47;
+  tsBytes[189] = 0x40;
+  assert.equal(isPlayableMediaProbe(tsBytes, "image/jpeg"), true);
+  assert.equal(isPlayableMediaProbe(tsBytes, "text/plain"), true);
+
+  // Disguised fMP4 (moof/ftyp) served under image/*
+  const mp4Bytes = new Uint8Array(128);
+  mp4Bytes.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70], 0); // ftyp
+  assert.equal(isPlayableMediaProbe(mp4Bytes, "image/png"), true);
+
+  // Genuine placeholder images & HTML error documents must be rejected regardless of Content-Type
+  const jpeg = new Uint8Array(128);
+  jpeg.set([0xff, 0xd8, 0xff, 0xe0], 0);
+  assert.equal(isPlayableMediaProbe(jpeg, "image/jpeg"), false);
+  assert.equal(isPlayableMediaProbe(jpeg, "video/mp2t"), false);
+
+  const png = new Uint8Array(128);
+  png.set([0x89, 0x50, 0x4e, 0x47], 0);
+  assert.equal(isPlayableMediaProbe(png, "image/png"), false);
+  assert.equal(isPlayableMediaProbe(png, "application/octet-stream"), false);
+
+  const gif = new Uint8Array(128);
+  gif.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61], 0); // GIF89a starts with 0x47!
+  assert.equal(sniffMediaType(gif), "image/gif");
+  assert.equal(isPlayableMediaProbe(gif, "image/gif"), false);
+  assert.equal(isPlayableMediaProbe(gif, "video/mp2t"), false);
+
+  const fakeTsText = new Uint8Array(220);
+  fakeTsText.set(new TextEncoder().encode("Gateway timeout waiting for upstream segment"), 0);
+  assert.equal(isPlayableMediaProbe(fakeTsText, "image/jpeg"), false);
+  assert.equal(isPlayableMediaProbe(fakeTsText, "text/plain"), false);
+
+  const html = new TextEncoder().encode("  <!doctype html><html><body>Forbidden</body></html>" + "x".repeat(40));
+  assert.equal(isPlayableMediaProbe(html, "video/mp2t"), false);
+
+  // readProbeBytes caps reads cleanly without draining an unbounded stream
+  let cancelled = false;
+  const mockStream = new ReadableStream({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(300).fill(0x47));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const sampled = await readProbeBytes(new Response(mockStream), 376);
+  assert.equal(sampled.byteLength, 376);
+  assert.equal(cancelled, true);
+});
+
+await test("evaluateTelegramAlertGate suppresses ongoing duplicate open alerts across cron intervals", () => {
+  const min = 60 * 1000;
+  const sig = '{"canary":"framextv:provider_miss"}';
+  const open1 = evaluateTelegramAlertGate({}, { type: "open", signature: sig, now: 0, cooldownMs: 15 * min });
+  assert.deepEqual(open1, { allow: true, skipped: "" });
+
+  const prevOpen = { last_type: "open", signature: sig, last_sent_at: 0 };
+  // Inside 15m cooldown -> skipped ("cooldown")
+  assert.deepEqual(
+    evaluateTelegramAlertGate(prevOpen, { type: "open", signature: sig, now: 10 * min, cooldownMs: 15 * min }),
+    { allow: false, skipped: "cooldown" }
+  );
+  // Past 15m, 30m, 3h with identical signature -> still skipped ("already_open"), no spam!
+  assert.deepEqual(
+    evaluateTelegramAlertGate(prevOpen, { type: "open", signature: sig, now: 16 * min, cooldownMs: 15 * min }),
+    { allow: false, skipped: "already_open" }
+  );
+  assert.deepEqual(
+    evaluateTelegramAlertGate(prevOpen, { type: "open", signature: sig, now: 180 * min, cooldownMs: 15 * min }),
+    { allow: false, skipped: "already_open" }
+  );
+
+  // Different failure signature during cooldown waits; after cooldown notifies
+  const newSig = '{"canary":"framextv:provider_error"}';
+  assert.equal(
+    evaluateTelegramAlertGate(prevOpen, { type: "open", signature: newSig, now: 5 * min, cooldownMs: 15 * min }).skipped,
+    "cooldown"
+  );
+  assert.equal(
+    evaluateTelegramAlertGate(prevOpen, { type: "open", signature: newSig, now: 20 * min, cooldownMs: 15 * min }).allow,
+    true
+  );
+
+  // Recovery notifies once, then suppresses duplicate recovery calls
+  assert.equal(evaluateTelegramAlertGate(prevOpen, { type: "recovery", now: 30 * min }).allow, true);
+  assert.deepEqual(
+    evaluateTelegramAlertGate({ last_type: "recovery", last_sent_at: 30 * min }, { type: "recovery", now: 45 * min }),
+    { allow: false, skipped: "no_open_incident" }
+  );
+
+  const idx = readSrc("src/index.js");
+  assert.ok(idx.includes("isPlayableMediaProbe(") && idx.includes("evaluateTelegramAlertGate("));
+  const wd = readSrc("scripts/watchdog.mjs");
+  assert.ok(wd.includes("if (wasFailing && wasNotified)") && wd.includes("already_open"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

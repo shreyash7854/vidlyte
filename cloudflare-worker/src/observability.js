@@ -693,3 +693,33 @@ export function gradeHealth(metrics) {
   if (score >= 50) return { grade: "degraded", score };
   return { grade: "poor", score };
 }
+
+/**
+ * Evaluates incident/recovery deduplication for Telegram alerts.
+ * Ongoing identical open incidents stay silent until recovery rather than
+ * re-notifying every time the cooldown window elapses.
+ */
+export function evaluateTelegramAlertGate(
+  previous = {},
+  { type = "open", signature = "", now = Date.now(), cooldownMs = 15 * 60 * 1000, force = false } = {}
+) {
+  if (force) return { allow: true, skipped: "" };
+  const prevType = String((previous && previous.last_type) || "");
+  const prevSig = String((previous && previous.signature) || "");
+  const elapsed = now - Number((previous && previous.last_sent_at) || 0);
+
+  if (type === "open" && prevType === "open") {
+    if (prevSig === signature) {
+      return { allow: false, skipped: elapsed < cooldownMs ? "cooldown" : "already_open" };
+    }
+    if (elapsed < cooldownMs) {
+      return { allow: false, skipped: "cooldown" };
+    }
+  }
+
+  if (type === "recovery" && prevType !== "open") {
+    return { allow: false, skipped: "no_open_incident" };
+  }
+
+  return { allow: true, skipped: "" };
+}

@@ -434,7 +434,7 @@ async function main() {
     const isNewSignature = state.notified_signature !== state.signature;
     const shouldNotify =
       state.consecutive_failures >= ALERT_MIN_FAILURES &&
-      (state.status_before !== "failing" || cooledDown || isNewSignature);
+      (!state.notified_signature || (isNewSignature && cooledDown));
     if (shouldNotify) {
       summary.alert = await sendTelegram(failureText(result.failure, state));
       if (summary.alert.sent) {
@@ -442,20 +442,23 @@ async function main() {
         state.notified_signature = state.signature;
       }
     } else {
-      summary.alert = { sent: false, skipped: "cooldown" };
+      summary.alert = {
+        sent: false,
+        skipped: state.notified_signature && !isNewSignature ? "already_open" : "cooldown",
+      };
     }
     state.status_before = "failing";
     await writeState(state);
     console.error(`watchdog: FAILED at ${result.failure.step}: ${result.failure.detail}`);
   } else {
     const wasFailing = state.status === "failing" || Number(state.consecutive_failures || 0) > 0;
-    const wasNotified = Boolean(state.notified_signature) || Number(state.last_notified_at || 0) > 0;
+    const wasNotified = Boolean(state.notified_signature);
     state.status = "healthy";
     state.consecutive_failures = 0;
     state.last_checked_at = startedAt;
     state.last_success_at = startedAt;
     state.last_recovery_at = wasFailing ? startedAt : state.last_recovery_at || "";
-    if (wasNotified) {
+    if (wasFailing && wasNotified) {
       summary.alert = await sendTelegram(recoveryText(state, result.checks));
     }
     if (wasFailing) {

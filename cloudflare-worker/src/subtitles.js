@@ -342,23 +342,53 @@ export function toVttFromBytes(input) {
   };
 }
 
+const ISO_BMFF_BOXES = new Set(["ftyp", "styp", "moof", "moov", "sidx", "mdat", "free", "wide"]);
+
+function isGifMagic(bytes) {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38
+  );
+}
+
+function isIsoBmff(bytes) {
+  if (!bytes || bytes.length < 8) return false;
+  const box = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
+  return ISO_BMFF_BOXES.has(box);
+}
+
+function isHtmlOrMarkupStart(bytes) {
+  if (!bytes || bytes.length === 0) return false;
+  let i = 0;
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    i = 3;
+  }
+  while (i < bytes.length && i < 64 && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) {
+    i++;
+  }
+  if (i >= bytes.length || bytes[i] !== 0x3c) return false;
+  const next = bytes[i + 1];
+  return next === 0x21 || next === 0x3f || next === 0x68 || next === 0x48 || next === 0x73 || next === 0x53;
+}
+
 /**
  * Lightweight magic-byte media sniffing.
  */
 export function sniffMediaType(bytes) {
   if (!bytes || bytes.length === 0) return null;
 
+  if (isGifMagic(bytes)) return "image/gif";
   if (bytes[0] === 0x47) return "video/mp2t";
-
-  if (bytes.length >= 8) {
-    const ftyp = String.fromCharCode(...bytes.slice(4, 8));
-    if (ftyp === "ftyp") return "video/mp4";
-  }
+  if (isIsoBmff(bytes)) return "video/mp4";
 
   if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
     return "video/webm";
   }
 
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0) return "audio/aac";
   if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return "audio/mpeg";
 
@@ -372,8 +402,82 @@ export function sniffMediaType(bytes) {
     if (head === "#EXTM3U") return "application/vnd.apple.mpegurl";
   }
 
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
 
   return null;
+}
+
+/**
+ * Validates that a sampled segment or MP4 byte-range response contains real
+ * playable media rather than an HTML error page or fake placeholder image.
+ * Allows CDNs that serve genuine MPEG-TS/MP4 chunks under an image/* MIME.
+ */
+export function isPlayableMediaProbe(bytes, contentType = "", options = {}) {
+  const minBytes = Number.isFinite(options.minBytes) ? options.minBytes : 64;
+  if (!bytes || bytes.byteLength < minBytes) return false;
+  const uint8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const ct = String(contentType || "").toLowerCase();
+
+  if (isHtmlOrMarkupStart(uint8)) return false;
+
+  const sniffed = sniffMediaType(uint8);
+  if (sniffed && sniffed.startsWith("image/")) return false;
+  if (sniffed === "video/mp2t" && uint8.length >= 189 && uint8[188] !== 0x47) {
+    return false;
+  }
+
+  const isOgg = uint8.length >= 4 && uint8[0] === 0x4f && uint8[1] === 0x67 && uint8[2] === 0x67 && uint8[3] === 0x53;
+  const hasBinaryMediaMagic = Boolean(sniffed && (sniffed.startsWith("video/") || sniffed.startsWith("audio/"))) || isOgg;
+
+  if (ct.includes("text/html") || ct.includes("application/json")) return false;
+  if (ct.includes("image/") || ct.includes("text/plain")) {
+    return hasBinaryMediaMagic;
+  }
+  return true;
+}
+
+/**
+ * Reads up to maxBytes from a fetch Response without buffering full segments
+ * if an upstream server ignores the Range header.
+ */
+export async function readProbeBytes(response, maxBytes = 512) {
+  if (!response) return null;
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (total < maxBytes) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+        const remaining = maxBytes - total;
+        const slice = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+        chunks.push(slice);
+        total += slice.byteLength;
+        if (total >= maxBytes) break;
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch (e) { }
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return out;
+  }
+  const buf = await response.arrayBuffer().catch(() => null);
+  if (!buf) return null;
+  const full = new Uint8Array(buf);
+  return full.byteLength > maxBytes ? full.subarray(0, maxBytes) : full;
 }
