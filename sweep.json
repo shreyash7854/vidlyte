@@ -1,0 +1,27 @@
+{
+  "kind": "sweep",
+  "ok": true,
+  "checked_at": "2026-11-28T11:51:48.218Z",
+  "base_url": "https://vid.lyte.workers.dev",
+  "seed": "46141851277-1",
+  "pool_source": "fallback_corpus",
+  "count": 10,
+  "passed": 10,
+  "failed": 0,
+  "success_rate": 1,
+  "min_success_rate": 0.6,
+  "alert": {
+    "sent": false,
+    "skipped": "not_needed"
+  },
+  "failures": [],
+  "_meta": {
+    "kind": "sweep",
+    "published_at": "2026-11-28T11:51:57.105Z",
+    "workflow": "Random TMDB sweep",
+    "run_id": "46141851277",
+    "run_url": "https://github.com/shreyash7854/vidlyte/actions/runs/46141851277",
+    "ref": "main",
+    "event": "schedule"
+  }
+}
